@@ -12,3 +12,11 @@ dist/
 # Логи
 *.log
 npm-debug.log*
+*.exe
+cloudflared*
+test.html
+*.local.html
+*token*.json
+*token*.txt
+*credentials*
+*.tsbuildinfo
