@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧪 Territory Run — тестирование</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        body {
+            background: #f5f7fa;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #1a1a2e;
+            font-weight: 500;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 10px;
+        }
+        .card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        .card h3 {
+            margin-top: 0;
+            color: #2d3748;
+            font-weight: 500;
+        }
+        .row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        input {
+            padding: 10px 14px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            flex: 1;
+            min-width: 150px;
+        }
+        button {
+            padding: 10px 20px;
+            background: #3182ce;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        button:hover {
+            background: #2b6cb0;
+        }
+        button:active {
+            transform: scale(0.97);
+        }
+        button.secondary {
+            background: #48bb78;
+        }
+        button.secondary:hover {
+            background: #38a169;
+        }
+        button.danger {
+            background: #e53e3e;
+        }
+        button.danger:hover {
+            background: #c53030;
+        }
+        .log-area {
+            background: #1e293b;
+            color: #e2e8f0;
+            border-radius: 12px;
+            padding: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            max-height: 350px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            margin-top: 12px;
+        }
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid #334155;
+        }
+        .log-entry .time {
+            color: #94a3b8;
+            margin-right: 12px;
+        }
+        .log-entry.success { color: #4ade80; }
+        .log-entry.error { color: #f87171; }
+        .log-entry.info { color: #60a5fa; }
+        .log-entry.warning { color: #fbbf24; }
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            background: #e2e8f0;
+            color: #1a202c;
+        }
+        .badge.success { background: #48bb78; color: white; }
+        .badge.error { background: #fc8181; color: white; }
+        .badge.info { background: #63b3ed; color: white; }
+        .flex-between {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .clear-log {
+            background: transparent;
+            color: #94a3b8;
+            border: 1px solid #94a3b8;
+            padding: 4px 12px;
+            font-size: 12px;
+        }
+        .clear-log:hover {
+            background: #1e293b;
+            color: white;
+            border-color: white;
+        }
+        .token-status {
+            background: #edf2f7;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #2d3748;
+            margin-bottom: 12px;
+        }
+        .token-status .token {
+            font-family: monospace;
+            background: #e2e8f0;
+            padding: 2px 8px;
+            border-radius: 4px;
+            word-break: break-all;
+        }
+        .flex {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🧪 Territory Run — Тестовый пульт</h1>
+
+    <!-- Статус токена -->
+    <div class="token-status" id="tokenStatus">
+        🔑 Токен: <span class="token" id="tokenDisplay">отсутствует</span>
+        <button class="clear-log" style="margin-left: 12px;" onclick="clearToken()">Очистить токен</button>
+    </div>
+
+    <!-- Логи -->
+    <div class="card">
+        <div class="flex-between">
+            <h3 style="margin:0;">📋 Логи выполнения</h3>
+            <button class="clear-log" onclick="clearLogs()">Очистить логи</button>
+        </div>
+        <div class="log-area" id="logArea">
+            <div class="log-entry info">⏳ Ожидание действий...</div>
+        </div>
+    </div>
+
+    <!-- 1. Регистрация -->
+    <div class="card">
+        <h3>1️⃣ Регистрация</h3>
+        <div class="row">
+            <input id="regEmail" placeholder="Email" value="test@example.com">
+            <input id="regNick" placeholder="Никнейм" value="runner1">
+            <input id="regPass" placeholder="Пароль" value="123456" type="password">
+        </div>
+        <div style="margin-top:10px;">
+            <button id="registerBtn">📝 Зарегистрироваться</button>
+        </div>
+    </div>
+
+    <!-- 2. Логин -->
+    <div class="card">
+        <h3>2️⃣ Логин</h3>
+        <div class="row">
+            <input id="loginEmail" placeholder="Email" value="test@example.com">
+            <input id="loginPass" placeholder="Пароль" value="123456" type="password">
+        </div>
+        <div style="margin-top:10px;">
+            <button id="loginBtn">🔑 Войти</button>
+        </div>
+    </div>
+
+    <!-- 3. Тренировка -->
+    <div class="card">
+        <h3>3️⃣ Загрузить тренировку</h3>
+        <p style="font-size:14px; color:#4a5568;">Отправит тестовый трек из трёх точек.</p>
+        <button id="activityBtn" class="secondary">🏃 Создать активность</button>
+    </div>
+
+    <!-- 4. Карта -->
+    <div class="card">
+        <h3>4️⃣ Показать карту (клетки)</h3>
+        <button id="mapBtn">🗺️ Получить клетки</button>
+    </div>
+
+    <!-- 5. Лента -->
+    <div class="card">
+        <h3>5️⃣ Лента событий</h3>
+        <button id="feedBtn">📰 Показать ленту</button>
+    </div>
+
+    <!-- 6. Рейтинг -->
+    <div class="card">
+        <h3>6️⃣ Рейтинг по клеткам</h3>
+        <button id="leaderboardBtn">🏆 Показать топ</button>
+    </div>
+</div>
+
+<script>
+    // ⚙️ Настройки — здесь можно поменять адрес API
+    // Если используете туннель — замените на ваш URL
+    const API_URL = 'http://localhost:3000';
+
+    // --------------------- ЛОГИ ---------------------
+    const logArea = document.getElementById('logArea');
+
+    function addLog(message, type = 'info') {
+        const time = new Date().toLocaleTimeString();
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        entry.innerHTML = `<span class="time">[${time}]</span> ${message}`;
+        logArea.appendChild(entry);
+        logArea.scrollTop = logArea.scrollHeight;
+    }
+
+    function clearLogs() {
+        logArea.innerHTML = '';
+        addLog('Логи очищены', 'warning');
+    }
+
+    function clearToken() {
+        localStorage.removeItem('accessToken');
+        updateTokenDisplay();
+        addLog('🔑 Токен удалён', 'warning');
+    }
+
+    function updateTokenDisplay() {
+        const token = localStorage.getItem('accessToken');
+        const display = document.getElementById('tokenDisplay');
+        if (token) {
+            display.textContent = token.substring(0, 20) + '…';
+            display.style.background = '#c6f6d5';
+        } else {
+            display.textContent = 'отсутствует';
+            display.style.background = '#fed7d7';
+        }
+    }
+    updateTokenDisplay();
+
+    // --------------------- HTTP HELPER ---------------------
+    async function apiRequest(endpoint, method, body, requiresToken = false) {
+        const headers = { 'Content-Type': 'application/json' };
+        if (requiresToken) {
+            const token = localStorage.getItem('accessToken');
+            if (!token) {
+                throw new Error('Нет токена. Сначала войдите или зарегистрируйтесь.');
+            }
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const options = {
+            method,
+            headers,
+            body: body ? JSON.stringify(body) : undefined,
+        };
+
+        addLog(`➡️ ${method} ${endpoint}`, 'info');
+
+        const response = await fetch(`${API_URL}${endpoint}`, options);
+        const data = await response.json().catch(() => ({ error: 'Не удалось разобрать ответ' }));
+
+        if (!response.ok) {
+            const msg = data.message || data.error || `Ошибка ${response.status}`;
+            addLog(`❌ ${method} ${endpoint} → ${response.status} ${msg}`, 'error');
+            throw new Error(msg);
+        }
+
+        addLog(`✅ ${method} ${endpoint} → ${response.status}`, 'success');
+        return data;
+    }
+
+    // --------------------- КНОПКИ ---------------------
+
+    // 1. Регистрация
+    document.getElementById('registerBtn').addEventListener('click', async () => {
+        const email = document.getElementById('regEmail').value;
+        const nickname = document.getElementById('regNick').value;
+        const password = document.getElementById('regPass').value;
+        try {
+            const data = await apiRequest('/auth/register', 'POST', { email, nickname, password });
+            localStorage.setItem('accessToken', data.accessToken);
+            updateTokenDisplay();
+            addLog(`👤 Зарегистрирован ${nickname} (${email})`, 'success');
+            addLog(`📦 Ответ: ${JSON.stringify(data, null, 2)}`, 'info');
+        } catch (e) {
+            addLog(`❌ Ошибка: ${e.message}`, 'error');
+        }
+    });
+
+    // 2. Логин
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+        const email = document.getElementById('loginEmail').value;
+        const password = document.getElementById('loginPass').value;
+        try {
+            const data = await apiRequest('/auth/login', 'POST', { email, password });
+            localStorage.setItem('accessToken', data.accessToken);
+            updateTokenDisplay();
+            addLog(`🔑 Вход выполнен для ${email}`, 'success');
+            addLog(`📦 Ответ: ${JSON.stringify(data, null, 2)}`, 'info');
+        } catch (e) {
+            addLog(`❌ Ошибка: ${e.message}`, 'error');
+        }
+    });
+
+    // 3. Активность
+    document.getElementById('activityBtn').addEventListener('click', async () => {
+        const now = new Date();
+        const startedAt = now.toISOString();
+        const finishedAt = new Date(now.getTime() + 1800 * 1000).toISOString();
+
+        const body = {
+            source: 'internal',
+            distanceMeters: 5000,
+            durationSeconds: 1800,
+            avgPace: 360,
+            startedAt,
+            finishedAt,
+            track: [
+                { lat: 56.95, lng: 24.10 },
+                { lat: 56.96, lng: 24.11 },
+                { lat: 56.97, lng: 24.12 }
+            ]
+        };
+        try {
+            const data = await apiRequest('/activities', 'POST', body, true);
+            addLog(`🏃 Активность создана (ID: ${data.data?.activityId || '??'})`, 'success');
+            addLog(`📦 Ответ: ${JSON.stringify(data, null, 2)}`, 'info');
+            addLog('⏳ Обработка в очереди... Подождите 5–10 сек и проверьте карту.', 'warning');
+        } catch (e) {
+            addLog(`❌ Ошибка: ${e.message}`, 'error');
+        }
+    });
+
+    // 4. Карта
+    document.getElementById('mapBtn').addEventListener('click', async () => {
+        try {
+            const data = await apiRequest('/map/cells?limit=50', 'GET', null, true);
+            const count = data.cells?.length || 0;
+            addLog(`🗺️ Получено ${count} клеток`, 'success');
+            addLog(`📦 Ответ: ${JSON.stringify(data, null, 2)}`, 'info');
+        } catch (e) {
+            addLog(`❌ Ошибка: ${e.message}`, 'error');
+        }
+    });
+
+    // 5. Лента
+    document.getElementById('feedBtn').addEventListener('click', async () => {
+        try {
+            const data = await apiRequest('/feed?limit=10', 'GET', null, true);
+            const count = data.items?.length || 0;
+            addLog(`📰 Получено ${count} событий`, 'success');
+            addLog(`📦 Ответ: ${JSON.stringify(data, null, 2)}`, 'info');
+        } catch (e) {
+            addLog(`❌ Ошибка: ${e.message}`, 'error');
+        }
+    });
+
+    // 6. Рейтинг
+    document.getElementById('leaderboardBtn').addEventListener('click', async () => {
+        try {
+            const data = await apiRequest('/leaderboard/cells?limit=10', 'GET', null, true);
+            addLog(`🏆 Топ получен (${data.length || 0} записей)`, 'success');
+            addLog(`📦 Ответ: ${JSON.stringify(data, null, 2)}`, 'info');
+        } catch (e) {
+            addLog(`❌ Ошибка: ${e.message}`, 'error');
+        }
+    });
+
+    // Логируем старт
+    addLog('🚀 Интерфейс загружен. Введите данные и нажимайте кнопки.', 'info');
+    addLog(`🌐 API URL: ${API_URL}`, 'info');
+    if (localStorage.getItem('accessToken')) {
+        addLog('🔑 Токен уже есть в хранилище.', 'success');
+    } else {
+        addLog('⚠️ Токен отсутствует. Выполните вход или регистрацию.', 'warning');
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  nickname     String   @unique
+  passwordHash String
+  avatarUrl    String?
+  homeLat      Float?
+  homeLng      Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  activities   Activity[]
+  ownerships   CellOwnership[] // связь с владением клетками
+  stats        UserStats?
+  events       Event[]
+}
+
+model Activity {
+  id              String         @id @default(uuid())
+  userId          String
+  source          String
+  distanceMeters  Int
+  durationSeconds Int
+  avgPace         Int?
+  startedAt       DateTime
+  finishedAt      DateTime
+  processedAt     DateTime?
+  createdAt       DateTime       @default(now())
+
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  track           ActivityTrack?
+}
+
+model ActivityTrack {
+  activityId  String   @id
+  route       Json
+  createdAt   DateTime @default(now())
+
+  activity    Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+}
+
+model Cell {
+  h3Index     String   @id
+  center      Json?     // можно хранить { lat, lng }
+  createdAt   DateTime @default(now())
+
+  ownerships  CellOwnership[]
+}
+
+model CellOwnership {
+  h3Index        String
+  userId         String
+  influence      Float    @default(0)
+  lastActivityAt DateTime @default(now())
+
+  cell   Cell @relation(fields: [h3Index], references: [h3Index], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([h3Index, userId])
+  @@index([userId])
+  @@index([h3Index])
+}
+model UserStats {
+  userId         String   @id
+  totalDistance  BigInt   @default(0)
+  totalRuns      Int      @default(0)
+  cellsOwned     Int      @default(0)
+  totalInfluence Float    @default(0)
+  updatedAt      DateTime @updatedAt
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+model Event {
+  id        String   @id @default(uuid())
+  type      String
+  userId    String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}

@@ -1,0 +1,14 @@
+﻿# Секретные файлы окружения
+.env
+.env.local
+.env.*.local
+.env.staging
+.env.production
+
+# Папки с зависимостями
+node_modules/
+dist/
+
+# Логи
+*.log
+npm-debug.log*
