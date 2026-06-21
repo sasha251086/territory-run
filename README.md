@@ -28,11 +28,24 @@ pnpm start:dev
 
 ## Docker
 
+**Local (monorepo, frozen lockfile):**
+
 ```bash
 docker compose up --build
 ```
 
-Build context is the **repository root** (required for pnpm workspace lockfile).
+Uses root `Dockerfile` with full pnpm workspace context.
+
+**Render.com**
+
+| Setting | Value |
+|---------|--------|
+| Root Directory | `apps/api` |
+| Dockerfile path | `Dockerfile` |
+
+Render builds from `apps/api/Dockerfile` with context `apps/api` (no monorepo root files in context). Dependencies install from `apps/api/package.json` via pnpm.
+
+Alternative: leave Root Directory empty and set Dockerfile to `./Dockerfile` at repo root for `--frozen-lockfile` builds.
 
 ## Security note
 

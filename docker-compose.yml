@@ -2,7 +2,7 @@
   api:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
+      dockerfile: Dockerfile
     container_name: territory-run-api
     ports:
       - "3000:3000"
