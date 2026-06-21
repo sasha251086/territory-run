@@ -30,6 +30,41 @@ export class ActivitiesService {
     return activity;
   }
 
+  async listForUser(userId: string, page = 1, limit = 20) {
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await Promise.all([
+      this.prisma.activity.findMany({
+        where: { userId },
+        orderBy: { startedAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          source: true,
+          distanceMeters: true,
+          durationSeconds: true,
+          avgPace: true,
+          startedAt: true,
+          finishedAt: true,
+          status: true,
+          failureReason: true,
+          processedAt: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.activity.count({ where: { userId } }),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
   async createFromExternal(
     userId: string,
     params: {

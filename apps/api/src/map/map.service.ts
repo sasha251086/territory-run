@@ -46,12 +46,15 @@ export class MapService {
 
     const result: CellResponseDto[] = filtered.map((cell) => {
       const topOwner = cell.ownerships[0];
+      const center = cell.center as { lat: number; lng: number } | null;
       return {
         h3Index: cell.h3Index,
         ownerId: topOwner?.userId || null,
         ownerNickname: topOwner?.user?.nickname || null,
         influence: topOwner?.influence || 0,
         lastActivityAt: topOwner?.lastActivityAt || null,
+        lat: center?.lat ?? null,
+        lng: center?.lng ?? null,
       };
     });
 

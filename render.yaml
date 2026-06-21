@@ -21,3 +21,14 @@ services:
       # DATABASE_URL, REDIS_HOST, REDIS_PORT — задайте вручную в Dashboard
       # (привязка к Render Postgres / Redis).
       # Опционально: SENTRY_DSN, STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, STRAVA_REDIRECT_URI
+
+  - type: web
+    name: territory-run-web
+    runtime: static
+    rootDir: .
+    buildCommand: pnpm install && pnpm --filter web build
+    staticPublishPath: apps/web/dist
+    envVars:
+      # URL вашего API-сервиса на Render (без слэша в конце)
+      - key: VITE_API_URL
+        sync: false

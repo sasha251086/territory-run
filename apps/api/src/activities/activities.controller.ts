@@ -4,6 +4,7 @@
   Get,
   Body,
   Param,
+  Query,
   UseGuards,
   Request,
   HttpCode,
@@ -14,12 +15,25 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ActivitiesService } from './activities.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
+import { ListActivitiesQueryDto } from './dto/list-activities.dto';
 
 @ApiTags('activities')
 @ApiBearerAuth()
 @Controller('activities')
 export class ActivitiesController {
   constructor(private activitiesService: ActivitiesService) {}
+
+  @UseGuards(JwtAuthGuard)
+  @Get()
+  @ApiOperation({ summary: 'List user activities' })
+  async list(
+    @Request() req: { user: { id: string } },
+    @Query() query: ListActivitiesQueryDto,
+  ) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    return this.activitiesService.listForUser(req.user.id, page, limit);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post()

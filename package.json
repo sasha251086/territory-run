@@ -5,9 +5,9 @@
   "main": "index.js",
   "scripts": {
     "lint": "eslint \"apps/api/src/**/*.ts\"",
-    "type-check": "pnpm --filter api run type-check",
+    "type-check": "pnpm --filter api run type-check && pnpm --filter web run type-check",
     "test": "pnpm --filter api test",
-    "build": "pnpm --filter api build"
+    "build": "pnpm --filter api build && pnpm --filter web build"
   },
   "keywords": [],
   "author": "",
