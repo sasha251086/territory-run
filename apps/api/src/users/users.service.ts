@@ -36,19 +36,9 @@ export class UsersService {
   }
 
   async updateProfile(id: string, data: { homeLat?: number; homeLng?: number }) {
-    const user = await this.prisma.user.update({
+    await this.prisma.user.update({
       where: { id },
       data,
-      select: {
-        id: true,
-        email: true,
-        nickname: true,
-        avatarUrl: true,
-        homeLat: true,
-        homeLng: true,
-        createdAt: true,
-        stats: true,
-      },
     });
 
     if (data.homeLat != null && data.homeLng != null) {
@@ -59,7 +49,7 @@ export class UsersService {
       });
     }
 
-    return user;
+    return this.getProfile(id);
   }
 
   async markFirstCaptureShown(userId: string) {

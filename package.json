@@ -7,7 +7,8 @@
     "lint": "eslint \"apps/api/src/**/*.ts\"",
     "type-check": "pnpm --filter api run type-check && pnpm --filter web run type-check",
     "test": "pnpm --filter api test",
-    "build": "pnpm --filter api build && pnpm --filter web build"
+    "build": "pnpm --filter api build && pnpm --filter web build",
+    "build:site": "pnpm --filter web build && node scripts/publish-web-static.cjs"
   },
   "keywords": [],
   "author": "",
