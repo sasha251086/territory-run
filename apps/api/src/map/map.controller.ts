@@ -1,4 +1,4 @@
-﻿import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+﻿import { Controller, Get, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { MapService } from './map.service';
@@ -35,6 +35,14 @@ export class MapController {
   })
   async getCells(@Query() query: MapQueryDto): Promise<MapCellsResponseDto> {
     const cells = await this.mapService.getCells(query);
+    return { cells };
+  }
+
+  @Get('cells/mine')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get all cells owned by current user' })
+  async getMyCells(@Request() req: { user: { id: string } }): Promise<MapCellsResponseDto> {
+    const cells = await this.mapService.getMyCells(req.user.id);
     return { cells };
   }
 }

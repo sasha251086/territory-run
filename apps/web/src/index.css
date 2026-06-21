@@ -245,6 +245,10 @@ input {
   gap: 12px;
 }
 
+.map-action-btn {
+  width: 100%;
+}
+
 .map-frame,
 .onboarding-map {
   position: relative;

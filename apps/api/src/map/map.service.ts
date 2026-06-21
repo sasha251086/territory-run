@@ -63,4 +63,35 @@ export class MapService {
 
     return result;
   }
+
+  async getMyCells(userId: string): Promise<CellResponseDto[]> {
+    const ownerships = await this.prisma.cellOwnership.findMany({
+      where: { userId },
+      include: {
+        cell: {
+          include: {
+            ownerships: {
+              include: { user: true },
+              orderBy: { influence: 'desc' },
+            },
+          },
+        },
+      },
+    });
+
+    return ownerships.map((ownership) => {
+      const cell = ownership.cell;
+      const topOwner = cell.ownerships[0];
+      const center = cell.center as { lat: number; lng: number } | null;
+      return {
+        h3Index: cell.h3Index,
+        ownerId: topOwner?.userId || null,
+        ownerNickname: topOwner?.user?.nickname || null,
+        influence: topOwner?.influence || 0,
+        lastActivityAt: topOwner?.lastActivityAt || null,
+        lat: center?.lat ?? null,
+        lng: center?.lng ?? null,
+      };
+    });
+  }
 }
