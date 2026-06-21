@@ -33,16 +33,17 @@ export class MapService {
           orderBy: { influence: 'desc' },
         },
       },
-      take: limit,
     });
 
-    const filtered = cells.filter((cell) => {
-      const center = cell.center as { lat: number; lng: number } | null;
-      if (!center) {
-        return false;
-      }
-      return isWithinBbox(center.lat, center.lng, north, south, east, west);
-    });
+    const filtered = cells
+      .filter((cell) => {
+        const center = cell.center as { lat: number; lng: number } | null;
+        if (!center) {
+          return false;
+        }
+        return isWithinBbox(center.lat, center.lng, north, south, east, west);
+      })
+      .slice(0, limit);
 
     const result: CellResponseDto[] = filtered.map((cell) => {
       const topOwner = cell.ownerships[0];

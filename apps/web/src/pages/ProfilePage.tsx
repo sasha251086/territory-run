@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { apiRequest } from '../api/client';
 import type { IntegrationInfo } from '../api/types';
 import { useAuth } from '../context/AuthContext';
@@ -49,9 +50,17 @@ export default function ProfilePage() {
       </section>
 
       <section className="card highlight-card">
-        <h2>Подключённые источники</h2>
+        <h2>Загрузить пробежку</h2>
         <p className="muted">
-          Это главный способ получить пробежки в Territory Run. Подключите Strava, пробегите в привычном приложении и синхронизируйте.
+          Самый простой способ — загрузить GPX-файл на вкладке{' '}
+          <Link to="/activities">Пробежки</Link> (кнопка «Загрузить трек» вверху страницы).
+        </p>
+      </section>
+
+      <section className="card">
+        <h2>Strava (опционально)</h2>
+        <p className="muted">
+          Можно подключить Strava для автоматической синхронизации вместо ручной загрузки файлов.
         </p>
 
         <div className="integration-row">

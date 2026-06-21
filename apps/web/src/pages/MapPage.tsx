@@ -96,7 +96,7 @@ export default function MapPage() {
 
           {cells.map((cell) => {
             try {
-              const boundary = cellToBoundary(cell.h3Index, true).map(
+              const boundary = cellToBoundary(cell.h3Index).map(
                 ([lat, lng]) => [lat, lng] as [number, number],
               );
               return (
