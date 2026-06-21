@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build": "nest build",
+    "type-check": "tsc --noEmit -p tsconfig.build.json",
     "start": "nest start",
     "start:dev": "ts-node --transpile-only src/main.ts",
     "start:debug": "nest start --debug --watch",
@@ -29,6 +30,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "h3-js": "4.4.0",
+    "ioredis": "5.10.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.21.0",

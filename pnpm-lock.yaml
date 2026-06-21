@@ -263,7 +263,7 @@ importers:
         version: 6.0.0
       bullmq:
         specifier: ^5.79.0
-        version: 5.79.0(supports-color@5.5.0)
+        version: 5.79.0
       class-transformer:
         specifier: ^0.5.1
         version: 0.5.1
@@ -273,6 +273,9 @@ importers:
       h3-js:
         specifier: 4.4.0
         version: 4.4.0
+      ioredis:
+        specifier: 5.10.1
+        version: 5.10.1
       passport:
         specifier: ^0.7.0
         version: 0.7.0
@@ -5998,10 +6001,10 @@ snapshots:
       base64-js: 1.5.1
       ieee754: 1.2.1
 
-  bullmq@5.79.0(supports-color@5.5.0):
+  bullmq@5.79.0:
     dependencies:
       cron-parser: 4.9.0
-      ioredis: 5.10.1(supports-color@5.5.0)
+      ioredis: 5.10.1
       msgpackr: 2.0.2
       node-abort-controller: 3.1.1
       semver: 7.8.1
@@ -6908,7 +6911,7 @@ snapshots:
       hasown: 2.0.4
       side-channel: 1.1.1
 
-  ioredis@5.10.1(supports-color@5.5.0):
+  ioredis@5.10.1:
     dependencies:
       '@ioredis/commands': 1.5.1
       cluster-key-slot: 1.1.2

@@ -29,7 +29,9 @@ export class DecayService {
     });
     this.logger.log(`Deleted ${deleted.count} abandoned ownerships`);
 
-    // 2. Для оставшихся записей применяем распад (influence *= 0.98)
+    // 2. Для оставшихся записей применяем распад (influence *= 0.98).
+    // Cap (MAX_INFLUENCE_PER_CELL) применяется при начислении в InfluenceService;
+    // decay только уменьшает значение и не может превысить лимит.
     // Получаем все записи, которые нужно обновить
     const ownerships = await this.prisma.cellOwnership.findMany({
       where: {

@@ -1,19 +1,25 @@
 FROM node:22-bullseye
 
+RUN corepack enable && corepack prepare pnpm@11.8.0 --activate
+
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm install
+# Monorepo manifests (context must be repository root)
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/package.json
 
-COPY . .
+RUN pnpm install --frozen-lockfile
 
-# Устанавливаем фиктивную DATABASE_URL для генерации Prisma Client
+COPY apps/api ./apps/api
+
 ENV DATABASE_URL="postgresql://postgres:postgres@localhost:5432/territory_run?schema=public"
-RUN npx prisma generate
 
-# Временно ослабляем проверки для сборки
-RUN npm run build || true
+WORKDIR /app/apps/api
+RUN pnpm exec prisma generate
+RUN pnpm run build
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+# Single-instance deploy: migrate on start is acceptable on Render.
+# For horizontal scaling, move `prisma migrate deploy` to a pre-deploy step.
+CMD ["sh", "-c", "pnpm exec prisma migrate deploy && node dist/main.js"]

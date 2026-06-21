@@ -4,7 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "lint": "eslint \"apps/api/src/**/*.ts\"",
+    "type-check": "pnpm --filter api run type-check",
+    "test": "pnpm --filter api test",
+    "build": "pnpm --filter api build"
   },
   "keywords": [],
   "author": "",

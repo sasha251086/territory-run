@@ -1,5 +1,13 @@
 ﻿import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  BASE_INFLUENCE,
+  HOME_ZONE_BONUS_MULTIPLIER,
+  HOME_ZONE_RADIUS_M,
+  MAX_INFLUENCE_PER_CELL,
+  NEW_PLAYER_BONUS_MULTIPLIER,
+  NEW_PLAYER_PERIOD_MS,
+} from '../common/constants';
 
 @Injectable()
 export class InfluenceService {
@@ -24,32 +32,17 @@ export class InfluenceService {
     if (!user) throw new Error('User not found');
 
     for (const h3Index of h3Indices) {
-      // Получаем центр клетки для сохранения
       const centerCoords = h3.cellToLatLng(h3Index);
       const center = { lat: centerCoords[0], lng: centerCoords[1] };
 
-      // Создаём или обновляем клетку с центром
       await this.prisma.cell.upsert({
         where: { h3Index },
         update: {},
         create: {
           h3Index,
-          center: center, // сохраняем как JSON
+          center,
         },
       });
-
-      let influence = 1;
-      if (user.homeLat && user.homeLng) {
-        const distance = this.haversineDistance(
-          user.homeLat,
-          user.homeLng,
-          center.lat,
-          center.lng,
-        );
-        if (distance <= 500) {
-          influence = 1.5;
-        }
-      }
 
       const existing = await this.prisma.cellOwnership.findUnique({
         where: {
@@ -57,13 +50,18 @@ export class InfluenceService {
         },
       });
 
+      const influence = this.calculateInfluence(user, center, existing);
+
       if (existing) {
         await this.prisma.cellOwnership.update({
           where: {
             h3Index_userId: { h3Index, userId },
           },
           data: {
-            influence: existing.influence + influence,
+            influence: Math.min(
+              existing.influence + influence,
+              MAX_INFLUENCE_PER_CELL,
+            ),
             lastActivityAt: new Date(),
           },
         });
@@ -72,7 +70,7 @@ export class InfluenceService {
           data: {
             h3Index,
             userId,
-            influence,
+            influence: Math.min(influence, MAX_INFLUENCE_PER_CELL),
             lastActivityAt: new Date(),
           },
         });
@@ -82,7 +80,46 @@ export class InfluenceService {
     return h3Indices;
   }
 
-  private haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  private calculateInfluence(
+    user: {
+      homeLat: number | null;
+      homeLng: number | null;
+      createdAt: Date;
+    },
+    center: { lat: number; lng: number },
+    existing: { influence: number } | null,
+  ): number {
+    const isInHomeZone =
+      user.homeLat != null &&
+      user.homeLng != null &&
+      this.haversineDistance(
+        user.homeLat,
+        user.homeLng,
+        center.lat,
+        center.lng,
+      ) <= HOME_ZONE_RADIUS_M;
+
+    if (isInHomeZone) {
+      return BASE_INFLUENCE * HOME_ZONE_BONUS_MULTIPLIER;
+    }
+
+    if (!existing && this.isNewPlayer(user.createdAt)) {
+      return BASE_INFLUENCE * NEW_PLAYER_BONUS_MULTIPLIER;
+    }
+
+    return BASE_INFLUENCE;
+  }
+
+  private isNewPlayer(createdAt: Date): boolean {
+    return Date.now() - createdAt.getTime() < NEW_PLAYER_PERIOD_MS;
+  }
+
+  private haversineDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number {
     const R = 6371000;
     const toRad = (deg: number) => (deg * Math.PI) / 180;
     const dLat = toRad(lat2 - lat1);
