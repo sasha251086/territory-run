@@ -1,0 +1,22 @@
+# Render Blueprint — подключите в Dashboard: New > Blueprint > подключить этот репозиторий
+# Или создайте сервис вручную по тем же параметрам ниже.
+
+services:
+  - type: web
+    name: territory-run-api
+    runtime: docker
+    rootDir: apps/api
+    dockerfilePath: ./Dockerfile
+    dockerCommand: ''
+    # Пустая строка = без Pre-Deploy. Миграции выполняются в Dockerfile CMD.
+    preDeployCommand: ''
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      # DATABASE_URL, REDIS_HOST, REDIS_PORT — задайте вручную в Dashboard
+      # (привязка к Render Postgres / Redis).
