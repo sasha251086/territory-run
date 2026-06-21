@@ -42,10 +42,14 @@ Uses root `Dockerfile` with full pnpm workspace context.
 |---------|--------|
 | Root Directory | `apps/api` |
 | Dockerfile path | `Dockerfile` |
+| **Start Command** | *(оставить пустым — используется CMD из Dockerfile)* |
+| **Pre-Deploy Command** | *(оставить пустым)* |
 
-Render builds from `apps/api/Dockerfile` with context `apps/api` (no monorepo root files in context). Dependencies install from `apps/api/package.json` via pnpm.
+Render builds from `apps/api/Dockerfile`. В папке `apps/api` должен быть **`pnpm-lock.yaml`** (коммитится в git вместе с `package.json`).
 
-Alternative: leave Root Directory empty and set Dockerfile to `./Dockerfile` at repo root for `--frozen-lockfile` builds.
+Если в Start Command указано `pnpm install && ...` — уберите: зависимости уже установлены при сборке Docker-образа, повторный `pnpm install` при старте падает с `frozen-lockfile`.
+
+Alternative: leave Root Directory empty and set Dockerfile to `./Dockerfile` at repo root for monorepo `--frozen-lockfile` builds.
 
 ## Security note
 
