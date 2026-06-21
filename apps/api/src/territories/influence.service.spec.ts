@@ -1,11 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { InfluenceService } from './influence.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { DistrictService } from '../districts/district.service';
 
 const mockPrisma = {
-  cell: { upsert: jest.fn() },
+  cell: { upsert: jest.fn(), findUnique: jest.fn() },
   cellOwnership: { findUnique: jest.fn(), update: jest.fn(), create: jest.fn() },
   user: { findUnique: jest.fn() },
+};
+
+const mockDistrictService = {
+  assignCellToDistrict: jest.fn(),
 };
 
 describe('InfluenceService', () => {
@@ -13,10 +18,12 @@ describe('InfluenceService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockPrisma.cell.findUnique.mockResolvedValue(null);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InfluenceService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: DistrictService, useValue: mockDistrictService },
       ],
     }).compile();
 

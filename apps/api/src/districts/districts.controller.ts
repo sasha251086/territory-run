@@ -1,0 +1,25 @@
+import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { DistrictService } from './district.service';
+
+@ApiTags('districts')
+@ApiBearerAuth()
+@Controller('districts')
+export class DistrictsController {
+  constructor(private districtService: DistrictService) {}
+
+  @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get district details and King of District' })
+  async getDistrict(@Param('id') id: string) {
+    return this.districtService.getDistrict(id);
+  }
+
+  @Get(':id/cells')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get all cell indices in a district' })
+  async getDistrictCells(@Param('id') id: string) {
+    return this.districtService.getDistrictCells(id);
+  }
+}

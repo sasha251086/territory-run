@@ -1,18 +1,20 @@
-﻿import { Injectable } from '@nestjs/common';
+﻿import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { FeedService } from '../feed/feed.service'; // <-- добавить
+import { FeedService } from '../feed/feed.service';
+import { DistrictService } from '../districts/district.service';
 
 @Injectable()
 export class OwnershipService {
   constructor(
     private prisma: PrismaService,
-    private feedService: FeedService, // <-- добавить
+    private feedService: FeedService,
+    @Inject(forwardRef(() => DistrictService))
+    private districtService: DistrictService,
   ) {}
 
   async recalculateOwners(h3Indices: string[]) {
     const results = [];
     for (const h3Index of h3Indices) {
-      // Получаем текущего владельца (для сравнения)
       const currentOwner = await this.prisma.cellOwnership.findFirst({
         where: { h3Index },
         orderBy: { influence: 'desc' },
@@ -34,7 +36,6 @@ export class OwnershipService {
       const previousOwnerId = currentOwner?.userId || null;
       const newOwnerId = top.userId;
 
-      // Если владелец изменился — создаём событие
       if (previousOwnerId !== newOwnerId) {
         await this.feedService.createEvent('cell_captured', newOwnerId, {
           h3Index,
@@ -53,6 +54,9 @@ export class OwnershipService {
         user: top.user,
       });
     }
+
+    await this.districtService.recalculateForCells(h3Indices);
+
     return results;
   }
 

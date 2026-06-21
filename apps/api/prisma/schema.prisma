@@ -21,6 +21,29 @@ model User {
   ownerships   CellOwnership[] // связь с владением клетками
   stats        UserStats?
   events       Event[]
+  ruledDistricts District[] @relation("DistrictKing")
+}
+
+model District {
+  id         String   @id @default(uuid())
+  name       String
+  polygon    Json
+  kingUserId String?
+  createdAt  DateTime @default(now())
+
+  kingUser   User?          @relation("DistrictKing", fields: [kingUserId], references: [id], onDelete: SetNull)
+  cells      DistrictCell[]
+}
+
+model DistrictCell {
+  districtId String
+  h3Index    String
+
+  district   District @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  cell       Cell     @relation(fields: [h3Index], references: [h3Index], onDelete: Cascade)
+
+  @@id([districtId, h3Index])
+  @@index([h3Index])
 }
 
 model Activity {
@@ -55,6 +78,7 @@ model Cell {
   createdAt   DateTime @default(now())
 
   ownerships  CellOwnership[]
+  districtCells DistrictCell[]
 }
 
 model CellOwnership {

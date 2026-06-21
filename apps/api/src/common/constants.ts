@@ -7,3 +7,6 @@ export const NEW_PLAYER_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Maximum allowed running speed: 40 km/h in m/s */
 export const MAX_RUN_SPEED_MS = 40 / 3.6;
+
+export const KING_CLAIM_THRESHOLD = 0.6;
+export const KING_LOSS_THRESHOLD = 0.5;

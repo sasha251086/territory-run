@@ -10,7 +10,8 @@
     "start:dev": "ts-node --transpile-only src/main.ts",
     "start:debug": "nest start --debug --watch",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "seed:districts": "ts-node --transpile-only scripts/seed-districts.ts"
   },
   "keywords": [],
   "author": "",

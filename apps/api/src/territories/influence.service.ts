@@ -1,5 +1,6 @@
-﻿import { Injectable } from '@nestjs/common';
+﻿import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DistrictService } from '../districts/district.service';
 import {
   BASE_INFLUENCE,
   HOME_ZONE_BONUS_MULTIPLIER,
@@ -11,7 +12,11 @@ import {
 
 @Injectable()
 export class InfluenceService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => DistrictService))
+    private districtService: DistrictService,
+  ) {}
 
   async processTrack(userId: string, track: { lat: number; lng: number }[]) {
     const h3Module = await import('h3-js');
@@ -35,6 +40,10 @@ export class InfluenceService {
       const centerCoords = h3.cellToLatLng(h3Index);
       const center = { lat: centerCoords[0], lng: centerCoords[1] };
 
+      const existingCell = await this.prisma.cell.findUnique({
+        where: { h3Index },
+      });
+
       await this.prisma.cell.upsert({
         where: { h3Index },
         update: {},
@@ -43,6 +52,10 @@ export class InfluenceService {
           center,
         },
       });
+
+      if (!existingCell) {
+        await this.districtService.assignCellToDistrict(h3Index, center.lat, center.lng);
+      }
 
       const existing = await this.prisma.cellOwnership.findUnique({
         where: {

@@ -12,6 +12,7 @@ import { RedisModule } from './redis/redis.module';
 import { CronModule } from './cron/cron.module';
 import { FeedModule } from './feed/feed.module';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
+import { DistrictsModule } from './districts/districts.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { LeaderboardModule } from './leaderboard/leaderboard.module';
     CronModule,
     FeedModule,
     LeaderboardModule,
+    DistrictsModule,
   ],
   providers: [
     {
