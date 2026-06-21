@@ -17,7 +17,7 @@ export class TerritoriesService {
     });
   }
 
-  async getCellsInBbox(north: number, south: number, east: number, west: number) {
+  async getCellsInBbox(_north: number, _south: number, _east: number, _west: number) {
     // Пока заглушка, позже реализуем фильтрацию через PostGIS
     // Для MVP вернём все клетки (позже добавим ограничение по BBOX)
     return this.prisma.cell.findMany({

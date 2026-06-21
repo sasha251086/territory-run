@@ -33,6 +33,8 @@ model Activity {
   startedAt       DateTime
   finishedAt      DateTime
   processedAt     DateTime?
+  status          ActivityStatus @default(processing)
+  failureReason   String?
   createdAt       DateTime       @default(now())
 
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -89,4 +91,10 @@ model Event {
 
   @@index([userId])
   @@index([createdAt])
+}
+
+enum ActivityStatus {
+  processing
+  completed
+  failed
 }

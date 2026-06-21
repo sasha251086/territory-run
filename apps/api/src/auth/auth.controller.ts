@@ -1,64 +1,91 @@
-﻿import { Controller, Post, Body, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+﻿import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 @ApiTags('auth')
 @Controller('auth')
+@Throttle({ default: { limit: 20, ttl: 60000 } })
 export class AuthController {
   constructor(private authService: AuthService) {}
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Register a new user' })
-  @ApiResponse({ status: 201, description: 'User successfully registered' })
-  @ApiResponse({ status: 409, description: 'Email or nickname already exists' })
-  @ApiBody({
+  @ApiResponse({
+    status: 201,
+    description: 'User successfully registered',
     schema: {
-      type: 'object',
-      properties: {
-        email: { type: 'string', example: 'user@example.com' },
-        nickname: { type: 'string', example: 'runner123' },
-        password: { type: 'string', example: 'StrongPassword123' },
+      example: {
+        success: true,
+        data: { accessToken: 'jwt', refreshToken: 'jwt' },
       },
     },
   })
-  async register(@Body() body: { email: string; nickname: string; password: string }) {
+  @ApiResponse({
+    status: 409,
+    description: 'Email or nickname already exists',
+    schema: {
+      example: {
+        success: false,
+        error: { code: 'EMAIL_ALREADY_EXISTS', message: 'Email already exists' },
+      },
+    },
+  })
+  async register(@Body() body: RegisterDto) {
     return this.authService.register(body.email, body.nickname, body.password);
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login user' })
-  @ApiResponse({ status: 200, description: 'Login successful' })
-  @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  @ApiBody({
+  @ApiResponse({
+    status: 200,
     schema: {
-      type: 'object',
-      properties: {
-        email: { type: 'string', example: 'user@example.com' },
-        password: { type: 'string', example: 'StrongPassword123' },
+      example: {
+        success: true,
+        data: { accessToken: 'jwt', refreshToken: 'jwt' },
       },
     },
   })
-  async login(@Body() body: { email: string; password: string }) {
+  @ApiResponse({
+    status: 401,
+    schema: {
+      example: {
+        success: false,
+        error: { code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' },
+      },
+    },
+  })
+  async login(@Body() body: LoginDto) {
     return this.authService.login(body.email, body.password);
   }
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token' })
-  @ApiResponse({ status: 200, description: 'New access token' })
-  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
-  @ApiBody({
+  @ApiResponse({
+    status: 200,
     schema: {
-      type: 'object',
-      properties: {
-        refreshToken: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIs...' },
+      example: {
+        success: true,
+        data: { accessToken: 'jwt' },
       },
     },
   })
-  async refresh(@Body() body: { refreshToken: string }) {
-    // TODO: реализовать refresh-токен
-    return { message: 'Not implemented yet' };
+  @ApiResponse({
+    status: 401,
+    schema: {
+      example: {
+        success: false,
+        error: { code: 'TOKEN_EXPIRED', message: 'Refresh token is invalid or expired' },
+      },
+    },
+  })
+  async refresh(@Body() body: RefreshTokenDto) {
+    return this.authService.refresh(body.refreshToken);
   }
 }

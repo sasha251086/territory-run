@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { MapQueryDto } from './dto/map-query.dto';
 import { CellResponseDto } from './dto/cell-response.dto';
+import { isWithinBbox, roundCoord } from '../common/geo.util';
 
 @Injectable()
 export class MapService {
@@ -13,16 +14,17 @@ export class MapService {
 
   async getCells(query: MapQueryDto): Promise<CellResponseDto[]> {
     const limit = Number(query.limit) || 1000;
+    const north = roundCoord(query.north);
+    const south = roundCoord(query.south);
+    const east = roundCoord(query.east);
+    const west = roundCoord(query.west);
 
-    const cacheKey = `map:all:${limit}`;
+    const cacheKey = `map:bbox:${north}:${south}:${east}:${west}:${limit}`;
 
     const cached = await this.redisService.get(cacheKey);
     if (cached) {
-      console.log('[Map] Cache hit');
       return JSON.parse(cached);
     }
-
-    console.log('[Map] Cache miss, querying DB');
 
     const cells = await this.prisma.cell.findMany({
       include: {
@@ -34,7 +36,15 @@ export class MapService {
       take: limit,
     });
 
-    const result: CellResponseDto[] = cells.map((cell) => {
+    const filtered = cells.filter((cell) => {
+      const center = cell.center as { lat: number; lng: number } | null;
+      if (!center) {
+        return false;
+      }
+      return isWithinBbox(center.lat, center.lng, north, south, east, west);
+    });
+
+    const result: CellResponseDto[] = filtered.map((cell) => {
       const topOwner = cell.ownerships[0];
       return {
         h3Index: cell.h3Index,
