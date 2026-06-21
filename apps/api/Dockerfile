@@ -5,7 +5,7 @@ RUN corepack enable && corepack prepare pnpm@11.8.0 --activate
 
 WORKDIR /app
 
-COPY package.json ./
+COPY package.json pnpm-workspace.yaml ./
 RUN pnpm install
 
 COPY . .
