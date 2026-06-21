@@ -1,4 +1,4 @@
-﻿import { Injectable, Inject, forwardRef } from '@nestjs/common';
+﻿import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { DistrictService } from '../districts/district.service';
 import {
@@ -12,6 +12,8 @@ import {
 
 @Injectable()
 export class InfluenceService {
+  private readonly logger = new Logger(InfluenceService.name);
+
   constructor(
     private prisma: PrismaService,
     @Inject(forwardRef(() => DistrictService))
@@ -29,7 +31,11 @@ export class InfluenceService {
     }
 
     const h3Indices = Array.from(cellSet);
-    console.log(`[Influence] Уникальных клеток: ${h3Indices.length}`);
+    this.logger.log({
+      msg: 'Processing track influence',
+      userId,
+      uniqueCells: h3Indices.length,
+    });
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

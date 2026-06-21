@@ -22,6 +22,7 @@ model User {
   stats        UserStats?
   events       Event[]
   ruledDistricts District[] @relation("DistrictKing")
+  integrations Integration[]
 }
 
 model District {
@@ -121,4 +122,25 @@ enum ActivityStatus {
   processing
   completed
   failed
+}
+
+model Integration {
+  id             String   @id @default(uuid())
+  userId         String
+  provider       String
+  externalUserId String?
+  accessToken    String
+  refreshToken   String
+  expiresAt      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+}
+
+model ProcessedActivity {
+  provider           String
+  externalActivityId String
+
+  @@id([provider, externalActivityId])
 }

@@ -20,3 +20,4 @@ services:
         generateValue: true
       # DATABASE_URL, REDIS_HOST, REDIS_PORT — задайте вручную в Dashboard
       # (привязка к Render Postgres / Redis).
+      # Опционально: SENTRY_DSN, STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, STRAVA_REDIRECT_URI

@@ -1,4 +1,4 @@
-﻿import { Injectable, OnModuleInit } from '@nestjs/common';
+﻿import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ActivityStatus } from '@prisma/client';
 import { Queue, Worker } from 'bullmq';
 import Redis from 'ioredis';
@@ -7,9 +7,11 @@ import { InfluenceService } from '../territories/influence.service';
 import { OwnershipService } from '../territories/ownership.service';
 import { FeedService } from '../feed/feed.service';
 import { AnticheatService, TrackPoint } from '../activities/anticheat.service';
+import { captureException } from '../common/sentry.util';
 
 @Injectable()
 export class QueueService implements OnModuleInit {
+  private readonly logger = new Logger(QueueService.name);
   private queue!: Queue;
   private worker!: Worker;
 
@@ -40,15 +42,25 @@ export class QueueService implements OnModuleInit {
     );
 
     this.worker.on('completed', (job) => {
-      console.log(`Job ${job.id} completed`);
+      this.logger.log({
+        msg: 'Activity processing job completed',
+        jobId: job.id,
+        activityId: job.data?.activityId,
+      });
     });
 
     this.worker.on('failed', (job, err) => {
-      if (job) {
-        console.error(`Job ${job.id} failed:`, err);
-      } else {
-        console.error('Job failed:', err);
-      }
+      this.logger.error({
+        msg: 'Activity processing job failed',
+        jobId: job?.id,
+        activityId: job?.data?.activityId,
+        err,
+      });
+      captureException(err, {
+        jobId: job?.id,
+        activityId: job?.data?.activityId,
+        queue: 'activity-processing',
+      });
     });
   }
 
@@ -56,8 +68,12 @@ export class QueueService implements OnModuleInit {
     await this.queue.add('process', { activityId });
   }
 
+  async getJobCounts() {
+    return this.queue.getJobCounts();
+  }
+
   async processActivity(activityId: string) {
-    console.log(`Processing activity ${activityId}`);
+    this.logger.log({ msg: 'Processing activity', activityId });
 
     const activity = await this.prisma.activity.findUnique({
       where: { id: activityId },
@@ -89,7 +105,12 @@ export class QueueService implements OnModuleInit {
         reason,
       });
 
-      console.log(`Activity ${activityId} rejected by anticheat: ${reason}`);
+      this.logger.warn({
+        msg: 'Activity rejected by anticheat',
+        activityId,
+        userId: activity.userId,
+        reason,
+      });
       return;
     }
 
@@ -140,6 +161,11 @@ export class QueueService implements OnModuleInit {
       },
     });
 
-    console.log(`Activity ${activityId} processed successfully`);
+    this.logger.log({
+      msg: 'Activity processed successfully',
+      activityId,
+      userId: activity.userId,
+      cellsAffected: affectedCells.length,
+    });
   }
 }

@@ -4,16 +4,27 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
+  Injectable,
+  Logger,
 } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import { ApiException } from './api.exception';
 import { ErrorCodes } from './error-codes';
+import { captureException } from './sentry.util';
 
+@Injectable()
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(HttpExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse();
+    const request = ctx.getRequest<{
+      method?: string;
+      url?: string;
+      user?: { id?: string };
+    }>();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let code: string = ErrorCodes.INTERNAL_ERROR;
@@ -42,6 +53,25 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     } else if (exception instanceof Error) {
       message = exception.message;
+    }
+
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      captureException(exception, {
+        method: request.method,
+        url: request.url,
+        userId: request.user?.id,
+        status,
+        code,
+      });
+      this.logger.error({
+        msg: message,
+        err: exception,
+        method: request.method,
+        url: request.url,
+        userId: request.user?.id,
+        status,
+        code,
+      });
     }
 
     (response as { status: (code: number) => { json: (body: unknown) => void } })

@@ -1,6 +1,7 @@
 ﻿import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { LoggerModule } from 'nestjs-pino';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -13,9 +14,27 @@ import { CronModule } from './cron/cron.module';
 import { FeedModule } from './feed/feed.module';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { DistrictsModule } from './districts/districts.module';
+import { IntegrationsModule } from './integrations/integrations.module';
+import { HttpExceptionFilter } from './common/http-exception.filter';
+
+const isProduction = process.env.NODE_ENV === 'production';
 
 @Module({
   imports: [
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: isProduction ? 'info' : 'debug',
+        transport: isProduction
+          ? undefined
+          : {
+              target: 'pino-pretty',
+              options: {
+                singleLine: true,
+                colorize: true,
+              },
+            },
+      },
+    }),
     ThrottlerModule.forRoot([
       {
         name: 'default',
@@ -35,11 +54,16 @@ import { DistrictsModule } from './districts/districts.module';
     FeedModule,
     LeaderboardModule,
     DistrictsModule,
+    IntegrationsModule,
   ],
   providers: [
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_FILTER,
+      useClass: HttpExceptionFilter,
     },
   ],
 })

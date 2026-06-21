@@ -8,5 +8,6 @@ import { QueueModule } from '../queue/queue.module';
   imports: [PrismaModule, QueueModule],
   controllers: [ActivitiesController],
   providers: [ActivitiesService],
+  exports: [ActivitiesService],
 })
 export class ActivitiesModule {}

@@ -1,10 +1,12 @@
-﻿import { Injectable, Inject, forwardRef } from '@nestjs/common';
+﻿import { Injectable, Inject, forwardRef, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FeedService } from '../feed/feed.service';
 import { DistrictService } from '../districts/district.service';
 
 @Injectable()
 export class OwnershipService {
+  private readonly logger = new Logger(OwnershipService.name);
+
   constructor(
     private prisma: PrismaService,
     private feedService: FeedService,
@@ -44,7 +46,12 @@ export class OwnershipService {
           influence: top.influence,
           timestamp: new Date(),
         });
-        console.log(`[Event] Cell ${h3Index} captured by ${top.user.nickname}`);
+        this.logger.log({
+          msg: 'Cell captured',
+          h3Index,
+          newOwnerId,
+          nickname: top.user.nickname,
+        });
       }
 
       results.push({

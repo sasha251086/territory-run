@@ -1,16 +1,17 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
+import { createPgPool } from '../src/prisma/create-pg-pool';
 import { isPointInPolygon } from '../src/common/geo.util';
 import { RIGA_DISTRICTS } from './riga-districts.data';
 
 async function main() {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = createPgPool();
   const adapter = new PrismaPg(pool);
   const prisma = new PrismaClient({ adapter });
 
   try {
+    await prisma.$connect();
     for (const districtData of RIGA_DISTRICTS) {
       let district = await prisma.district.findFirst({
         where: { name: districtData.name },

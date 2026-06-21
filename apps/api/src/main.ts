@@ -1,17 +1,19 @@
 ﻿import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
+import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger as PinoLogger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { HttpExceptionFilter } from './common/http-exception.filter';
+import { initSentry } from './common/sentry.util';
 import { ResponseInterceptor } from './common/response.interceptor';
 
+initSentry();
+
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(PinoLogger));
 
   app.enableCors();
-
-  app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalInterceptors(new ResponseInterceptor());
 
   app.useGlobalPipes(
@@ -30,10 +32,11 @@ async function bootstrap() {
       .build();
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('docs', app, document);
-    console.log('📚 Swagger: http://localhost:3000/docs');
+    Logger.log('Swagger: http://localhost:3000/docs', 'Bootstrap');
   }
 
-  await app.listen(process.env.PORT || 3000);
-  console.log(`🚀 API запущен на http://localhost:${process.env.PORT || 3000}`);
+  const port = process.env.PORT || 3000;
+  await app.listen(port);
+  Logger.log(`API started on http://localhost:${port}`, 'Bootstrap');
 }
 bootstrap();

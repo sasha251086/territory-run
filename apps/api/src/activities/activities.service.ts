@@ -6,6 +6,8 @@ import { CreateActivityDto } from './dto/create-activity.dto';
 import { ApiException } from '../common/api.exception';
 import { ErrorCodes } from '../common/error-codes';
 
+type DbClient = PrismaService | Prisma.TransactionClient;
+
 @Injectable()
 export class ActivitiesService {
   constructor(
@@ -14,27 +16,55 @@ export class ActivitiesService {
   ) {}
 
   async create(userId: string, dto: CreateActivityDto) {
-    const activity = await this.prisma.activity.create({
+    const activity = await this.createFromExternal(userId, {
+      source: dto.source,
+      distanceMeters: dto.distanceMeters,
+      durationSeconds: dto.durationSeconds,
+      avgPace: dto.avgPace,
+      startedAt: new Date(dto.startedAt),
+      finishedAt: new Date(dto.finishedAt),
+      track: dto.track,
+    });
+
+    await this.enqueueActivity(activity.id);
+    return activity;
+  }
+
+  async createFromExternal(
+    userId: string,
+    params: {
+      source: string;
+      distanceMeters: number;
+      durationSeconds: number;
+      avgPace?: number;
+      startedAt: Date;
+      finishedAt: Date;
+      track: { lat: number; lng: number; timestamp?: string }[];
+    },
+    db: DbClient = this.prisma,
+  ) {
+    return db.activity.create({
       data: {
         userId,
-        source: dto.source,
-        distanceMeters: dto.distanceMeters,
-        durationSeconds: dto.durationSeconds,
-        avgPace: dto.avgPace,
-        startedAt: new Date(dto.startedAt),
-        finishedAt: new Date(dto.finishedAt),
+        source: params.source,
+        distanceMeters: params.distanceMeters,
+        durationSeconds: params.durationSeconds,
+        avgPace: params.avgPace,
+        startedAt: params.startedAt,
+        finishedAt: params.finishedAt,
         status: ActivityStatus.processing,
         track: {
           create: {
-            route: dto.track as unknown as Prisma.InputJsonValue,
+            route: params.track as unknown as Prisma.InputJsonValue,
           },
         },
       },
       include: { track: true },
     });
+  }
 
-    await this.queueService.addActivityProcessingJob(activity.id);
-    return activity;
+  async enqueueActivity(activityId: string) {
+    await this.queueService.addActivityProcessingJob(activityId);
   }
 
   async getStatus(userId: string, activityId: string) {
