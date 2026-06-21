@@ -35,9 +35,14 @@ function HomePicker({
 }
 
 export default function OnboardingPage() {
-  const { refreshProfile } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const navigate = useNavigate();
-  const [position, setPosition] = useState<[number, number]>([56.9496, 24.1052]);
+  const [position, setPosition] = useState<[number, number]>(() => {
+    if (user?.homeLat != null && user?.homeLng != null) {
+      return [user.homeLat, user.homeLng];
+    }
+    return [56.9496, 24.1052];
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,8 +66,10 @@ export default function OnboardingPage() {
   return (
     <div className="auth-page">
       <div className="auth-card wide">
-        <p className="eyebrow">Шаг 2 из 2</p>
-        <h1>Выберите домашнюю базу</h1>
+        <p className="eyebrow">
+          {user?.homeLat != null ? 'Домашняя база' : 'Шаг 2 из 2'}
+        </p>
+        <h1>{user?.homeLat != null ? 'Изменить домашнюю базу' : 'Выберите домашнюю базу'}</h1>
         <p className="muted">
           Нажмите на карту, чтобы указать дом. В радиусе 500 м действует бонус к влиянию.
         </p>
@@ -80,7 +87,7 @@ export default function OnboardingPage() {
 
         {error && <p className="error-banner">{error}</p>}
         <button type="button" className="primary-btn" onClick={saveHome} disabled={loading}>
-          {loading ? 'Сохранение...' : 'Сохранить и перейти в профиль'}
+          {loading ? 'Сохранение...' : user?.homeLat != null ? 'Сохранить новую базу' : 'Сохранить и перейти в профиль'}
         </button>
       </div>
     </div>

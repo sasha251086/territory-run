@@ -186,6 +186,17 @@ input {
   border: 1px solid #334155;
 }
 
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.button-row .ghost-btn,
+.button-row .primary-btn {
+  flex: 1 1 180px;
+}
+
 .error-banner,
 .info-box,
 .warning-box {

@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../api/client';
 import type { IntegrationInfo } from '../api/types';
 import { useAuth } from '../context/AuthContext';
 
 export default function ProfilePage() {
   const { user, refreshProfile } = useAuth();
+  const navigate = useNavigate();
   const [integrations, setIntegrations] = useState<IntegrationInfo[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -35,6 +38,19 @@ export default function ProfilePage() {
   const stravaConnected = integrations.some(
     (item) => item.provider === 'strava' && item.connected,
   );
+
+  async function handleRefreshProfile() {
+    setRefreshing(true);
+    setRefreshMessage(null);
+    try {
+      await refreshProfile();
+      setRefreshMessage('Статистика обновлена');
+    } catch (err) {
+      setRefreshMessage(err instanceof Error ? err.message : 'Не удалось обновить профиль');
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   return (
     <div className="stack">
@@ -89,9 +105,27 @@ export default function ProfilePage() {
             ? `Координаты: ${user.homeLat.toFixed(5)}, ${user.homeLng.toFixed(5)}`
             : 'Домашняя база не выбрана'}
         </p>
-        <button type="button" className="ghost-btn" onClick={() => void refreshProfile()}>
-          Обновить профиль
-        </button>
+        <p className="muted small">
+          Координаты меняются только при выборе новой точки на карте — кнопка «Обновить статистику» их не меняет.
+        </p>
+        <div className="button-row">
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => void handleRefreshProfile()}
+            disabled={refreshing}
+          >
+            {refreshing ? 'Обновление...' : 'Обновить статистику'}
+          </button>
+          <button
+            type="button"
+            className="primary-btn"
+            onClick={() => navigate('/onboarding')}
+          >
+            Изменить домашнюю базу
+          </button>
+        </div>
+        {refreshMessage && <p className="info-box">{refreshMessage}</p>}
       </section>
     </div>
   );

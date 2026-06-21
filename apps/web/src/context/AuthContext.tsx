@@ -75,15 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null;
     }
 
-    try {
-      const profile = await apiRequest<UserProfile>('/users/me');
-      setUser(profile);
-      return profile;
-    } catch {
-      logout();
-      return null;
-    }
-  }, [accessToken, logout]);
+    const profile = await apiRequest<UserProfile>('/users/me');
+    setUser(profile);
+    return profile;
+  }, [accessToken]);
 
   useEffect(() => {
     configureApiAuth(
