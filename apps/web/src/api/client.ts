@@ -23,7 +23,8 @@ export async function apiRequest<T>(
   auth = true,
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  if (!headers.has('Content-Type') && options.body) {
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  if (!headers.has('Content-Type') && options.body && !isFormData) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -52,6 +53,12 @@ export async function apiRequest<T>(
   }
 
   return payload.data;
+}
+
+export async function apiUploadFile<T>(path: string, file: File): Promise<T> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiRequest<T>(path, { method: 'POST', body: formData });
 }
 
 export const authApi = {

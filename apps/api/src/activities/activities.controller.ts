@@ -9,13 +9,19 @@
   Request,
   HttpCode,
   HttpStatus,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ActivitiesService } from './activities.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { ListActivitiesQueryDto } from './dto/list-activities.dto';
+
+const MAX_GPX_FILE_BYTES = 5 * 1024 * 1024;
 
 @ApiTags('activities')
 @ApiBearerAuth()
@@ -33,6 +39,44 @@ export class ActivitiesController {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     return this.activitiesService.listForUser(req.user.id, page, limit);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('import')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_GPX_FILE_BYTES },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Import activity from GPX file' })
+  @ApiResponse({
+    status: 202,
+    schema: {
+      example: {
+        success: true,
+        data: { activityId: 'uuid', status: 'processing' },
+      },
+    },
+  })
+  async importGpx(
+    @Request() req: { user: { id: string } },
+    @UploadedFile() file: { buffer: Buffer; originalname: string; size: number } | undefined,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    const activity = await this.activitiesService.importGpxFile(req.user.id, file);
+    return {
+      success: true,
+      data: {
+        activityId: activity.id,
+        status: activity.status,
+      },
+    };
   }
 
   @UseGuards(JwtAuthGuard)

@@ -18,9 +18,9 @@ class TrackPointDto {
 }
 
 export class CreateActivityDto {
-  @ApiProperty({ example: 'internal', enum: ['internal', 'strava', 'apple_health', 'health_connect'] })
+  @ApiProperty({ example: 'internal', enum: ['internal', 'strava', 'gpx_import', 'apple_health', 'health_connect'] })
   @IsString()
-  source!: 'internal' | 'strava' | 'apple_health' | 'health_connect';
+  source!: 'internal' | 'strava' | 'gpx_import' | 'apple_health' | 'health_connect';
 
   @ApiProperty({ example: 5200 })
   @IsNumber()
