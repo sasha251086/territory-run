@@ -16,6 +16,7 @@ function formatDuration(seconds: number) {
 function sourceLabel(source: string) {
   if (source === 'strava') return 'Strava';
   if (source === 'gpx_import') return 'GPX файл';
+  if (source === 'samsung_health_zip') return 'Samsung Health';
   if (source === 'apple_health') return 'Apple Health';
   if (source === 'health_connect') return 'Health Connect';
   return source;
@@ -37,6 +38,7 @@ export default function ActivitiesPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadingSamsungZip, setUploadingSamsungZip] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [showFirstCapture, setShowFirstCapture] = useState(false);
   const [captureCells, setCaptureCells] = useState(0);
@@ -44,6 +46,7 @@ export default function ActivitiesPage() {
   const [healthSyncing, setHealthSyncing] = useState(false);
   const [healthSyncProgress, setHealthSyncProgress] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const samsungZipInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -79,12 +82,19 @@ export default function ActivitiesPage() {
       }
 
       if (healthSync.isAndroid()) {
+        if (!healthSync.isExerciseRoutePluginAvailable()) {
+          setMessage(
+            'Плагин GPS-маршрута не установлен. Пересоберите APK: pnpm build → npx cap sync android → Build APK.',
+          );
+          return;
+        }
+
         const preview = await healthSync.previewConsentSync(14);
         if (preview.pendingConsent > 0) {
           const confirmed = window.confirm(
-            `Найдено тренировок: ${preview.total}, с GPS-маршрутом: ${preview.withRoute}.\n\n` +
-              `Android покажет ${preview.pendingConsent} системных запросов на доступ к маршруту ` +
-              `(по одному на тренировку). Нажимайте «Разрешить» — это разовая процедура.\n\n` +
+            `Найдено тренировок: ${preview.total}.\n\n` +
+              `Android покажет до ${preview.pendingConsent} системных запросов на доступ к GPS-маршруту ` +
+              `(по одному на тренировку). Нажимайте «Разрешить» в каждом — это разовая процедура.\n\n` +
               'Продолжить?',
           );
           if (!confirmed) {
@@ -106,10 +116,27 @@ export default function ActivitiesPage() {
           await checkFirstCapture(setShowFirstCapture, setCaptureCells);
         }, 8000);
       } else if (result.withoutRoute > 0 && result.imported === 0 && result.duplicates === 0) {
-        setMessage(
-          `Найдено тренировок: ${result.total}, но без GPS-маршрута (${result.withoutRoute}). ` +
-            'Пробежки на дорожке/в зале без GPS не захватывают территорию — нужен трек с улицы.',
-        );
+        if (result.routeAttempts > 0) {
+          if (result.noDataInHealthConnect === result.routeAttempts) {
+            setMessage(
+              `Плагин работает: проверено ${result.total} тренировок, запросов маршрута ${result.routeAttempts}. ` +
+                'Health Connect ответил «маршрута нет» по всем — Samsung Health не передаёт GPS в Health Connect. ' +
+                'Проверь: открой приложение Health Connect → Упражнения → выбери пробежку → есть ли карта маршрута? ' +
+                'Если карты нет — загрузите ZIP из Samsung Health (раздел выше), Strava или GPX.',
+            );
+          } else {
+            setMessage(
+              `Проверено тренировок: ${result.total}. Запросов маршрута: ${result.routeAttempts}, ` +
+                `без GPS: ${result.withoutRoute}, отказ: ${result.userDenied}, нет в HC: ${result.noDataInHealthConnect}. ` +
+                'Если системные диалоги не появлялись — пересоберите APK.',
+            );
+          }
+        } else {
+          setMessage(
+            `Найдено тренировок: ${result.total}, но без GPS-маршрута (${result.withoutRoute}). ` +
+              'Пробежки на дорожке/в зале без GPS не захватывают территорию — нужен трек с улицы.',
+          );
+        }
       } else if (result.duplicates > 0 && result.imported === 0) {
         setMessage('Новых пробежек нет — все уже импортированы.');
       } else {
@@ -181,6 +208,48 @@ export default function ActivitiesPage() {
     }
   }
 
+  async function handleSamsungZipSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) {
+      return;
+    }
+
+    setUploadingSamsungZip(true);
+    setMessage(null);
+    try {
+      const result = await apiUploadFile<{
+        imported: number;
+        duplicates: number;
+        withoutRoute: number;
+        total: number;
+      }>('/activities/import-samsung-zip?days=14', file);
+
+      if (result.imported > 0) {
+        setMessage(
+          `Импортировано пробежек: ${result.imported}. ` +
+            `Пропущено (уже были): ${result.duplicates}. ` +
+            `Без GPS в архиве: ${result.withoutRoute}. Обработка займёт несколько секунд.`,
+        );
+        await loadData();
+        setTimeout(async () => {
+          await loadData();
+          await checkFirstCapture(setShowFirstCapture, setCaptureCells);
+        }, 8000);
+      } else if (result.duplicates > 0) {
+        setMessage(`Новых пробежек нет — все ${result.duplicates} уже импортированы.`);
+      } else {
+        setMessage(
+          `В архиве найдено тренировок: ${result.total}, но за последние 14 дней нет пробежек с GPS.`,
+        );
+      }
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Не удалось загрузить архив Samsung Health');
+    } finally {
+      setUploadingSamsungZip(false);
+    }
+  }
+
   const hasStrava = integrations.some((item) => item.provider === 'strava' && item.connected);
 
   if (loading) {
@@ -189,6 +258,30 @@ export default function ActivitiesPage() {
 
   return (
     <div className="stack">
+      <section className="card highlight-card">
+        <h2>Загрузить ZIP из Samsung Health</h2>
+        <p className="muted">
+          Samsung Health не передаёт GPS-маршруты в Health Connect, но хранит их в архиве персональных данных.
+          Открой Samsung Health → Настройки → Загрузить персональные данные → дождись ZIP на почте или в приложении
+          и загрузи архив сюда. Все пробежки с GPS за последние 14 дней импортируются сразу — достаточно раз в месяц.
+        </p>
+        <input
+          ref={samsungZipInputRef}
+          type="file"
+          accept=".zip,application/zip"
+          hidden
+          onChange={handleSamsungZipSelected}
+        />
+        <button
+          type="button"
+          className="primary-btn"
+          onClick={() => samsungZipInputRef.current?.click()}
+          disabled={uploadingSamsungZip}
+        >
+          {uploadingSamsungZip ? 'Разбор архива...' : 'Загрузить ZIP Samsung Health'}
+        </button>
+      </section>
+
       <section className="card highlight-card">
         <h2>Загрузить GPX файл</h2>
         <p className="muted">
@@ -244,14 +337,19 @@ export default function ActivitiesPage() {
             Strava не подключена — это необязательно, GPX-файла достаточно.
           </p>
         )}
-        {message && <p className="info-box">{message}</p>}
       </section>
+
+      {message && (
+        <section className="card">
+          <p className="info-box">{message}</p>
+        </section>
+      )}
 
       <section className="card">
         <h2>История</h2>
         {items.length === 0 ? (
           <p className="muted">
-            Пробежек пока нет. Загрузите GPX-файл или синхронизируйте Strava.
+            Пробежек пока нет. Загрузите ZIP из Samsung Health, GPX-файл или синхронизируйте Strava.
           </p>
         ) : (
           <ul className="list">

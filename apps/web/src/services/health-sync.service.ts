@@ -10,6 +10,10 @@ export interface HealthSyncResult {
   duplicates: number;
   withoutRoute: number;
   total: number;
+  routeAttempts: number;
+  pluginAvailable: boolean;
+  noDataInHealthConnect: number;
+  userDenied: number;
 }
 
 export interface ConsentSyncPreview {
@@ -34,8 +38,8 @@ interface TrackPoint {
 const READ_PERMISSIONS = ['READ_WORKOUTS', 'READ_ROUTE', 'READ_DISTANCE'] as const;
 const IMPORTED_IDS_KEY = 'territory_run_health_imported_ids';
 
-// Health Connect exercise types для пеших активностей (см. ExerciseRoutePlugin / capacitor-health mapping).
-const FOOT_EXERCISE_TYPES = new Set([37, 52, 56, 57, 79]); // HIKING, ROCK_CLIMBING, RUNNING, TREADMILL, WALKING
+// Samsung часто пишет тип 0 (OTHER) вместо RUNNING — включаем его.
+const FOOT_EXERCISE_TYPES = new Set([0, 37, 52, 56, 57, 79]);
 
 function isPermissionGranted(permissions: unknown, key: string): boolean {
   if (Array.isArray(permissions)) {
@@ -160,14 +164,20 @@ export const healthSync = {
     const footSessions = sessions.filter(isFootSession);
     const withRoute = footSessions.filter((s) => s.hasRoute);
     const importedIds = getImportedIds();
-    const alreadyImported = withRoute.filter((s) => importedIds.has(s.recordId)).length;
+    const alreadyImported = footSessions.filter((s) => importedIds.has(s.recordId)).length;
+    // Запрашиваем маршрут для всех неимпортированных — hasRoute из списка часто ложный (NoData).
+    const pendingConsent = footSessions.length - alreadyImported;
 
     return {
       total: footSessions.length,
       withRoute: withRoute.length,
-      pendingConsent: withRoute.length - alreadyImported,
+      pendingConsent,
       alreadyImported,
     };
+  },
+
+  isExerciseRoutePluginAvailable(): boolean {
+    return Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('ExerciseRoute');
   },
 
   async syncWithConsentFlow(
@@ -179,12 +189,29 @@ export const healthSync = {
       duplicates: 0,
       withoutRoute: 0,
       total: 0,
+      routeAttempts: 0,
+      pluginAvailable: this.isExerciseRoutePluginAvailable(),
+      noDataInHealthConnect: 0,
+      userDenied: 0,
     };
 
     if (!this.isNativeApp()) return result;
 
     if (!this.isAndroid()) {
-      return this.syncRecent(days);
+      const iosResult = await this.syncRecent(days);
+      return {
+        ...iosResult,
+        routeAttempts: 0,
+        pluginAvailable: false,
+        noDataInHealthConnect: 0,
+        userDenied: 0,
+      };
+    }
+
+    if (!result.pluginAvailable) {
+      throw new Error(
+        'Плагин GPS-маршрута не найден в приложении. Пересоберите APK после pnpm build && npx cap sync android.',
+      );
     }
 
     const { sessions } = await ExerciseRoute.getExerciseSessions({ days });
@@ -193,10 +220,6 @@ export const healthSync = {
 
     const importedIds = getImportedIds();
     const pendingSessions = footSessions.filter((session) => {
-      if (!session.hasRoute) {
-        result.withoutRoute += 1;
-        return false;
-      }
       if (importedIds.has(session.recordId)) {
         result.duplicates += 1;
         return false;
@@ -207,6 +230,7 @@ export const healthSync = {
     let progressIndex = 0;
     for (const session of pendingSessions) {
       progressIndex += 1;
+      result.routeAttempts += 1;
       onProgress?.({
         current: progressIndex,
         total: pendingSessions.length,
@@ -217,9 +241,17 @@ export const healthSync = {
       try {
         const routeResult = await ExerciseRoute.requestRoute({ recordId: session.recordId });
         points = routeResult.points;
-      } catch {
-        result.withoutRoute += 1;
-        continue;
+        if (routeResult.status === 'no_data') {
+          result.noDataInHealthConnect += 1;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (/USER_DENIED/i.test(message)) {
+          result.userDenied += 1;
+          result.withoutRoute += 1;
+          continue;
+        }
+        throw error;
       }
 
       const track = toTrack(points);
@@ -271,6 +303,10 @@ export const healthSync = {
       duplicates: 0,
       withoutRoute: 0,
       total: 0,
+      routeAttempts: 0,
+      pluginAvailable: false,
+      noDataInHealthConnect: 0,
+      userDenied: 0,
     };
 
     if (!this.isNativeApp()) return result;

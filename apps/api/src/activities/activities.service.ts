@@ -8,11 +8,17 @@ import { ImportNativeActivityDto } from './dto/import-native-activity.dto';
 import { ApiException } from '../common/api.exception';
 import { ErrorCodes } from '../common/error-codes';
 import { GpxParserService, GpxParseError } from './gpx-parser.service';
+import {
+  SamsungHealthParserService,
+  SamsungHealthParseError,
+} from './samsung-health-parser.service';
 
 type DbClient = PrismaService | Prisma.TransactionClient;
 
 const GPX_IMPORT_PROVIDER = 'gpx_import';
+const SAMSUNG_ZIP_PROVIDER = 'samsung_health_zip';
 const MAX_GPX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_SAMSUNG_ZIP_BYTES = 100 * 1024 * 1024;
 
 @Injectable()
 export class ActivitiesService {
@@ -20,6 +26,7 @@ export class ActivitiesService {
     private prisma: PrismaService,
     private queueService: QueueService,
     private gpxParserService: GpxParserService,
+    private samsungHealthParserService: SamsungHealthParserService,
   ) {}
 
   async create(userId: string, dto: CreateActivityDto) {
@@ -131,6 +138,118 @@ export class ActivitiesService {
 
     await this.enqueueActivity(activity.id);
     return activity;
+  }
+
+  async importSamsungZip(
+    userId: string,
+    file: { buffer: Buffer; originalname: string; size: number },
+    days = 14,
+  ) {
+    if (!file?.buffer?.length) {
+      throw new ApiException(
+        ErrorCodes.INVALID_FILE,
+        'No file uploaded',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (file.size > MAX_SAMSUNG_ZIP_BYTES) {
+      throw new ApiException(
+        ErrorCodes.INVALID_FILE,
+        'ZIP archive is too large (max 100 MB)',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const lowerName = file.originalname.toLowerCase();
+    if (!lowerName.endsWith('.zip')) {
+      throw new ApiException(
+        ErrorCodes.INVALID_FILE,
+        'Only ZIP archives from Samsung Health export are supported',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    let parsed;
+    try {
+      parsed = this.samsungHealthParserService.parseZipBuffer(file.buffer, { days });
+    } catch (error) {
+      const message =
+        error instanceof SamsungHealthParseError
+          ? error.message
+          : 'Failed to parse Samsung Health export';
+      throw new ApiException(ErrorCodes.INVALID_FILE, message, HttpStatus.BAD_REQUEST);
+    }
+
+    const summary = {
+      imported: 0,
+      duplicates: 0,
+      withoutRoute: parsed.withoutRoute,
+      total: parsed.totalSessions,
+      activityIds: [] as string[],
+    };
+
+    for (const workout of parsed.workouts) {
+      const duplicate = await this.prisma.processedActivity.findUnique({
+        where: {
+          provider_externalActivityId: {
+            provider: SAMSUNG_ZIP_PROVIDER,
+            externalActivityId: workout.id,
+          },
+        },
+      });
+
+      if (duplicate) {
+        summary.duplicates += 1;
+        continue;
+      }
+
+      const avgPace =
+        workout.distanceMeters > 0
+          ? Math.round(workout.durationSeconds / (workout.distanceMeters / 1000))
+          : undefined;
+
+      const activity = await this.prisma.$transaction(async (tx) => {
+        await tx.processedActivity.create({
+          data: {
+            provider: SAMSUNG_ZIP_PROVIDER,
+            externalActivityId: workout.id,
+          },
+        });
+
+        return this.createFromExternal(
+          userId,
+          {
+            source: 'samsung_health_zip',
+            distanceMeters: workout.distanceMeters,
+            durationSeconds: workout.durationSeconds,
+            avgPace,
+            startedAt: workout.startedAt,
+            finishedAt: workout.finishedAt,
+            track: workout.points.map((point) => ({
+              lat: point.lat,
+              lng: point.lng,
+              timestamp: point.timestamp,
+            })),
+          },
+          tx,
+        );
+      });
+
+      await this.enqueueActivity(activity.id);
+      summary.imported += 1;
+      summary.activityIds.push(activity.id);
+    }
+
+    if (summary.imported === 0 && summary.duplicates === 0 && parsed.workouts.length === 0) {
+      throw new ApiException(
+        ErrorCodes.INVALID_FILE,
+        `No runnable workouts with GPS found in the last ${days} days`,
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    return summary;
   }
 
   async importNativeWorkout(userId: string, dto: ImportNativeActivityDto) {

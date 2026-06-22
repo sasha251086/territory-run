@@ -23,6 +23,7 @@ import { ImportNativeActivityDto } from './dto/import-native-activity.dto';
 import { ListActivitiesQueryDto } from './dto/list-activities.dto';
 
 const MAX_GPX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_SAMSUNG_ZIP_BYTES = 100 * 1024 * 1024;
 
 @ApiTags('activities')
 @ApiBearerAuth()
@@ -77,6 +78,51 @@ export class ActivitiesController {
         activityId: activity.id,
         status: activity.status,
       },
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('import-samsung-zip')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_SAMSUNG_ZIP_BYTES },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Import workouts from Samsung Health personal data ZIP export' })
+  @ApiResponse({
+    status: 202,
+    schema: {
+      example: {
+        success: true,
+        data: {
+          imported: 12,
+          duplicates: 2,
+          withoutRoute: 5,
+          total: 19,
+          activityIds: ['uuid'],
+        },
+      },
+    },
+  })
+  async importSamsungZip(
+    @Request() req: { user: { id: string } },
+    @UploadedFile() file: { buffer: Buffer; originalname: string; size: number } | undefined,
+    @Query('days') days?: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    const parsedDays = days ? Number.parseInt(days, 10) : 14;
+    const safeDays = Number.isFinite(parsedDays) && parsedDays > 0 ? parsedDays : 14;
+
+    const summary = await this.activitiesService.importSamsungZip(req.user.id, file, safeDays);
+    return {
+      success: true,
+      data: summary,
     };
   }
 

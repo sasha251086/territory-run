@@ -46,6 +46,7 @@ class ExerciseRoutePlugin : Plugin() {
 
             val result = JSObject()
             result.put("recordId", recordId)
+            result.put("status", "data")
             result.put("points", routeToJsArray(route.route))
             call.resolve(result)
         }
@@ -73,6 +74,7 @@ class ExerciseRoutePlugin : Plugin() {
                     is ExerciseRouteResult.Data -> {
                         val result = JSObject()
                         result.put("recordId", recordId)
+                        result.put("status", "data")
                         result.put("points", routeToJsArray(routeResult.exerciseRoute.route))
                         call.resolve(result)
                     }
@@ -95,6 +97,7 @@ class ExerciseRoutePlugin : Plugin() {
                     is ExerciseRouteResult.NoData -> {
                         val result = JSObject()
                         result.put("recordId", recordId)
+                        result.put("status", "no_data")
                         result.put("points", JSArray())
                         call.resolve(result)
                     }

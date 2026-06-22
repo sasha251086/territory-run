@@ -16,9 +16,15 @@ export interface RoutePoint {
   altitude?: number;
 }
 
+export type RouteRequestStatus = 'data' | 'no_data' | 'user_denied';
+
 export interface ExerciseRoutePlugin {
   getExerciseSessions(options: { days?: number }): Promise<{ sessions: ExerciseSession[] }>;
-  requestRoute(options: { recordId: string }): Promise<{ recordId: string; points: RoutePoint[] }>;
+  requestRoute(options: { recordId: string }): Promise<{
+    recordId: string;
+    status?: RouteRequestStatus;
+    points: RoutePoint[];
+  }>;
 }
 
 export const ExerciseRoute = registerPlugin<ExerciseRoutePlugin>('ExerciseRoute', {
