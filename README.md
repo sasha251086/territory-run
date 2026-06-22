@@ -47,6 +47,13 @@ Uses root `Dockerfile` with full pnpm workspace context.
 
 Render builds from `apps/api/Dockerfile`. В папке `apps/api` должен быть **`pnpm-lock.yaml`** (коммитится в git вместе с `package.json`).
 
+При добавлении зависимостей в `apps/api/package.json` обновляй **оба** lockfile:
+
+```bash
+pnpm install                    # корень монорепо
+cd apps/api && pnpm install     # lockfile для Render
+```
+
 Если в Start Command указано `pnpm install && ...` — уберите: зависимости уже установлены при сборке Docker-образа, повторный `pnpm install` при старте падает с `frozen-lockfile`.
 
 Alternative: leave Root Directory empty and set Dockerfile to `./Dockerfile` at repo root for monorepo `--frozen-lockfile` builds.
