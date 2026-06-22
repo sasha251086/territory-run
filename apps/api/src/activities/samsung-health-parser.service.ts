@@ -18,6 +18,10 @@ export interface SamsungZipParseResult {
   workouts: SamsungParsedWorkout[];
   withoutRoute: number;
   totalSessions: number;
+  skippedByDate: number;
+  withGps: number;
+  exerciseFilesScanned: number;
+  hint?: string;
 }
 
 export class SamsungHealthParseError extends Error {
@@ -46,10 +50,28 @@ interface RawSample {
 
 type ExerciseFileKind = 'location_data' | 'live_data';
 
+interface ExerciseCsvRow {
+  uuid: string;
+  exerciseType?: number;
+  locationRefs: string[];
+  liveRefs: string[];
+}
+
+interface EntryIndex {
+  byNormalizedPath: Map<string, AdmZip.IZipEntry>;
+  byBasename: Map<string, AdmZip.IZipEntry[]>;
+}
+
 @Injectable()
 export class SamsungHealthParserService {
   private static readonly EXERCISE_ENTRY_RE =
-    /([^/\\]+)\.(location_data|live_data)(?:\.(?:json|blob|bin|zip))?$/i;
+    /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\.com\.samsung\.health\.exercise)?\.(location_data|live_data)(?:_internal)?(?:\.(?:json|blob|bin|zip))?$/i;
+
+  private static readonly UUID_RE =
+    /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+
+  private static readonly EXERCISE_PATH_RE =
+    /(?:com\.samsung\.(?:shealth\.|health\.)?(?:shealth\.)?exercise|shealth\.exercise)/i;
 
   parseZipBuffer(zipBuffer: Buffer, options?: { days?: number }): SamsungZipParseResult {
     if (!zipBuffer?.length) {
@@ -63,43 +85,92 @@ export class SamsungHealthParserService {
       throw new SamsungHealthParseError('File is not a valid ZIP archive');
     }
 
-    const entries = zip.getEntries();
+    const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
     if (entries.length === 0) {
       throw new SamsungHealthParseError('ZIP archive contains no files');
     }
 
+    const index = this.buildEntryIndex(entries);
     const exerciseTypes = this.parseExerciseTypeMap(entries);
+    const csvRows = this.parseExerciseCsvRows(entries);
+    for (const row of csvRows) {
+      if (row.exerciseType != null) {
+        exerciseTypes.set(row.uuid, row.exerciseType);
+      }
+    }
+
     const grouped = new Map<string, Partial<Record<ExerciseFileKind, RawSample[]>>>();
+    let exerciseFilesScanned = 0;
 
     for (const entry of entries) {
-      if (entry.isDirectory) continue;
+      const normalized = this.normalizePath(entry.entryName);
+      const namedMatch = normalized.match(SamsungHealthParserService.EXERCISE_ENTRY_RE);
 
-      const normalized = entry.entryName.replace(/\\/g, '/');
-      if (!normalized.includes('com.samsung.health.exercise') && !normalized.includes('shealth.exercise')) {
-        // Still try generic location_data filenames anywhere in the archive.
-        if (!SamsungHealthParserService.EXERCISE_ENTRY_RE.test(normalized)) continue;
+      if (namedMatch) {
+        const workoutId = namedMatch[1];
+        const kind = namedMatch[2].toLowerCase() as ExerciseFileKind;
+        const samples = this.samplesFromEntry(entry);
+        if (samples.length === 0) continue;
+
+        const gpsSamples = samples.filter(
+          (sample) => sample.latitude != null && sample.longitude != null,
+        );
+        if (kind === 'location_data' && gpsSamples.length < 2) continue;
+
+        exerciseFilesScanned += 1;
+        this.mergeGroupedSamples(
+          grouped,
+          workoutId,
+          kind,
+          kind === 'location_data' ? gpsSamples : samples,
+        );
+        continue;
       }
 
-      const match = normalized.match(SamsungHealthParserService.EXERCISE_ENTRY_RE);
-      if (!match) continue;
+      if (!SamsungHealthParserService.EXERCISE_PATH_RE.test(normalized)) {
+        continue;
+      }
 
-      const workoutId = match[1];
-      const kind = match[2].toLowerCase() as ExerciseFileKind;
-      const parsed = this.decodeJsonEntry(entry.getData());
-      if (!parsed) continue;
+      const uuidMatch = normalized.match(SamsungHealthParserService.UUID_RE);
+      if (!uuidMatch) continue;
 
-      const samples = this.normalizeSamples(parsed);
+      const samples = this.samplesFromEntry(entry);
+      exerciseFilesScanned += 1;
       if (samples.length === 0) continue;
 
-      const bucket = grouped.get(workoutId) ?? {};
-      bucket[kind] = this.mergeSamples(bucket[kind] ?? [], samples);
-      grouped.set(workoutId, bucket);
+      const gpsSamples = samples.filter(
+        (sample) => sample.latitude != null && sample.longitude != null,
+      );
+      if (gpsSamples.length < 2) continue;
+
+      this.mergeGroupedSamples(grouped, uuidMatch[1], 'location_data', gpsSamples);
+    }
+
+    for (const row of csvRows) {
+      for (const ref of row.locationRefs) {
+        const entry = this.resolveEntry(index, ref, row.uuid);
+        if (!entry) continue;
+        const samples = this.samplesFromEntry(entry);
+        exerciseFilesScanned += 1;
+        const gpsSamples = samples.filter(
+          (sample) => sample.latitude != null && sample.longitude != null,
+        );
+        if (gpsSamples.length < 2) continue;
+        this.mergeGroupedSamples(grouped, row.uuid, 'location_data', gpsSamples);
+      }
+
+      for (const ref of row.liveRefs) {
+        const entry = this.resolveEntry(index, ref, row.uuid);
+        if (!entry) continue;
+        const samples = this.samplesFromEntry(entry);
+        exerciseFilesScanned += 1;
+        if (samples.length === 0) continue;
+        this.mergeGroupedSamples(grouped, row.uuid, 'live_data', samples);
+      }
     }
 
     if (grouped.size === 0) {
-      throw new SamsungHealthParseError(
-        'No Samsung Health workout tracks found. Expected files like jsons/com.samsung.health.exercise/{id}.location_data.json inside the ZIP.',
-      );
+      throw new SamsungHealthParseError(this.buildEmptyArchiveHint(entries, csvRows.length));
     }
 
     const cutoffMs =
@@ -109,6 +180,8 @@ export class SamsungHealthParserService {
 
     const workouts: SamsungParsedWorkout[] = [];
     let withoutRoute = 0;
+    let skippedByDate = 0;
+    let withGps = 0;
 
     for (const [workoutId, files] of grouped) {
       const locationSamples = files.location_data ?? [];
@@ -117,6 +190,7 @@ export class SamsungHealthParserService {
         continue;
       }
 
+      withGps += 1;
       const merged = this.mergeTracks([locationSamples, files.live_data ?? []]);
       const workout = this.buildWorkout(workoutId, merged, exerciseTypes.get(workoutId));
       if (!workout) {
@@ -125,29 +199,236 @@ export class SamsungHealthParserService {
       }
 
       if (cutoffMs != null && workout.finishedAt.getTime() < cutoffMs) {
+        skippedByDate += 1;
         continue;
       }
 
       workouts.push(workout);
     }
 
+    let hint: string | undefined;
+    if (workouts.length === 0 && withGps > 0 && skippedByDate > 0) {
+      hint = `Найдено тренировок с GPS: ${withGps}, но все старше ${options?.days ?? 365} дней.`;
+    } else if (workouts.length === 0 && withoutRoute > 0 && withGps === 0) {
+      hint =
+        'Тренировки в архиве есть, но без GPS-маршрута (дорожка, зал, или Samsung не сохранил координаты).';
+    }
+
     return {
       workouts,
       withoutRoute,
       totalSessions: grouped.size,
+      skippedByDate,
+      withGps,
+      exerciseFilesScanned,
+      hint,
     };
+  }
+
+  private normalizePath(entryName: string): string {
+    return entryName.replace(/\\/g, '/').replace(/^\/+/, '');
+  }
+
+  private buildEntryIndex(entries: AdmZip.IZipEntry[]): EntryIndex {
+    const byNormalizedPath = new Map<string, AdmZip.IZipEntry>();
+    const byBasename = new Map<string, AdmZip.IZipEntry[]>();
+
+    for (const entry of entries) {
+      const normalized = this.normalizePath(entry.entryName);
+      const variants = new Set<string>([normalized.toLowerCase()]);
+
+      const parts = normalized.split('/');
+      if (parts.length > 1) {
+        variants.add(parts.slice(1).join('/').toLowerCase());
+      }
+      if (parts.length > 2) {
+        variants.add(parts.slice(2).join('/').toLowerCase());
+      }
+
+      for (const key of variants) {
+        byNormalizedPath.set(key, entry);
+      }
+
+      const basename = parts[parts.length - 1]?.toLowerCase() ?? normalized.toLowerCase();
+      const bucket = byBasename.get(basename) ?? [];
+      bucket.push(entry);
+      byBasename.set(basename, bucket);
+    }
+
+    return { byNormalizedPath, byBasename };
+  }
+
+  private resolveEntry(
+    index: EntryIndex,
+    ref: string,
+    uuid: string,
+  ): AdmZip.IZipEntry | undefined {
+    const cleaned = ref.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.?\//, '');
+    const candidates = new Set<string>([
+      cleaned.toLowerCase(),
+      cleaned.replace(/^json\//i, 'jsons/').toLowerCase(),
+      cleaned.replace(/^jsons\//i, 'json/').toLowerCase(),
+    ]);
+
+    for (const candidate of candidates) {
+      const hit = index.byNormalizedPath.get(candidate);
+      if (hit) return hit;
+    }
+
+    const basename = cleaned.split('/').pop()?.toLowerCase();
+    if (basename) {
+      const byName = index.byBasename.get(basename);
+      if (byName?.length === 1) return byName[0];
+      if (byName && byName.length > 1) {
+        const scoped = byName.find((entry) =>
+          this.normalizePath(entry.entryName).toLowerCase().includes(uuid.toLowerCase()),
+        );
+        if (scoped) return scoped;
+      }
+    }
+
+    const uuidLower = uuid.toLowerCase();
+    for (const entry of index.byNormalizedPath.values()) {
+      const path = this.normalizePath(entry.entryName).toLowerCase();
+      if (!SamsungHealthParserService.EXERCISE_PATH_RE.test(path)) continue;
+      if (!path.includes(uuidLower)) continue;
+      return entry;
+    }
+
+    return undefined;
+  }
+
+  private mergeGroupedSamples(
+    grouped: Map<string, Partial<Record<ExerciseFileKind, RawSample[]>>>,
+    workoutId: string,
+    kind: ExerciseFileKind,
+    samples: RawSample[],
+  ) {
+    const bucket = grouped.get(workoutId) ?? {};
+    bucket[kind] = this.mergeSamples(bucket[kind] ?? [], samples);
+    grouped.set(workoutId, bucket);
+  }
+
+  private buildEmptyArchiveHint(entries: AdmZip.IZipEntry[], csvRows: number): string {
+    const hasExerciseCsv = entries.some(
+      (entry) =>
+        /com\.samsung\.(?:shealth\.|health\.)?exercise.*\.csv$/i.test(
+          this.normalizePath(entry.entryName),
+        ),
+    );
+    const hasJsonFolder = entries.some((entry) =>
+      /(?:^|\/)jsons?\//i.test(this.normalizePath(entry.entryName)),
+    );
+
+    if (!hasExerciseCsv && !hasJsonFolder) {
+      return (
+        'Похоже, заархивирована не та папка. Нужен корень экспорта Samsung Health ' +
+        '(samsunghealth_.../), где лежат CSV и папка jsons/.'
+      );
+    }
+
+    if (csvRows > 0) {
+      return (
+        `В CSV найдено тренировок: ${csvRows}, но GPS-blob файлы не удалось прочитать. ` +
+        'Проверьте, что в ZIP есть папка jsons/com.samsung.shealth.exercise/.'
+      );
+    }
+
+    return (
+      'В архиве не найдены GPS-треки. Ожидаются файлы jsons/.../exercise/.../uuid.json ' +
+      'или *.location_data.json внутри экспорта samsunghealth_.../'
+    );
+  }
+
+  private parseExerciseCsvRows(entries: AdmZip.IZipEntry[]): ExerciseCsvRow[] {
+    const rows: ExerciseCsvRow[] = [];
+
+    for (const entry of entries) {
+      const name = this.normalizePath(entry.entryName);
+      if (!/com\.samsung\.(?:shealth\.|health\.)?exercise.*\.csv$/i.test(name)) continue;
+
+      const text = entry.getData().toString('utf-8').replace(/^\uFEFF/, '');
+      const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+      if (lines.length < 2) continue;
+
+      const headerIdx = this.findCsvHeaderIndex(lines);
+      if (headerIdx < 0) continue;
+
+      const headers = this.parseCsvLine(lines[headerIdx]).map((h) => h.trim());
+      const uuidIdx = headers.findIndex((h) => {
+        const lower = h.toLowerCase();
+        return (
+          lower === 'uuid' ||
+          lower.endsWith('.datauuid') ||
+          lower.endsWith('.uuid') ||
+          lower === 'com.samsung.health.exercise.datauuid'
+        );
+      });
+      if (uuidIdx < 0) continue;
+
+      const typeIdx = headers.findIndex((h) => {
+        const lower = h.toLowerCase();
+        return lower.includes('exercise_type') || lower.includes('exercise.type');
+      });
+
+      const locationCols = headers
+        .map((header, idx) => ({ header, idx }))
+        .filter(({ header }) => {
+          const lower = header.toLowerCase();
+          return (
+            lower === 'com.samsung.health.exercise.location_data' ||
+            (lower.includes('location_data') && !lower.includes('_internal'))
+          );
+        });
+      const liveCols = headers
+        .map((header, idx) => ({ header, idx }))
+        .filter(({ header }) => {
+          const lower = header.toLowerCase();
+          return (
+            lower === 'com.samsung.health.exercise.live_data' ||
+            (lower.includes('live_data') && !lower.includes('_internal'))
+          );
+        });
+
+      for (const line of lines.slice(headerIdx + 1)) {
+        const cols = this.parseCsvLine(line);
+        const uuid = cols[uuidIdx]?.replace(/"/g, '').trim();
+        if (!uuid || !SamsungHealthParserService.UUID_RE.test(uuid)) continue;
+
+        let exerciseType: number | undefined;
+        if (typeIdx >= 0) {
+          const parsed = Number(cols[typeIdx]?.replace(/"/g, '').trim());
+          if (!Number.isNaN(parsed)) exerciseType = parsed;
+        }
+
+        const locationRefs = locationCols
+          .map(({ idx }) => cols[idx]?.replace(/"/g, '').trim())
+          .filter((value) => value && value.length > 0);
+        const liveRefs = liveCols
+          .map(({ idx }) => cols[idx]?.replace(/"/g, '').trim())
+          .filter((value) => value && value.length > 0);
+
+        rows.push({ uuid, exerciseType, locationRefs, liveRefs });
+      }
+    }
+
+    return rows;
+  }
+
+  private samplesFromEntry(entry: AdmZip.IZipEntry): RawSample[] {
+    const parsed = this.decodeJsonEntry(entry.getData());
+    if (!parsed) return [];
+    return this.normalizeSamples(parsed);
   }
 
   private decodeJsonEntry(data: Buffer): unknown | null {
     if (!data.length) return null;
 
     const attempts: Buffer[] = [data];
-    if (data[0] === 0x1f && data[1] === 0x8b) {
-      try {
-        attempts.push(gunzipSync(data));
-      } catch {
-        // fall through
-      }
+    try {
+      attempts.push(gunzipSync(data));
+    } catch {
+      // not gzip
     }
 
     for (const buffer of attempts) {
@@ -162,13 +443,13 @@ export class SamsungHealthParserService {
   }
 
   private normalizeSamples(parsed: unknown): RawSample[] {
-    const rows = Array.isArray(parsed) ? parsed : [parsed];
+    const rows = this.flattenJsonRows(parsed);
     const samples: RawSample[] = [];
 
     for (const row of rows) {
       if (!row || typeof row !== 'object') continue;
       const record = row as Record<string, unknown>;
-      const start_time = this.readNumber(record.start_time);
+      const start_time = this.readStartTimeMs(record);
       const latitude = this.readNumber(record.latitude ?? record.lat);
       const longitude = this.readNumber(record.longitude ?? record.lng ?? record.lon);
       if (start_time == null) continue;
@@ -183,6 +464,49 @@ export class SamsungHealthParserService {
     }
 
     return samples.sort((a, b) => (a.start_time ?? 0) - (b.start_time ?? 0));
+  }
+
+  private flattenJsonRows(parsed: unknown): unknown[] {
+    if (parsed == null) return [];
+    if (Array.isArray(parsed)) {
+      return parsed.flatMap((item) => this.flattenJsonRows(item));
+    }
+    if (typeof parsed === 'object') {
+      const record = parsed as Record<string, unknown>;
+      const nested =
+        record.data ??
+        record.samples ??
+        record.locations ??
+        record.segments ??
+        record.route ??
+        record.location_data ??
+        record.live_data;
+      if (nested != null) {
+        return this.flattenJsonRows(nested);
+      }
+      return [parsed];
+    }
+    return [];
+  }
+
+  private readStartTimeMs(record: Record<string, unknown>): number | null {
+    const raw =
+      record.start_time ??
+      record.startTime ??
+      record.timestamp ??
+      record.time;
+
+    if (typeof raw === 'string') {
+      const parsed = Date.parse(raw);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    const numeric = this.readNumber(raw);
+    if (numeric == null) return null;
+    if (numeric < 1_000_000_000_000) {
+      return numeric * 1000;
+    }
+    return numeric;
   }
 
   private mergeSamples(existing: RawSample[], incoming: RawSample[]): RawSample[] {
@@ -257,21 +581,26 @@ export class SamsungHealthParserService {
 
     for (const entry of entries) {
       if (entry.isDirectory) continue;
-      const name = entry.entryName.replace(/\\/g, '/');
-      if (!/com\.samsung\.(shealth\.)?health\.exercise.*\.csv$/i.test(name)) continue;
+      const name = this.normalizePath(entry.entryName);
+      if (!/com\.samsung\.(?:shealth\.|health\.)?exercise.*\.csv$/i.test(name)) continue;
 
-      const text = entry.getData().toString('utf-8');
+      const text = entry.getData().toString('utf-8').replace(/^\uFEFF/, '');
       const lines = text.split(/\r?\n/).filter(Boolean);
       if (lines.length < 2) continue;
 
-      const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
-      const uuidIdx = headers.findIndex((h) => h === 'uuid' || h === 'datauuid' || h.endsWith('.uuid'));
+      const headerIdx = this.findCsvHeaderIndex(lines);
+      if (headerIdx < 0) continue;
+
+      const headers = this.parseCsvLine(lines[headerIdx]).map((h) => h.trim().toLowerCase());
+      const uuidIdx = headers.findIndex(
+        (h) => h === 'uuid' || h.endsWith('.datauuid') || h.endsWith('.uuid'),
+      );
       const typeIdx = headers.findIndex(
-        (h) => h === 'exercise_type' || h === 'exercise type' || h.endsWith('.exercise_type'),
+        (h) => h.includes('exercise_type') || h.includes('exercise.type'),
       );
       if (uuidIdx < 0) continue;
 
-      for (const line of lines.slice(1)) {
+      for (const line of lines.slice(headerIdx + 1)) {
         const cols = this.parseCsvLine(line);
         const uuid = cols[uuidIdx]?.replace(/"/g, '').trim();
         if (!uuid) continue;
@@ -283,6 +612,18 @@ export class SamsungHealthParserService {
     }
 
     return map;
+  }
+
+  private findCsvHeaderIndex(lines: string[]): number {
+    return lines.findIndex((line) => {
+      const lower = line.toLowerCase();
+      return (
+        lower.includes('datauuid') ||
+        lower.includes('exercise_type') ||
+        lower.includes('exercise.type') ||
+        (lower.includes('uuid') && lower.includes('exercise'))
+      );
+    });
   }
 
   private parseCsvLine(line: string): string[] {

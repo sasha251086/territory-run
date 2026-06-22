@@ -18,7 +18,7 @@ type DbClient = PrismaService | Prisma.TransactionClient;
 const GPX_IMPORT_PROVIDER = 'gpx_import';
 const SAMSUNG_ZIP_PROVIDER = 'samsung_health_zip';
 const MAX_GPX_FILE_BYTES = 5 * 1024 * 1024;
-const MAX_SAMSUNG_ZIP_BYTES = 100 * 1024 * 1024;
+const MAX_SAMSUNG_ZIP_BYTES = 350 * 1024 * 1024;
 
 @Injectable()
 export class ActivitiesService {
@@ -143,7 +143,7 @@ export class ActivitiesService {
   async importSamsungZip(
     userId: string,
     file: { buffer: Buffer; originalname: string; size: number },
-    days = 14,
+    days = 365,
   ) {
     if (!file?.buffer?.length) {
       throw new ApiException(
@@ -156,7 +156,7 @@ export class ActivitiesService {
     if (file.size > MAX_SAMSUNG_ZIP_BYTES) {
       throw new ApiException(
         ErrorCodes.INVALID_FILE,
-        'ZIP archive is too large (max 100 MB)',
+        'ZIP archive is too large (max 350 MB)',
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -186,6 +186,10 @@ export class ActivitiesService {
       duplicates: 0,
       withoutRoute: parsed.withoutRoute,
       total: parsed.totalSessions,
+      skippedByDate: parsed.skippedByDate,
+      withGps: parsed.withGps,
+      exerciseFilesScanned: parsed.exerciseFilesScanned,
+      hint: parsed.hint,
       activityIds: [] as string[],
     };
 
@@ -242,11 +246,10 @@ export class ActivitiesService {
     }
 
     if (summary.imported === 0 && summary.duplicates === 0 && parsed.workouts.length === 0) {
-      throw new ApiException(
-        ErrorCodes.INVALID_FILE,
-        `No runnable workouts with GPS found in the last ${days} days`,
-        HttpStatus.BAD_REQUEST,
-      );
+      const detail =
+        parsed.hint ??
+        `No runnable workouts with GPS found in the last ${days} days (sessions: ${parsed.totalSessions}, with GPS: ${parsed.withGps}, without route: ${parsed.withoutRoute}, too old: ${parsed.skippedByDate})`;
+      throw new ApiException(ErrorCodes.INVALID_FILE, detail, HttpStatus.BAD_REQUEST);
     }
 
     return summary;

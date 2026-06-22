@@ -23,7 +23,7 @@ import { ImportNativeActivityDto } from './dto/import-native-activity.dto';
 import { ListActivitiesQueryDto } from './dto/list-activities.dto';
 
 const MAX_GPX_FILE_BYTES = 5 * 1024 * 1024;
-const MAX_SAMSUNG_ZIP_BYTES = 100 * 1024 * 1024;
+const MAX_SAMSUNG_ZIP_BYTES = 350 * 1024 * 1024;
 
 @ApiTags('activities')
 @ApiBearerAuth()
@@ -116,8 +116,8 @@ export class ActivitiesController {
       throw new BadRequestException('No file uploaded');
     }
 
-    const parsedDays = days ? Number.parseInt(days, 10) : 14;
-    const safeDays = Number.isFinite(parsedDays) && parsedDays > 0 ? parsedDays : 14;
+    const parsedDays = days ? Number.parseInt(days, 10) : 365;
+    const safeDays = Number.isFinite(parsedDays) && parsedDays > 0 ? parsedDays : 365;
 
     const summary = await this.activitiesService.importSamsungZip(req.user.id, file, safeDays);
     return {

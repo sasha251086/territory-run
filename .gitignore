@@ -20,6 +20,9 @@ apps/web/ios/.xcode.env.local
 apps/web/ios/App/build/
 apps/web/ios/DerivedData/
 
+# Локальные примеры / экспорт данных (не коммитить)
+пример/
+
 # Логи
 *.log
 npm-debug.log*

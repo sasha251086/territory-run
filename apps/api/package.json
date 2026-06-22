@@ -11,6 +11,7 @@
     "start:debug": "nest start --debug --watch",
     "test": "jest",
     "test:watch": "jest --watch",
+    "inspect:samsung-zip": "node ../../scripts/inspect-samsung-zip.mjs",
     "seed:districts": "ts-node --transpile-only scripts/seed-districts.ts"
   },
   "keywords": [],

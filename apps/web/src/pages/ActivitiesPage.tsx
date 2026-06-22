@@ -13,6 +13,36 @@ function formatDuration(seconds: number) {
   return `${mins} мин`;
 }
 
+function formatSamsungImportMessage(result: {
+  imported: number;
+  duplicates: number;
+  withoutRoute: number;
+  total: number;
+  skippedByDate?: number;
+  withGps?: number;
+  hint?: string;
+}) {
+  if (result.imported > 0) {
+    return (
+      `Импортировано пробежек: ${result.imported}. ` +
+      `Пропущено (уже были): ${result.duplicates}. ` +
+      `Без GPS: ${result.withoutRoute}. ` +
+      'Открой «Карта» → «Показать мои клетки».'
+    );
+  }
+  if (result.duplicates > 0) {
+    return `Новых пробежек нет — все ${result.duplicates} уже импортированы.`;
+  }
+  const parts = [
+    `Тренировок в архиве: ${result.total}.`,
+    result.withGps != null ? `С GPS: ${result.withGps}.` : '',
+    result.withoutRoute ? `Без GPS: ${result.withoutRoute}.` : '',
+    result.skippedByDate ? `Слишком старые: ${result.skippedByDate}.` : '',
+    result.hint ?? 'За последние 365 дней импортировать нечего.',
+  ];
+  return parts.filter(Boolean).join(' ');
+}
+
 function sourceLabel(source: string) {
   if (source === 'strava') return 'Strava';
   if (source === 'gpx_import') return 'GPX файл';
@@ -215,6 +245,14 @@ export default function ActivitiesPage() {
       return;
     }
 
+    if (file.size > 350 * 1024 * 1024) {
+      setMessage(
+        `Архив слишком большой (${Math.round(file.size / 1024 / 1024)} МБ, лимит 350 МБ). ` +
+          'Заархивируй только папку jsons/com.samsung.shealth.exercise.',
+      );
+      return;
+    }
+
     setUploadingSamsungZip(true);
     setMessage(null);
     try {
@@ -223,25 +261,19 @@ export default function ActivitiesPage() {
         duplicates: number;
         withoutRoute: number;
         total: number;
-      }>('/activities/import-samsung-zip?days=14', file);
+        skippedByDate?: number;
+        withGps?: number;
+        hint?: string;
+      }>('/activities/import-samsung-zip?days=365', file);
+
+      setMessage(formatSamsungImportMessage(result));
 
       if (result.imported > 0) {
-        setMessage(
-          `Импортировано пробежек: ${result.imported}. ` +
-            `Пропущено (уже были): ${result.duplicates}. ` +
-            `Без GPS в архиве: ${result.withoutRoute}. Обработка займёт несколько секунд.`,
-        );
         await loadData();
         setTimeout(async () => {
           await loadData();
           await checkFirstCapture(setShowFirstCapture, setCaptureCells);
         }, 8000);
-      } else if (result.duplicates > 0) {
-        setMessage(`Новых пробежек нет — все ${result.duplicates} уже импортированы.`);
-      } else {
-        setMessage(
-          `В архиве найдено тренировок: ${result.total}, но за последние 14 дней нет пробежек с GPS.`,
-        );
       }
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Не удалось загрузить архив Samsung Health');
@@ -258,12 +290,19 @@ export default function ActivitiesPage() {
 
   return (
     <div className="stack">
+      {message && (
+        <section className="card">
+          <p className="info-box">{message}</p>
+        </section>
+      )}
+
       <section className="card highlight-card">
         <h2>Загрузить ZIP из Samsung Health</h2>
         <p className="muted">
           Samsung Health не передаёт GPS-маршруты в Health Connect, но хранит их в архиве персональных данных.
-          Открой Samsung Health → Настройки → Загрузить персональные данные → дождись ZIP на почте или в приложении
-          и загрузи архив сюда. Все пробежки с GPS за последние 14 дней импортируются сразу — достаточно раз в месяц.
+          Открой Samsung Health → Настройки → Загрузить персональные данные → заархивируй{' '}
+          <strong>корневую папку экспорта</strong> (где лежат CSV и папка jsons/) и загрузи ZIP сюда.
+          Если архив больше 350 МБ — упакуй только папку jsons/com.samsung.shealth.exercise.
         </p>
         <input
           ref={samsungZipInputRef}
@@ -339,14 +378,8 @@ export default function ActivitiesPage() {
         )}
       </section>
 
-      {message && (
-        <section className="card">
-          <p className="info-box">{message}</p>
-        </section>
-      )}
-
       <section className="card">
-        <h2>История</h2>
+        <h2>Strava (опционально)</h2>
         {items.length === 0 ? (
           <p className="muted">
             Пробежек пока нет. Загрузите ZIP из Samsung Health, GPX-файл или синхронизируйте Strava.
@@ -363,6 +396,9 @@ export default function ActivitiesPage() {
                   <span>{formatDistance(item.distanceMeters)}</span>
                   <span>{formatDuration(item.durationSeconds)}</span>
                   <span className={`status ${item.status}`}>{item.status}</span>
+                  {item.status === 'failed' && item.failureReason && (
+                    <span className="muted small"> ({item.failureReason})</span>
+                  )}
                 </div>
               </li>
             ))}
