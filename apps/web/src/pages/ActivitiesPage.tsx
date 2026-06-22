@@ -42,6 +42,7 @@ export default function ActivitiesPage() {
   const [captureCells, setCaptureCells] = useState(0);
   const [isNativeApp, setIsNativeApp] = useState(false);
   const [healthSyncing, setHealthSyncing] = useState(false);
+  const [healthSyncProgress, setHealthSyncProgress] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = useCallback(async () => {
@@ -69,6 +70,7 @@ export default function ActivitiesPage() {
   async function handleHealthSync() {
     setHealthSyncing(true);
     setMessage(null);
+    setHealthSyncProgress(null);
     try {
       const granted = await healthSync.requestPermissions();
       if (!granted) {
@@ -76,7 +78,25 @@ export default function ActivitiesPage() {
         return;
       }
 
-      const result = await healthSync.syncRecent(14);
+      if (healthSync.isAndroid()) {
+        const preview = await healthSync.previewConsentSync(14);
+        if (preview.pendingConsent > 0) {
+          const confirmed = window.confirm(
+            `Найдено тренировок: ${preview.total}, с GPS-маршрутом: ${preview.withRoute}.\n\n` +
+              `Android покажет ${preview.pendingConsent} системных запросов на доступ к маршруту ` +
+              `(по одному на тренировку). Нажимайте «Разрешить» — это разовая процедура.\n\n` +
+              'Продолжить?',
+          );
+          if (!confirmed) {
+            setMessage('Синхронизация отменена.');
+            return;
+          }
+        }
+      }
+
+      const result = await healthSync.syncWithConsentFlow(14, (progress) => {
+        setHealthSyncProgress(`Запрашиваем маршрут ${progress.current} из ${progress.total}…`);
+      });
 
       if (result.imported > 0) {
         setMessage(`Импортировано пробежек: ${result.imported}. Обработка займёт несколько секунд.`);
@@ -103,6 +123,7 @@ export default function ActivitiesPage() {
       setMessage(err instanceof Error ? err.message : 'Ошибка синхронизации с телефоном');
     } finally {
       setHealthSyncing(false);
+      setHealthSyncProgress(null);
     }
   }
 
@@ -205,6 +226,7 @@ export default function ActivitiesPage() {
           >
             {healthSyncing ? 'Синхронизация...' : 'Синхронизировать пробежки'}
           </button>
+          {healthSyncProgress && <p className="muted small">{healthSyncProgress}</p>}
         </section>
       )}
 

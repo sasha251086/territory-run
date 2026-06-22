@@ -2,6 +2,8 @@ import { Capacitor } from '@capacitor/core';
 import { Health } from 'capacitor-health';
 import type { Workout, RouteSample } from 'capacitor-health';
 import { apiRequest } from '../api/client';
+import { ExerciseRoute } from '../plugins/exercise-route';
+import type { ExerciseSession, RoutePoint } from '../plugins/exercise-route';
 
 export interface HealthSyncResult {
   imported: number;
@@ -10,19 +12,31 @@ export interface HealthSyncResult {
   total: number;
 }
 
+export interface ConsentSyncPreview {
+  total: number;
+  withRoute: number;
+  pendingConsent: number;
+  alreadyImported: number;
+}
+
+export interface SyncProgress {
+  current: number;
+  total: number;
+  recordId: string;
+}
+
 interface TrackPoint {
   lat: number;
   lng: number;
   timestamp: string;
 }
 
-// mley/capacitor-health отдаёт GPS-маршрут тренировки через queryWorkouts({ includeRoute: true }).
-// На iOS это HKWorkoutRoute, на Android — ExerciseRoute из Health Connect.
-// Права: READ_WORKOUTS (сводка), READ_ROUTE (маршрут), READ_DISTANCE (дистанция).
 const READ_PERMISSIONS = ['READ_WORKOUTS', 'READ_ROUTE', 'READ_DISTANCE'] as const;
+const IMPORTED_IDS_KEY = 'territory_run_health_imported_ids';
 
-// ВАЖНО: TypeScript-типы плагина объявляют permissions как массив, но нативный код
-// (Android) реально возвращает объект вида { READ_WORKOUTS: true, ... }. Поддерживаем оба.
+// Health Connect exercise types для пеших активностей (см. ExerciseRoutePlugin / capacitor-health mapping).
+const FOOT_EXERCISE_TYPES = new Set([37, 52, 56, 57, 79]); // HIKING, ROCK_CLIMBING, RUNNING, TREADMILL, WALKING
+
 function isPermissionGranted(permissions: unknown, key: string): boolean {
   if (Array.isArray(permissions)) {
     return permissions.some(
@@ -35,9 +49,47 @@ function isPermissionGranted(permissions: unknown, key: string): boolean {
   return false;
 }
 
+function getImportedIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(IMPORTED_IDS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    return new Set(Array.isArray(parsed) ? (parsed as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function markImported(recordId: string) {
+  const ids = getImportedIds();
+  ids.add(recordId);
+  localStorage.setItem(IMPORTED_IDS_KEY, JSON.stringify([...ids]));
+}
+
+function isFootSession(session: ExerciseSession): boolean {
+  return FOOT_EXERCISE_TYPES.has(session.exerciseType);
+}
+
+function toTrack(points: RoutePoint[]): TrackPoint[] {
+  return points
+    .map((point) => {
+      if (point.lat == null || point.lng == null || !point.timestamp) return null;
+      return {
+        lat: point.lat,
+        lng: point.lng,
+        timestamp: new Date(point.timestamp).toISOString(),
+      } satisfies TrackPoint;
+    })
+    .filter((p): p is TrackPoint => p !== null);
+}
+
 export const healthSync = {
   isNativeApp(): boolean {
     return Capacitor.isNativePlatform();
+  },
+
+  isAndroid(): boolean {
+    return Capacitor.getPlatform() === 'android';
   },
 
   source(): 'apple_health' | 'health_connect' {
@@ -82,8 +134,6 @@ export const healthSync = {
       includeSteps: false,
     });
 
-    // Возвращаем все тренировки без фильтра — отбор по маршруту делаем в syncRecent,
-    // чтобы корректно считать диагностику (всего / без GPS / импортировано).
     return result.workouts ?? [];
   },
 
@@ -102,7 +152,120 @@ export const healthSync = {
       .filter((p): p is TrackPoint => p !== null);
   },
 
+  async previewConsentSync(days = 14): Promise<ConsentSyncPreview> {
+    const empty = { total: 0, withRoute: 0, pendingConsent: 0, alreadyImported: 0 };
+    if (!this.isNativeApp() || !this.isAndroid()) return empty;
+
+    const { sessions } = await ExerciseRoute.getExerciseSessions({ days });
+    const footSessions = sessions.filter(isFootSession);
+    const withRoute = footSessions.filter((s) => s.hasRoute);
+    const importedIds = getImportedIds();
+    const alreadyImported = withRoute.filter((s) => importedIds.has(s.recordId)).length;
+
+    return {
+      total: footSessions.length,
+      withRoute: withRoute.length,
+      pendingConsent: withRoute.length - alreadyImported,
+      alreadyImported,
+    };
+  },
+
+  async syncWithConsentFlow(
+    days = 14,
+    onProgress?: (progress: SyncProgress) => void,
+  ): Promise<HealthSyncResult> {
+    const result: HealthSyncResult = {
+      imported: 0,
+      duplicates: 0,
+      withoutRoute: 0,
+      total: 0,
+    };
+
+    if (!this.isNativeApp()) return result;
+
+    if (!this.isAndroid()) {
+      return this.syncRecent(days);
+    }
+
+    const { sessions } = await ExerciseRoute.getExerciseSessions({ days });
+    const footSessions = sessions.filter(isFootSession);
+    result.total = footSessions.length;
+
+    const importedIds = getImportedIds();
+    const pendingSessions = footSessions.filter((session) => {
+      if (!session.hasRoute) {
+        result.withoutRoute += 1;
+        return false;
+      }
+      if (importedIds.has(session.recordId)) {
+        result.duplicates += 1;
+        return false;
+      }
+      return true;
+    });
+
+    let progressIndex = 0;
+    for (const session of pendingSessions) {
+      progressIndex += 1;
+      onProgress?.({
+        current: progressIndex,
+        total: pendingSessions.length,
+        recordId: session.recordId,
+      });
+
+      let points: RoutePoint[] = [];
+      try {
+        const routeResult = await ExerciseRoute.requestRoute({ recordId: session.recordId });
+        points = routeResult.points;
+      } catch {
+        result.withoutRoute += 1;
+        continue;
+      }
+
+      const track = toTrack(points);
+      if (track.length < 2) {
+        result.withoutRoute += 1;
+        continue;
+      }
+
+      const durationSeconds = Math.round(
+        (new Date(session.endDate).getTime() - new Date(session.startDate).getTime()) / 1000,
+      );
+
+      try {
+        await apiRequest('/activities/import-native', {
+          method: 'POST',
+          body: JSON.stringify({
+            source: 'health_connect',
+            platformId: session.recordId,
+            distanceMeters: 0,
+            durationSeconds,
+            startedAt: new Date(session.startDate).toISOString(),
+            finishedAt: new Date(session.endDate).toISOString(),
+            track,
+          }),
+        });
+        markImported(session.recordId);
+        result.imported += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        if (/already imported|duplicate/i.test(message)) {
+          markImported(session.recordId);
+          result.duplicates += 1;
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    return result;
+  },
+
   async syncRecent(days = 14): Promise<HealthSyncResult> {
+    if (this.isAndroid()) {
+      return this.syncWithConsentFlow(days);
+    }
+
     const result: HealthSyncResult = {
       imported: 0,
       duplicates: 0,
