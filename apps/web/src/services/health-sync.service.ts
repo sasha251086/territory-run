@@ -21,9 +21,6 @@ interface TrackPoint {
 // Права: READ_WORKOUTS (сводка), READ_ROUTE (маршрут), READ_DISTANCE (дистанция).
 const READ_PERMISSIONS = ['READ_WORKOUTS', 'READ_ROUTE', 'READ_DISTANCE'] as const;
 
-// Тренировки, дающие осмысленный пеший маршрут для захвата клеток.
-const FOOT_ACTIVITY_PATTERN = /run|walk|hik|jog|trail|treadmill|бег|ходьб/i;
-
 // ВАЖНО: TypeScript-типы плагина объявляют permissions как массив, но нативный код
 // (Android) реально возвращает объект вида { READ_WORKOUTS: true, ... }. Поддерживаем оба.
 function isPermissionGranted(permissions: unknown, key: string): boolean {
@@ -85,15 +82,9 @@ export const healthSync = {
       includeSteps: false,
     });
 
-    const workouts = result.workouts ?? [];
-    // Импортируем только тренировки, у которых есть GPS-маршрут (>= 2 точки).
-    // Тип фильтруем мягко: явный пеший тип ИЛИ неизвестный тип, но с маршрутом.
-    return workouts.filter((w) => {
-      const hasRoute = Array.isArray(w.route) && w.route.length >= 2;
-      if (!hasRoute) return false;
-      if (!w.workoutType) return true;
-      return FOOT_ACTIVITY_PATTERN.test(w.workoutType);
-    });
+    // Возвращаем все тренировки без фильтра — отбор по маршруту делаем в syncRecent,
+    // чтобы корректно считать диагностику (всего / без GPS / импортировано).
+    return result.workouts ?? [];
   },
 
   extractRoute(workout: Workout): TrackPoint[] {

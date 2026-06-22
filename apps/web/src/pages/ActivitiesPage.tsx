@@ -93,7 +93,11 @@ export default function ActivitiesPage() {
       } else if (result.duplicates > 0 && result.imported === 0) {
         setMessage('Новых пробежек нет — все уже импортированы.');
       } else {
-        setMessage(`Пробежек за 14 дней не найдено (проверено: ${result.total}).`);
+        setMessage(
+          `В Health Connect нет тренировок за 14 дней (проверено: ${result.total}). ` +
+            'Открой Samsung Health → Настройки → Health Connect и включи передачу «Тренировки» и «Маршрут», ' +
+            'затем убедись, что есть хотя бы одна уличная пробежка с GPS.',
+        );
       }
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Ошибка синхронизации с телефоном');
