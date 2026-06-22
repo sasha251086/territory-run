@@ -1,4 +1,6 @@
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
 import AdmZip from 'adm-zip';
 
@@ -189,6 +191,27 @@ describe('SamsungHealthParserService', () => {
   });
 
 
+
+  it('reads GPS from disk-backed ZIP via consumeWorkouts (production path)', async () => {
+    const workoutId = '641aab23-3128-4af5-9d5b-520b7033d82d';
+    const jsonPath =
+      `samsunghealth_user/jsons/com.samsung.shealth.exercise/6/` +
+      `${workoutId}.com.samsung.health.exercise.location_data.json`;
+    const zipBuffer = buildZip({ [jsonPath]: JSON.stringify(locationJson) });
+    const zipPath = join(tmpdir(), `samsung-test-${workoutId}.zip`);
+    writeFileSync(zipPath, zipBuffer);
+
+    try {
+      const imported: string[] = [];
+      const result = await parser.consumeWorkouts(zipPath, { days: 365 }, (workout) => {
+        imported.push(workout.id);
+      });
+      expect(imported).toEqual([workoutId]);
+      expect(result.withGps).toBe(1);
+    } finally {
+      unlinkSync(zipPath);
+    }
+  });
 
   it('rejects archives without exercise tracks', async () => {
 

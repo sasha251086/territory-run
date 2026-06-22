@@ -23,6 +23,8 @@ const yauzl = require('yauzl') as {
 
 const ZIP_OPEN_OPTIONS: Options = {
   lazyEntries: true,
+  // Keep the file open after listing entries — we read GPS blobs in a second pass.
+  autoClose: false,
   // Samsung export ZIPs may report sizes that do not match streamed bytes.
   validateEntrySizes: false,
 };
