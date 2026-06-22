@@ -24,6 +24,20 @@ const READ_PERMISSIONS = ['READ_WORKOUTS', 'READ_ROUTE', 'READ_DISTANCE'] as con
 // Тренировки, дающие осмысленный пеший маршрут для захвата клеток.
 const FOOT_ACTIVITY_PATTERN = /run|walk|hik|jog|trail|treadmill|бег|ходьб/i;
 
+// ВАЖНО: TypeScript-типы плагина объявляют permissions как массив, но нативный код
+// (Android) реально возвращает объект вида { READ_WORKOUTS: true, ... }. Поддерживаем оба.
+function isPermissionGranted(permissions: unknown, key: string): boolean {
+  if (Array.isArray(permissions)) {
+    return permissions.some(
+      (entry) => entry && typeof entry === 'object' && (entry as Record<string, boolean>)[key] === true,
+    );
+  }
+  if (permissions && typeof permissions === 'object') {
+    return (permissions as Record<string, boolean>)[key] === true;
+  }
+  return false;
+}
+
 export const healthSync = {
   isNativeApp(): boolean {
     return Capacitor.isNativePlatform();
@@ -49,8 +63,7 @@ export const healthSync = {
       const status = await Health.requestHealthPermissions({
         permissions: [...READ_PERMISSIONS],
       });
-      // mley возвращает permissions как массив объектов вида [{ READ_WORKOUTS: true }, ...].
-      return status.permissions.some((entry) => entry.READ_WORKOUTS === true);
+      return isPermissionGranted(status.permissions, 'READ_WORKOUTS');
     } catch (error) {
       console.error('Health permissions denied', error);
       return false;
