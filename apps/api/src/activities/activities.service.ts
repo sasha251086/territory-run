@@ -1,5 +1,6 @@
 ﻿import { Injectable, HttpStatus } from '@nestjs/common';
 import { createHash } from 'crypto';
+import { unlink } from 'fs/promises';
 import { ActivityStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
@@ -142,10 +143,10 @@ export class ActivitiesService {
 
   async importSamsungZip(
     userId: string,
-    file: { buffer: Buffer; originalname: string; size: number },
+    file: { path: string; originalname: string; size: number },
     days = 365,
   ) {
-    if (!file?.buffer?.length) {
+    if (!file?.path) {
       throw new ApiException(
         ErrorCodes.INVALID_FILE,
         'No file uploaded',
@@ -154,6 +155,7 @@ export class ActivitiesService {
     }
 
     if (file.size > MAX_SAMSUNG_ZIP_BYTES) {
+      await unlink(file.path).catch(() => {});
       throw new ApiException(
         ErrorCodes.INVALID_FILE,
         'ZIP archive is too large (max 350 MB)',
@@ -163,6 +165,7 @@ export class ActivitiesService {
 
     const lowerName = file.originalname.toLowerCase();
     if (!lowerName.endsWith('.zip')) {
+      await unlink(file.path).catch(() => {});
       throw new ApiException(
         ErrorCodes.INVALID_FILE,
         'Only ZIP archives from Samsung Health export are supported',
@@ -170,85 +173,102 @@ export class ActivitiesService {
       );
     }
 
-    let parsed;
+    const summary = {
+      imported: 0,
+      duplicates: 0,
+      withoutRoute: 0,
+      total: 0,
+      skippedByDate: 0,
+      withGps: 0,
+      exerciseFilesScanned: 0,
+      hint: undefined as string | undefined,
+      activityIds: [] as string[],
+    };
+
+    let importedCandidates = 0;
+
     try {
-      parsed = this.samsungHealthParserService.parseZipBuffer(file.buffer, { days });
+      const generator = this.samsungHealthParserService.streamWorkouts(file.path, { days });
+      let next = await generator.next();
+
+      while (!next.done) {
+        importedCandidates += 1;
+        const workout = next.value;
+
+        const duplicate = await this.prisma.processedActivity.findUnique({
+          where: {
+            provider_externalActivityId: {
+              provider: SAMSUNG_ZIP_PROVIDER,
+              externalActivityId: workout.id,
+            },
+          },
+        });
+
+        if (duplicate) {
+          summary.duplicates += 1;
+          next = await generator.next();
+          continue;
+        }
+
+        const avgPace =
+          workout.distanceMeters > 0
+            ? Math.round(workout.durationSeconds / (workout.distanceMeters / 1000))
+            : undefined;
+
+        const activity = await this.prisma.$transaction(async (tx) => {
+          await tx.processedActivity.create({
+            data: {
+              provider: SAMSUNG_ZIP_PROVIDER,
+              externalActivityId: workout.id,
+            },
+          });
+
+          return this.createFromExternal(
+            userId,
+            {
+              source: 'samsung_health_zip',
+              distanceMeters: workout.distanceMeters,
+              durationSeconds: workout.durationSeconds,
+              avgPace,
+              startedAt: workout.startedAt,
+              finishedAt: workout.finishedAt,
+              track: workout.points.map((point) => ({
+                lat: point.lat,
+                lng: point.lng,
+                timestamp: point.timestamp,
+              })),
+            },
+            tx,
+          );
+        });
+
+        await this.enqueueActivity(activity.id);
+        summary.imported += 1;
+        summary.activityIds.push(activity.id);
+        next = await generator.next();
+      }
+
+      const parsed = next.value;
+      summary.withoutRoute = parsed.withoutRoute;
+      summary.total = parsed.totalSessions;
+      summary.skippedByDate = parsed.skippedByDate;
+      summary.withGps = parsed.withGps;
+      summary.exerciseFilesScanned = parsed.exerciseFilesScanned;
+      summary.hint = parsed.hint;
     } catch (error) {
       const message =
         error instanceof SamsungHealthParseError
           ? error.message
           : 'Failed to parse Samsung Health export';
       throw new ApiException(ErrorCodes.INVALID_FILE, message, HttpStatus.BAD_REQUEST);
+    } finally {
+      await unlink(file.path).catch(() => {});
     }
 
-    const summary = {
-      imported: 0,
-      duplicates: 0,
-      withoutRoute: parsed.withoutRoute,
-      total: parsed.totalSessions,
-      skippedByDate: parsed.skippedByDate,
-      withGps: parsed.withGps,
-      exerciseFilesScanned: parsed.exerciseFilesScanned,
-      hint: parsed.hint,
-      activityIds: [] as string[],
-    };
-
-    for (const workout of parsed.workouts) {
-      const duplicate = await this.prisma.processedActivity.findUnique({
-        where: {
-          provider_externalActivityId: {
-            provider: SAMSUNG_ZIP_PROVIDER,
-            externalActivityId: workout.id,
-          },
-        },
-      });
-
-      if (duplicate) {
-        summary.duplicates += 1;
-        continue;
-      }
-
-      const avgPace =
-        workout.distanceMeters > 0
-          ? Math.round(workout.durationSeconds / (workout.distanceMeters / 1000))
-          : undefined;
-
-      const activity = await this.prisma.$transaction(async (tx) => {
-        await tx.processedActivity.create({
-          data: {
-            provider: SAMSUNG_ZIP_PROVIDER,
-            externalActivityId: workout.id,
-          },
-        });
-
-        return this.createFromExternal(
-          userId,
-          {
-            source: 'samsung_health_zip',
-            distanceMeters: workout.distanceMeters,
-            durationSeconds: workout.durationSeconds,
-            avgPace,
-            startedAt: workout.startedAt,
-            finishedAt: workout.finishedAt,
-            track: workout.points.map((point) => ({
-              lat: point.lat,
-              lng: point.lng,
-              timestamp: point.timestamp,
-            })),
-          },
-          tx,
-        );
-      });
-
-      await this.enqueueActivity(activity.id);
-      summary.imported += 1;
-      summary.activityIds.push(activity.id);
-    }
-
-    if (summary.imported === 0 && summary.duplicates === 0 && parsed.workouts.length === 0) {
+    if (summary.imported === 0 && summary.duplicates === 0 && importedCandidates === 0) {
       const detail =
-        parsed.hint ??
-        `No runnable workouts with GPS found in the last ${days} days (sessions: ${parsed.totalSessions}, with GPS: ${parsed.withGps}, without route: ${parsed.withoutRoute}, too old: ${parsed.skippedByDate})`;
+        summary.hint ??
+        `No runnable workouts with GPS found in the last ${days} days (sessions: ${summary.total}, with GPS: ${summary.withGps}, without route: ${summary.withoutRoute}, too old: ${summary.skippedByDate})`;
       throw new ApiException(ErrorCodes.INVALID_FILE, detail, HttpStatus.BAD_REQUEST);
     }
 

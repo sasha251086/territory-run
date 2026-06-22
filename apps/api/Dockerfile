@@ -17,4 +17,4 @@ RUN pnpm run build
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "pnpm exec prisma migrate deploy && node dist/main.js"]
+CMD ["sh", "-c", "pnpm exec prisma migrate deploy && node --max-old-space-size=384 dist/main.js"]

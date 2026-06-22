@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import AdmZip from 'adm-zip';
 import { gunzipSync } from 'zlib';
+import * as yauzl from 'yauzl';
 import { haversineDistance } from '../common/geo.util';
 import type { GpxTrackPoint } from './gpx-parser.service';
 
@@ -48,18 +48,26 @@ interface RawSample {
   speed?: number;
 }
 
-type ExerciseFileKind = 'location_data' | 'live_data';
-
 interface ExerciseCsvRow {
   uuid: string;
   exerciseType?: number;
   locationRefs: string[];
-  liveRefs: string[];
 }
 
-interface EntryIndex {
-  byNormalizedPath: Map<string, AdmZip.IZipEntry>;
-  byBasename: Map<string, AdmZip.IZipEntry[]>;
+interface ZipEntryRef {
+  path: string;
+  entry: yauzl.Entry;
+}
+
+interface ParseAccumulator {
+  withoutRoute: number;
+  totalSessions: number;
+  skippedByDate: number;
+  withGps: number;
+  exerciseFilesScanned: number;
+  /** Best GPS point count per workout — used for dedup without retaining all tracks. */
+  workoutPointCounts: Map<string, number>;
+  importedWorkoutCount: number;
 }
 
 @Injectable()
@@ -73,196 +81,359 @@ export class SamsungHealthParserService {
   private static readonly EXERCISE_PATH_RE =
     /(?:com\.samsung\.(?:shealth\.|health\.)?(?:shealth\.)?exercise|shealth\.exercise)/i;
 
-  parseZipBuffer(zipBuffer: Buffer, options?: { days?: number }): SamsungZipParseResult {
+  async parseZipBuffer(zipBuffer: Buffer, options?: { days?: number }): Promise<SamsungZipParseResult> {
     if (!zipBuffer?.length) {
       throw new SamsungHealthParseError('ZIP archive is empty');
     }
 
-    let zip: AdmZip;
+    const zipfile = await this.openZipBuffer(zipBuffer);
     try {
-      zip = new AdmZip(zipBuffer);
-    } catch {
+      return await this.parseZipfile(zipfile, options);
+    } catch (error) {
+      if (error instanceof SamsungHealthParseError) throw error;
       throw new SamsungHealthParseError('File is not a valid ZIP archive');
+    } finally {
+      zipfile.close();
+    }
+  }
+
+  async parseZipFile(filePath: string, options?: { days?: number }): Promise<SamsungZipParseResult> {
+    const zipfile = await this.openZipFile(filePath);
+    try {
+      return await this.parseZipfile(zipfile, options);
+    } finally {
+      zipfile.close();
+    }
+  }
+
+  async *streamWorkouts(
+    filePath: string,
+    options?: { days?: number },
+  ): AsyncGenerator<SamsungParsedWorkout, SamsungZipParseResult> {
+    const zipfile = await this.openZipFile(filePath);
+    try {
+      const entries = await this.collectEntries(zipfile);
+      if (entries.length === 0) {
+        throw new SamsungHealthParseError('ZIP archive contains no files');
+      }
+
+      const exerciseTypes = await this.loadExerciseTypeMap(zipfile, entries);
+      const csvRows = await this.loadExerciseCsvRows(zipfile, entries);
+      for (const row of csvRows) {
+        if (row.exerciseType != null) {
+          exerciseTypes.set(row.uuid, row.exerciseType);
+        }
+      }
+
+      const acc: ParseAccumulator = {
+        withoutRoute: 0,
+        totalSessions: Math.max(csvRows.length, 0),
+        skippedByDate: 0,
+        withGps: 0,
+        exerciseFilesScanned: 0,
+        workoutPointCounts: new Map(),
+        importedWorkoutCount: 0,
+      };
+
+      for await (const workout of this.iterLocationWorkouts(
+        zipfile,
+        entries,
+        csvRows,
+        exerciseTypes,
+        options,
+        acc,
+      )) {
+        yield workout;
+      }
+
+      if (acc.importedWorkoutCount === 0 && acc.withGps === 0) {
+        throw new SamsungHealthParseError(this.buildEmptyArchiveHint(entries, csvRows.length));
+      }
+
+      return this.buildResult(acc, options);
+    } finally {
+      zipfile.close();
+    }
+  }
+
+  private async *iterLocationWorkouts(
+    zipfile: yauzl.ZipFile,
+    entries: ZipEntryRef[],
+    csvRows: ExerciseCsvRow[],
+    exerciseTypes: Map<string, number>,
+    options: { days?: number } | undefined,
+    acc: ParseAccumulator,
+  ): AsyncGenerator<SamsungParsedWorkout> {
+    for (const ref of entries) {
+      const workoutId = this.extractLocationWorkoutId(ref.path);
+      if (!workoutId) continue;
+
+      acc.exerciseFilesScanned += 1;
+      const data = await this.readEntryBuffer(zipfile, ref.entry);
+      const workout = this.buildWorkoutFromBuffer(
+        workoutId,
+        data,
+        exerciseTypes.get(workoutId),
+        options,
+        acc,
+      );
+      if (workout) yield workout;
     }
 
-    const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
+    for (const row of csvRows) {
+      if (acc.workoutPointCounts.has(row.uuid)) continue;
+
+      for (const refPath of row.locationRefs) {
+        const ref = this.resolveEntry(entries, refPath, row.uuid);
+        if (!ref) continue;
+
+        acc.exerciseFilesScanned += 1;
+        const data = await this.readEntryBuffer(zipfile, ref.entry);
+        const type = row.exerciseType ?? exerciseTypes.get(row.uuid);
+        const workout = this.buildWorkoutFromBuffer(row.uuid, data, type, options, acc);
+        if (workout) {
+          yield workout;
+          break;
+        }
+      }
+    }
+  }
+
+  private buildWorkoutFromBuffer(
+    workoutId: string,
+    data: Buffer,
+    exerciseType: number | undefined,
+    options: { days?: number } | undefined,
+    acc: ParseAccumulator,
+  ): SamsungParsedWorkout | null {
+    const samples = this.samplesFromBuffer(data);
+    const gpsSamples = samples.filter(
+      (sample) => sample.latitude != null && sample.longitude != null,
+    );
+    if (gpsSamples.length < 2) return null;
+
+    acc.withGps += 1;
+    const workout = this.buildWorkout(workoutId, gpsSamples, exerciseType);
+    if (!workout) {
+      acc.withoutRoute += 1;
+      return null;
+    }
+
+    if (this.isBeforeCutoff(workout.finishedAt, options?.days)) {
+      acc.skippedByDate += 1;
+      return null;
+    }
+
+    const existingCount = acc.workoutPointCounts.get(workoutId);
+    if (existingCount != null && existingCount >= workout.points.length) {
+      return null;
+    }
+
+    acc.workoutPointCounts.set(workoutId, workout.points.length);
+    acc.importedWorkoutCount += 1;
+    return workout;
+  }
+
+  private async parseZipfile(
+    zipfile: yauzl.ZipFile,
+    options?: { days?: number },
+  ): Promise<SamsungZipParseResult> {
+    const acc = await this.processZipEntries(zipfile, options);
+    if (acc.importedWorkoutCount === 0 && acc.withGps === 0) {
+      throw new SamsungHealthParseError(this.buildEmptyArchiveHint(acc.entries, acc.csvRows.length));
+    }
+    return this.buildResult(acc, options, acc.workouts);
+  }
+
+  private async processZipEntries(
+    zipfile: yauzl.ZipFile,
+    options?: { days?: number },
+  ): Promise<
+    ParseAccumulator & { entries: ZipEntryRef[]; csvRows: ExerciseCsvRow[]; workouts: SamsungParsedWorkout[] }
+  > {
+    const entries = await this.collectEntries(zipfile);
     if (entries.length === 0) {
       throw new SamsungHealthParseError('ZIP archive contains no files');
     }
 
-    const index = this.buildEntryIndex(entries);
-    const exerciseTypes = this.parseExerciseTypeMap(entries);
-    const csvRows = this.parseExerciseCsvRows(entries);
+    const exerciseTypes = await this.loadExerciseTypeMap(zipfile, entries);
+    const csvRows = await this.loadExerciseCsvRows(zipfile, entries);
     for (const row of csvRows) {
       if (row.exerciseType != null) {
         exerciseTypes.set(row.uuid, row.exerciseType);
       }
     }
 
-    const grouped = new Map<string, Partial<Record<ExerciseFileKind, RawSample[]>>>();
-    let exerciseFilesScanned = 0;
+    const acc: ParseAccumulator & {
+      entries: ZipEntryRef[];
+      csvRows: ExerciseCsvRow[];
+      workouts: SamsungParsedWorkout[];
+    } = {
+      withoutRoute: 0,
+      totalSessions: Math.max(csvRows.length, 0),
+      skippedByDate: 0,
+      withGps: 0,
+      exerciseFilesScanned: 0,
+      workoutPointCounts: new Map(),
+      importedWorkoutCount: 0,
+      entries,
+      csvRows,
+      workouts: [],
+    };
 
-    for (const entry of entries) {
-      const normalized = this.normalizePath(entry.entryName);
-      const namedMatch = normalized.match(SamsungHealthParserService.EXERCISE_ENTRY_RE);
-
-      if (namedMatch) {
-        const workoutId = namedMatch[1];
-        const kind = namedMatch[2].toLowerCase() as ExerciseFileKind;
-        const samples = this.samplesFromEntry(entry);
-        if (samples.length === 0) continue;
-
-        const gpsSamples = samples.filter(
-          (sample) => sample.latitude != null && sample.longitude != null,
-        );
-        if (kind === 'location_data' && gpsSamples.length < 2) continue;
-
-        exerciseFilesScanned += 1;
-        this.mergeGroupedSamples(
-          grouped,
-          workoutId,
-          kind,
-          kind === 'location_data' ? gpsSamples : samples,
-        );
-        continue;
-      }
-
-      if (!SamsungHealthParserService.EXERCISE_PATH_RE.test(normalized)) {
-        continue;
-      }
-
-      const uuidMatch = normalized.match(SamsungHealthParserService.UUID_RE);
-      if (!uuidMatch) continue;
-
-      const samples = this.samplesFromEntry(entry);
-      exerciseFilesScanned += 1;
-      if (samples.length === 0) continue;
-
-      const gpsSamples = samples.filter(
-        (sample) => sample.latitude != null && sample.longitude != null,
-      );
-      if (gpsSamples.length < 2) continue;
-
-      this.mergeGroupedSamples(grouped, uuidMatch[1], 'location_data', gpsSamples);
+    for await (const workout of this.iterLocationWorkouts(
+      zipfile,
+      entries,
+      csvRows,
+      exerciseTypes,
+      options,
+      acc,
+    )) {
+      acc.workouts.push(workout);
     }
 
-    for (const row of csvRows) {
-      for (const ref of row.locationRefs) {
-        const entry = this.resolveEntry(index, ref, row.uuid);
-        if (!entry) continue;
-        const samples = this.samplesFromEntry(entry);
-        exerciseFilesScanned += 1;
-        const gpsSamples = samples.filter(
-          (sample) => sample.latitude != null && sample.longitude != null,
-        );
-        if (gpsSamples.length < 2) continue;
-        this.mergeGroupedSamples(grouped, row.uuid, 'location_data', gpsSamples);
-      }
+    return acc;
+  }
 
-      for (const ref of row.liveRefs) {
-        const entry = this.resolveEntry(index, ref, row.uuid);
-        if (!entry) continue;
-        const samples = this.samplesFromEntry(entry);
-        exerciseFilesScanned += 1;
-        if (samples.length === 0) continue;
-        this.mergeGroupedSamples(grouped, row.uuid, 'live_data', samples);
-      }
-    }
-
-    if (grouped.size === 0) {
-      throw new SamsungHealthParseError(this.buildEmptyArchiveHint(entries, csvRows.length));
-    }
-
-    const cutoffMs =
-      options?.days != null
-        ? Date.now() - options.days * 24 * 60 * 60 * 1000
-        : undefined;
-
-    const workouts: SamsungParsedWorkout[] = [];
-    let withoutRoute = 0;
-    let skippedByDate = 0;
-    let withGps = 0;
-
-    for (const [workoutId, files] of grouped) {
-      const locationSamples = files.location_data ?? [];
-      if (locationSamples.length === 0) {
-        withoutRoute += 1;
-        continue;
-      }
-
-      withGps += 1;
-      const merged = this.mergeTracks([locationSamples, files.live_data ?? []]);
-      const workout = this.buildWorkout(workoutId, merged, exerciseTypes.get(workoutId));
-      if (!workout) {
-        withoutRoute += 1;
-        continue;
-      }
-
-      if (cutoffMs != null && workout.finishedAt.getTime() < cutoffMs) {
-        skippedByDate += 1;
-        continue;
-      }
-
-      workouts.push(workout);
-    }
+  private buildResult(
+    acc: ParseAccumulator,
+    options?: { days?: number },
+    workouts: SamsungParsedWorkout[] = [],
+  ): SamsungZipParseResult {
+    const resolvedWorkouts = workouts.length > 0 ? workouts : [];
+    const totalSessions = Math.max(acc.totalSessions, acc.importedWorkoutCount);
 
     let hint: string | undefined;
-    if (workouts.length === 0 && withGps > 0 && skippedByDate > 0) {
-      hint = `Найдено тренировок с GPS: ${withGps}, но все старше ${options?.days ?? 365} дней.`;
-    } else if (workouts.length === 0 && withoutRoute > 0 && withGps === 0) {
+    if (resolvedWorkouts.length === 0 && acc.withGps > 0 && acc.skippedByDate > 0) {
+      hint = `Найдено тренировок с GPS: ${acc.withGps}, но все старше ${options?.days ?? 365} дней.`;
+    } else if (resolvedWorkouts.length === 0 && acc.withoutRoute > 0 && acc.withGps === 0) {
       hint =
         'Тренировки в архиве есть, но без GPS-маршрута (дорожка, зал, или Samsung не сохранил координаты).';
     }
 
     return {
-      workouts,
-      withoutRoute,
-      totalSessions: grouped.size,
-      skippedByDate,
-      withGps,
-      exerciseFilesScanned,
+      workouts: resolvedWorkouts,
+      withoutRoute: acc.withoutRoute,
+      totalSessions,
+      skippedByDate: acc.skippedByDate,
+      withGps: acc.withGps,
+      exerciseFilesScanned: acc.exerciseFilesScanned,
       hint,
     };
+  }
+
+  private openZipFile(filePath: string): Promise<yauzl.ZipFile> {
+    return new Promise((resolve, reject) => {
+      yauzl.open(filePath, { lazyEntries: true, validateEntrySizes: true }, (err, zipfile) => {
+        if (err || !zipfile) reject(err ?? new Error('Failed to open ZIP'));
+        else resolve(zipfile);
+      });
+    });
+  }
+
+  private openZipBuffer(buffer: Buffer): Promise<yauzl.ZipFile> {
+    return new Promise((resolve, reject) => {
+      yauzl.fromBuffer(buffer, { lazyEntries: true, validateEntrySizes: true }, (err, zipfile) => {
+        if (err || !zipfile) reject(err ?? new Error('Failed to open ZIP buffer'));
+        else resolve(zipfile);
+      });
+    });
+  }
+
+  private collectEntries(zipfile: yauzl.ZipFile): Promise<ZipEntryRef[]> {
+    return new Promise((resolve, reject) => {
+      const entries: ZipEntryRef[] = [];
+      zipfile.on('entry', (entry) => {
+        if (/\/$/.test(entry.fileName)) {
+          zipfile.readEntry();
+          return;
+        }
+        entries.push({ path: this.normalizePath(entry.fileName), entry });
+        zipfile.readEntry();
+      });
+      zipfile.on('end', () => resolve(entries));
+      zipfile.on('error', reject);
+      zipfile.readEntry();
+    });
+  }
+
+  private readEntryBuffer(zipfile: yauzl.ZipFile, entry: yauzl.Entry): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      zipfile.openReadStream(entry, (err, stream) => {
+        if (err || !stream) {
+          reject(err ?? new Error('Failed to read ZIP entry'));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+        stream.on('end', () => resolve(Buffer.concat(chunks)));
+        stream.on('error', reject);
+      });
+    });
+  }
+
+  private async loadExerciseTypeMap(
+    zipfile: yauzl.ZipFile,
+    entries: ZipEntryRef[],
+  ): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    for (const ref of entries) {
+      if (!this.isExerciseCsvPath(ref.path)) continue;
+      const text = (await this.readEntryBuffer(zipfile, ref.entry)).toString('utf-8');
+      this.mergeExerciseTypesFromCsv(text, map);
+    }
+    return map;
+  }
+
+  private async loadExerciseCsvRows(
+    zipfile: yauzl.ZipFile,
+    entries: ZipEntryRef[],
+  ): Promise<ExerciseCsvRow[]> {
+    const rows: ExerciseCsvRow[] = [];
+    for (const ref of entries) {
+      if (!this.isExerciseCsvPath(ref.path)) continue;
+      const text = (await this.readEntryBuffer(zipfile, ref.entry)).toString('utf-8');
+      rows.push(...this.parseExerciseCsvText(text));
+    }
+    return rows;
+  }
+
+  private extractLocationWorkoutId(path: string): string | null {
+    const namedMatch = path.match(SamsungHealthParserService.EXERCISE_ENTRY_RE);
+    if (namedMatch) {
+      if (namedMatch[2].toLowerCase() !== 'location_data') return null;
+      if (/location_data_internal/i.test(path)) return null;
+      return namedMatch[1];
+    }
+
+    if (!SamsungHealthParserService.EXERCISE_PATH_RE.test(path)) return null;
+    if (/location_data_internal|live_data/i.test(path)) return null;
+
+    const uuidMatch = path.match(SamsungHealthParserService.UUID_RE);
+    if (!uuidMatch) return null;
+    if (!/location_data/i.test(path)) return null;
+    return uuidMatch[1];
+  }
+
+  private isBeforeCutoff(finishedAt: Date, days?: number): boolean {
+    if (days == null) return false;
+    const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
+    return finishedAt.getTime() < cutoffMs;
+  }
+
+  private isExerciseCsvPath(path: string): boolean {
+    return /com\.samsung\.(?:shealth\.|health\.)?exercise.*\.csv$/i.test(path);
   }
 
   private normalizePath(entryName: string): string {
     return entryName.replace(/\\/g, '/').replace(/^\/+/, '');
   }
 
-  private buildEntryIndex(entries: AdmZip.IZipEntry[]): EntryIndex {
-    const byNormalizedPath = new Map<string, AdmZip.IZipEntry>();
-    const byBasename = new Map<string, AdmZip.IZipEntry[]>();
-
-    for (const entry of entries) {
-      const normalized = this.normalizePath(entry.entryName);
-      const variants = new Set<string>([normalized.toLowerCase()]);
-
-      const parts = normalized.split('/');
-      if (parts.length > 1) {
-        variants.add(parts.slice(1).join('/').toLowerCase());
-      }
-      if (parts.length > 2) {
-        variants.add(parts.slice(2).join('/').toLowerCase());
-      }
-
-      for (const key of variants) {
-        byNormalizedPath.set(key, entry);
-      }
-
-      const basename = parts[parts.length - 1]?.toLowerCase() ?? normalized.toLowerCase();
-      const bucket = byBasename.get(basename) ?? [];
-      bucket.push(entry);
-      byBasename.set(basename, bucket);
-    }
-
-    return { byNormalizedPath, byBasename };
-  }
-
   private resolveEntry(
-    index: EntryIndex,
+    entries: ZipEntryRef[],
     ref: string,
     uuid: string,
-  ): AdmZip.IZipEntry | undefined {
+  ): ZipEntryRef | undefined {
     const cleaned = ref.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^\.?\//, '');
     const candidates = new Set<string>([
       cleaned.toLowerCase(),
@@ -270,55 +441,43 @@ export class SamsungHealthParserService {
       cleaned.replace(/^jsons\//i, 'json/').toLowerCase(),
     ]);
 
-    for (const candidate of candidates) {
-      const hit = index.byNormalizedPath.get(candidate);
-      if (hit) return hit;
+    for (const refEntry of entries) {
+      const pathLower = refEntry.path.toLowerCase();
+      for (const candidate of candidates) {
+        if (pathLower === candidate || pathLower.endsWith(`/${candidate}`)) {
+          return refEntry;
+        }
+      }
     }
 
     const basename = cleaned.split('/').pop()?.toLowerCase();
     if (basename) {
-      const byName = index.byBasename.get(basename);
-      if (byName?.length === 1) return byName[0];
-      if (byName && byName.length > 1) {
-        const scoped = byName.find((entry) =>
-          this.normalizePath(entry.entryName).toLowerCase().includes(uuid.toLowerCase()),
+      const matches = entries.filter((refEntry) => {
+        const parts = refEntry.path.split('/');
+        return parts[parts.length - 1]?.toLowerCase() === basename;
+      });
+      if (matches.length === 1) return matches[0];
+      if (matches.length > 1) {
+        const scoped = matches.find((refEntry) =>
+          refEntry.path.toLowerCase().includes(uuid.toLowerCase()),
         );
         if (scoped) return scoped;
       }
     }
 
     const uuidLower = uuid.toLowerCase();
-    for (const entry of index.byNormalizedPath.values()) {
-      const path = this.normalizePath(entry.entryName).toLowerCase();
-      if (!SamsungHealthParserService.EXERCISE_PATH_RE.test(path)) continue;
-      if (!path.includes(uuidLower)) continue;
-      return entry;
-    }
-
-    return undefined;
+    return entries.find((refEntry) => {
+      const pathLower = refEntry.path.toLowerCase();
+      return (
+        SamsungHealthParserService.EXERCISE_PATH_RE.test(pathLower) &&
+        pathLower.includes(uuidLower)
+      );
+    });
   }
 
-  private mergeGroupedSamples(
-    grouped: Map<string, Partial<Record<ExerciseFileKind, RawSample[]>>>,
-    workoutId: string,
-    kind: ExerciseFileKind,
-    samples: RawSample[],
-  ) {
-    const bucket = grouped.get(workoutId) ?? {};
-    bucket[kind] = this.mergeSamples(bucket[kind] ?? [], samples);
-    grouped.set(workoutId, bucket);
-  }
-
-  private buildEmptyArchiveHint(entries: AdmZip.IZipEntry[], csvRows: number): string {
-    const hasExerciseCsv = entries.some(
-      (entry) =>
-        /com\.samsung\.(?:shealth\.|health\.)?exercise.*\.csv$/i.test(
-          this.normalizePath(entry.entryName),
-        ),
-    );
-    const hasJsonFolder = entries.some((entry) =>
-      /(?:^|\/)jsons?\//i.test(this.normalizePath(entry.entryName)),
-    );
+  private buildEmptyArchiveHint(entries: ZipEntryRef[], csvRows: number): string {
+    const hasExerciseCsv = entries.some((ref) => this.isExerciseCsvPath(ref.path));
+    const hasJsonFolder = entries.some((ref) => /(?:^|\/)jsons?\//i.test(ref.path));
 
     if (!hasExerciseCsv && !hasJsonFolder) {
       return (
@@ -340,83 +499,91 @@ export class SamsungHealthParserService {
     );
   }
 
-  private parseExerciseCsvRows(entries: AdmZip.IZipEntry[]): ExerciseCsvRow[] {
+  private mergeExerciseTypesFromCsv(text: string, map: Map<string, number>): void {
+    const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
+    if (lines.length < 2) return;
+
+    const headerIdx = this.findCsvHeaderIndex(lines);
+    if (headerIdx < 0) return;
+
+    const headers = this.parseCsvLine(lines[headerIdx]).map((h) => h.trim().toLowerCase());
+    const uuidIdx = headers.findIndex(
+      (h) => h === 'uuid' || h.endsWith('.datauuid') || h.endsWith('.uuid'),
+    );
+    const typeIdx = headers.findIndex(
+      (h) => h.includes('exercise_type') || h.includes('exercise.type'),
+    );
+    if (uuidIdx < 0) return;
+
+    for (const line of lines.slice(headerIdx + 1)) {
+      const cols = this.parseCsvLine(line);
+      const uuid = cols[uuidIdx]?.replace(/"/g, '').trim();
+      if (!uuid) continue;
+      if (typeIdx >= 0) {
+        const type = Number(cols[typeIdx]?.replace(/"/g, '').trim());
+        if (!Number.isNaN(type)) map.set(uuid, type);
+      }
+    }
+  }
+
+  private parseExerciseCsvText(text: string): ExerciseCsvRow[] {
     const rows: ExerciseCsvRow[] = [];
+    const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim().length > 0);
+    if (lines.length < 2) return rows;
 
-    for (const entry of entries) {
-      const name = this.normalizePath(entry.entryName);
-      if (!/com\.samsung\.(?:shealth\.|health\.)?exercise.*\.csv$/i.test(name)) continue;
+    const headerIdx = this.findCsvHeaderIndex(lines);
+    if (headerIdx < 0) return rows;
 
-      const text = entry.getData().toString('utf-8').replace(/^\uFEFF/, '');
-      const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
-      if (lines.length < 2) continue;
+    const headers = this.parseCsvLine(lines[headerIdx]).map((h) => h.trim());
+    const uuidIdx = headers.findIndex((h) => {
+      const lower = h.toLowerCase();
+      return (
+        lower === 'uuid' ||
+        lower.endsWith('.datauuid') ||
+        lower.endsWith('.uuid') ||
+        lower === 'com.samsung.health.exercise.datauuid'
+      );
+    });
+    if (uuidIdx < 0) return rows;
 
-      const headerIdx = this.findCsvHeaderIndex(lines);
-      if (headerIdx < 0) continue;
+    const typeIdx = headers.findIndex((h) => {
+      const lower = h.toLowerCase();
+      return lower.includes('exercise_type') || lower.includes('exercise.type');
+    });
 
-      const headers = this.parseCsvLine(lines[headerIdx]).map((h) => h.trim());
-      const uuidIdx = headers.findIndex((h) => {
-        const lower = h.toLowerCase();
+    const locationCols = headers
+      .map((header, idx) => ({ header, idx }))
+      .filter(({ header }) => {
+        const lower = header.toLowerCase();
         return (
-          lower === 'uuid' ||
-          lower.endsWith('.datauuid') ||
-          lower.endsWith('.uuid') ||
-          lower === 'com.samsung.health.exercise.datauuid'
+          lower === 'com.samsung.health.exercise.location_data' ||
+          (lower.includes('location_data') && !lower.includes('_internal'))
         );
       });
-      if (uuidIdx < 0) continue;
 
-      const typeIdx = headers.findIndex((h) => {
-        const lower = h.toLowerCase();
-        return lower.includes('exercise_type') || lower.includes('exercise.type');
-      });
+    for (const line of lines.slice(headerIdx + 1)) {
+      const cols = this.parseCsvLine(line);
+      const uuid = cols[uuidIdx]?.replace(/"/g, '').trim();
+      if (!uuid || !SamsungHealthParserService.UUID_RE.test(uuid)) continue;
 
-      const locationCols = headers
-        .map((header, idx) => ({ header, idx }))
-        .filter(({ header }) => {
-          const lower = header.toLowerCase();
-          return (
-            lower === 'com.samsung.health.exercise.location_data' ||
-            (lower.includes('location_data') && !lower.includes('_internal'))
-          );
-        });
-      const liveCols = headers
-        .map((header, idx) => ({ header, idx }))
-        .filter(({ header }) => {
-          const lower = header.toLowerCase();
-          return (
-            lower === 'com.samsung.health.exercise.live_data' ||
-            (lower.includes('live_data') && !lower.includes('_internal'))
-          );
-        });
-
-      for (const line of lines.slice(headerIdx + 1)) {
-        const cols = this.parseCsvLine(line);
-        const uuid = cols[uuidIdx]?.replace(/"/g, '').trim();
-        if (!uuid || !SamsungHealthParserService.UUID_RE.test(uuid)) continue;
-
-        let exerciseType: number | undefined;
-        if (typeIdx >= 0) {
-          const parsed = Number(cols[typeIdx]?.replace(/"/g, '').trim());
-          if (!Number.isNaN(parsed)) exerciseType = parsed;
-        }
-
-        const locationRefs = locationCols
-          .map(({ idx }) => cols[idx]?.replace(/"/g, '').trim())
-          .filter((value) => value && value.length > 0);
-        const liveRefs = liveCols
-          .map(({ idx }) => cols[idx]?.replace(/"/g, '').trim())
-          .filter((value) => value && value.length > 0);
-
-        rows.push({ uuid, exerciseType, locationRefs, liveRefs });
+      let exerciseType: number | undefined;
+      if (typeIdx >= 0) {
+        const parsed = Number(cols[typeIdx]?.replace(/"/g, '').trim());
+        if (!Number.isNaN(parsed)) exerciseType = parsed;
       }
+
+      const locationRefs = locationCols
+        .map(({ idx }) => cols[idx]?.replace(/"/g, '').trim())
+        .filter((value) => value && value.length > 0);
+
+      rows.push({ uuid, exerciseType, locationRefs });
     }
 
     return rows;
   }
 
-  private samplesFromEntry(entry: AdmZip.IZipEntry): RawSample[] {
-    const parsed = this.decodeJsonEntry(entry.getData());
+  private samplesFromBuffer(data: Buffer): RawSample[] {
+    const parsed = this.decodeJsonEntry(data);
     if (!parsed) return [];
     return this.normalizeSamples(parsed);
   }
@@ -509,22 +676,6 @@ export class SamsungHealthParserService {
     return numeric;
   }
 
-  private mergeSamples(existing: RawSample[], incoming: RawSample[]): RawSample[] {
-    const byTime = new Map<number, RawSample>();
-    for (const sample of [...existing, ...incoming]) {
-      if (sample.start_time == null) continue;
-      const prev = byTime.get(sample.start_time) ?? {};
-      byTime.set(sample.start_time, { ...prev, ...sample });
-    }
-    return [...byTime.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([, sample]) => sample);
-  }
-
-  private mergeTracks(tracks: RawSample[][]): RawSample[] {
-    return this.mergeSamples([], tracks.flat());
-  }
-
   private buildWorkout(
     workoutId: string,
     samples: RawSample[],
@@ -574,44 +725,6 @@ export class SamsungHealthParserService {
       durationSeconds,
       exerciseType,
     };
-  }
-
-  private parseExerciseTypeMap(entries: AdmZip.IZipEntry[]): Map<string, number> {
-    const map = new Map<string, number>();
-
-    for (const entry of entries) {
-      if (entry.isDirectory) continue;
-      const name = this.normalizePath(entry.entryName);
-      if (!/com\.samsung\.(?:shealth\.|health\.)?exercise.*\.csv$/i.test(name)) continue;
-
-      const text = entry.getData().toString('utf-8').replace(/^\uFEFF/, '');
-      const lines = text.split(/\r?\n/).filter(Boolean);
-      if (lines.length < 2) continue;
-
-      const headerIdx = this.findCsvHeaderIndex(lines);
-      if (headerIdx < 0) continue;
-
-      const headers = this.parseCsvLine(lines[headerIdx]).map((h) => h.trim().toLowerCase());
-      const uuidIdx = headers.findIndex(
-        (h) => h === 'uuid' || h.endsWith('.datauuid') || h.endsWith('.uuid'),
-      );
-      const typeIdx = headers.findIndex(
-        (h) => h.includes('exercise_type') || h.includes('exercise.type'),
-      );
-      if (uuidIdx < 0) continue;
-
-      for (const line of lines.slice(headerIdx + 1)) {
-        const cols = this.parseCsvLine(line);
-        const uuid = cols[uuidIdx]?.replace(/"/g, '').trim();
-        if (!uuid) continue;
-        if (typeIdx >= 0) {
-          const type = Number(cols[typeIdx]?.replace(/"/g, '').trim());
-          if (!Number.isNaN(type)) map.set(uuid, type);
-        }
-      }
-    }
-
-    return map;
   }
 
   private findCsvHeaderIndex(lines: string[]): number {

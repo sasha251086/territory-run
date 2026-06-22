@@ -14,6 +14,9 @@
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { randomUUID } from 'crypto';
+import { tmpdir } from 'os';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -88,6 +91,12 @@ export class ActivitiesController {
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: MAX_SAMSUNG_ZIP_BYTES },
+      storage: diskStorage({
+        destination: tmpdir(),
+        filename: (_req, file, callback) => {
+          callback(null, `samsung-${randomUUID()}.zip`);
+        },
+      }),
     }),
   )
   @ApiConsumes('multipart/form-data')
@@ -109,7 +118,7 @@ export class ActivitiesController {
   })
   async importSamsungZip(
     @Request() req: { user: { id: string } },
-    @UploadedFile() file: { buffer: Buffer; originalname: string; size: number } | undefined,
+    @UploadedFile() file: { path: string; originalname: string; size: number } | undefined,
     @Query('days') days?: string,
   ) {
     if (!file) {
