@@ -12,6 +12,7 @@ import { GpxParserService, GpxParseError } from './gpx-parser.service';
 import {
   SamsungHealthParserService,
   SamsungHealthParseError,
+  type SamsungZipParseResult,
 } from './samsung-health-parser.service';
 
 type DbClient = PrismaService | Prisma.TransactionClient;
@@ -189,11 +190,17 @@ export class ActivitiesService {
 
     try {
       const generator = this.samsungHealthParserService.streamWorkouts(file.path, { days });
-      let next = await generator.next();
+      let parsed: SamsungZipParseResult | undefined;
 
-      while (!next.done) {
+      for (;;) {
+        const step = await generator.next();
+        if (step.done) {
+          parsed = step.value;
+          break;
+        }
+
         importedCandidates += 1;
-        const workout = next.value;
+        const workout = step.value;
 
         const duplicate = await this.prisma.processedActivity.findUnique({
           where: {
@@ -206,7 +213,6 @@ export class ActivitiesService {
 
         if (duplicate) {
           summary.duplicates += 1;
-          next = await generator.next();
           continue;
         }
 
@@ -245,10 +251,12 @@ export class ActivitiesService {
         await this.enqueueActivity(activity.id);
         summary.imported += 1;
         summary.activityIds.push(activity.id);
-        next = await generator.next();
       }
 
-      const parsed = next.value;
+      if (!parsed) {
+        throw new SamsungHealthParseError('Failed to parse Samsung Health export');
+      }
+
       summary.withoutRoute = parsed.withoutRoute;
       summary.total = parsed.totalSessions;
       summary.skippedByDate = parsed.skippedByDate;
