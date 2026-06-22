@@ -12,7 +12,6 @@ import { GpxParserService, GpxParseError } from './gpx-parser.service';
 import {
   SamsungHealthParserService,
   SamsungHealthParseError,
-  type SamsungZipParseResult,
 } from './samsung-health-parser.service';
 
 type DbClient = PrismaService | Prisma.TransactionClient;
@@ -189,73 +188,63 @@ export class ActivitiesService {
     let importedCandidates = 0;
 
     try {
-      const generator = this.samsungHealthParserService.streamWorkouts(file.path, { days });
-      let parsed: SamsungZipParseResult | undefined;
+      const parsed = await this.samsungHealthParserService.consumeWorkouts(
+        file.path,
+        { days },
+        async (workout) => {
+          importedCandidates += 1;
 
-      for (;;) {
-        const step = await generator.next();
-        if (step.done) {
-          parsed = step.value;
-          break;
-        }
-
-        importedCandidates += 1;
-        const workout = step.value;
-
-        const duplicate = await this.prisma.processedActivity.findUnique({
-          where: {
-            provider_externalActivityId: {
-              provider: SAMSUNG_ZIP_PROVIDER,
-              externalActivityId: workout.id,
-            },
-          },
-        });
-
-        if (duplicate) {
-          summary.duplicates += 1;
-          continue;
-        }
-
-        const avgPace =
-          workout.distanceMeters > 0
-            ? Math.round(workout.durationSeconds / (workout.distanceMeters / 1000))
-            : undefined;
-
-        const activity = await this.prisma.$transaction(async (tx) => {
-          await tx.processedActivity.create({
-            data: {
-              provider: SAMSUNG_ZIP_PROVIDER,
-              externalActivityId: workout.id,
+          const duplicate = await this.prisma.processedActivity.findUnique({
+            where: {
+              provider_externalActivityId: {
+                provider: SAMSUNG_ZIP_PROVIDER,
+                externalActivityId: workout.id,
+              },
             },
           });
 
-          return this.createFromExternal(
-            userId,
-            {
-              source: 'samsung_health_zip',
-              distanceMeters: workout.distanceMeters,
-              durationSeconds: workout.durationSeconds,
-              avgPace,
-              startedAt: workout.startedAt,
-              finishedAt: workout.finishedAt,
-              track: workout.points.map((point) => ({
-                lat: point.lat,
-                lng: point.lng,
-                timestamp: point.timestamp,
-              })),
-            },
-            tx,
-          );
-        });
+          if (duplicate) {
+            summary.duplicates += 1;
+            return;
+          }
 
-        await this.enqueueActivity(activity.id);
-        summary.imported += 1;
-        summary.activityIds.push(activity.id);
-      }
+          const avgPace =
+            workout.distanceMeters > 0
+              ? Math.round(workout.durationSeconds / (workout.distanceMeters / 1000))
+              : undefined;
 
-      if (!parsed) {
-        throw new SamsungHealthParseError('Failed to parse Samsung Health export');
-      }
+          const activity = await this.prisma.$transaction(async (tx) => {
+            await tx.processedActivity.create({
+              data: {
+                provider: SAMSUNG_ZIP_PROVIDER,
+                externalActivityId: workout.id,
+              },
+            });
+
+            return this.createFromExternal(
+              userId,
+              {
+                source: 'samsung_health_zip',
+                distanceMeters: workout.distanceMeters,
+                durationSeconds: workout.durationSeconds,
+                avgPace,
+                startedAt: workout.startedAt,
+                finishedAt: workout.finishedAt,
+                track: workout.points.map((point) => ({
+                  lat: point.lat,
+                  lng: point.lng,
+                  timestamp: point.timestamp,
+                })),
+              },
+              tx,
+            );
+          });
+
+          await this.enqueueActivity(activity.id);
+          summary.imported += 1;
+          summary.activityIds.push(activity.id);
+        },
+      );
 
       summary.withoutRoute = parsed.withoutRoute;
       summary.total = parsed.totalSessions;

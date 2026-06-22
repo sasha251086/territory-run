@@ -106,10 +106,11 @@ export class SamsungHealthParserService {
     }
   }
 
-  async *streamWorkouts(
+  async consumeWorkouts(
     filePath: string,
-    options?: { days?: number },
-  ): AsyncGenerator<SamsungParsedWorkout, SamsungZipParseResult> {
+    options: { days?: number } | undefined,
+    onWorkout: (workout: SamsungParsedWorkout) => Promise<void> | void,
+  ): Promise<SamsungZipParseResult> {
     const zipfile = await this.openZipFile(filePath);
     try {
       const entries = await this.collectEntries(zipfile);
@@ -135,16 +136,15 @@ export class SamsungHealthParserService {
         importedWorkoutCount: 0,
       };
 
-      for await (const workout of this.iterLocationWorkouts(
+      await this.walkLocationWorkouts(
         zipfile,
         entries,
         csvRows,
         exerciseTypes,
         options,
         acc,
-      )) {
-        yield workout;
-      }
+        onWorkout,
+      );
 
       if (acc.importedWorkoutCount === 0 && acc.withGps === 0) {
         throw new SamsungHealthParseError(this.buildEmptyArchiveHint(entries, csvRows.length));
@@ -156,14 +156,15 @@ export class SamsungHealthParserService {
     }
   }
 
-  private async *iterLocationWorkouts(
+  private async walkLocationWorkouts(
     zipfile: yauzl.ZipFile,
     entries: ZipEntryRef[],
     csvRows: ExerciseCsvRow[],
     exerciseTypes: Map<string, number>,
     options: { days?: number } | undefined,
     acc: ParseAccumulator,
-  ): AsyncGenerator<SamsungParsedWorkout> {
+    onWorkout: (workout: SamsungParsedWorkout) => Promise<void> | void,
+  ): Promise<void> {
     for (const ref of entries) {
       const workoutId = this.extractLocationWorkoutId(ref.path);
       if (!workoutId) continue;
@@ -177,7 +178,7 @@ export class SamsungHealthParserService {
         options,
         acc,
       );
-      if (workout) yield workout;
+      if (workout) await onWorkout(workout);
     }
 
     for (const row of csvRows) {
@@ -192,7 +193,7 @@ export class SamsungHealthParserService {
         const type = row.exerciseType ?? exerciseTypes.get(row.uuid);
         const workout = this.buildWorkoutFromBuffer(row.uuid, data, type, options, acc);
         if (workout) {
-          yield workout;
+          await onWorkout(workout);
           break;
         }
       }
@@ -281,16 +282,17 @@ export class SamsungHealthParserService {
       workouts: [],
     };
 
-    for await (const workout of this.iterLocationWorkouts(
+    await this.walkLocationWorkouts(
       zipfile,
       entries,
       csvRows,
       exerciseTypes,
       options,
       acc,
-    )) {
-      acc.workouts.push(workout);
-    }
+      (workout) => {
+        acc.workouts.push(workout);
+      },
+    );
 
     return acc;
   }
