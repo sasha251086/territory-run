@@ -88,7 +88,7 @@ export default function ActivitiesPage() {
       } else if (result.withoutRoute > 0 && result.imported === 0 && result.duplicates === 0) {
         setMessage(
           `Найдено тренировок: ${result.total}, но без GPS-маршрута (${result.withoutRoute}). ` +
-            'Нужен источник маршрута — см. примечание разработчику.',
+            'Пробежки на дорожке/в зале без GPS не захватывают территорию — нужен трек с улицы.',
         );
       } else if (result.duplicates > 0 && result.imported === 0) {
         setMessage('Новых пробежек нет — все уже импортированы.');

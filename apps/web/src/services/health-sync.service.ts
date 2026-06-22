@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
-import { Health } from '@capgo/capacitor-health';
-import type { Workout } from '@capgo/capacitor-health';
+import { Health } from 'capacitor-health';
+import type { Workout, RouteSample } from 'capacitor-health';
 import { apiRequest } from '../api/client';
 
 export interface HealthSyncResult {
@@ -16,33 +16,13 @@ interface TrackPoint {
   timestamp: string;
 }
 
-/**
- * ВНИМАНИЕ (блокер маршрута):
- * Плагин @capgo/capacitor-health (v8.x) в типе Workout НЕ возвращает GPS-трек
- * тренировки — только сводку (тип, длительность, дистанция, источник, platformId).
- * Territory Run для захвата клеток нужен именно массив точек маршрута.
- *
- * Поэтому ниже мы защитно пытаемся прочитать поле `route`, если конкретная
- * сборка/форк плагина его предоставляет. Если маршрута нет — тренировка
- * пропускается (withoutRoute), а не отправляется на сервер без трека.
- *
- * Чтобы фича реально импортировала пробежки, нужно подключить источник
- * маршрута (route-capable плагин или небольшой кастомный нативный плагин,
- * читающий HKWorkoutRoute на iOS и ExerciseRoute в Health Connect на Android).
- */
-interface NativeRoutePoint {
-  latitude?: number;
-  longitude?: number;
-  lat?: number;
-  lng?: number;
-  timestamp?: string;
-  time?: string;
-  date?: string;
-}
+// mley/capacitor-health отдаёт GPS-маршрут тренировки через queryWorkouts({ includeRoute: true }).
+// На iOS это HKWorkoutRoute, на Android — ExerciseRoute из Health Connect.
+// Права: READ_WORKOUTS (сводка), READ_ROUTE (маршрут), READ_DISTANCE (дистанция).
+const READ_PERMISSIONS = ['READ_WORKOUTS', 'READ_ROUTE', 'READ_DISTANCE'] as const;
 
-type WorkoutWithRoute = Workout & { route?: NativeRoutePoint[] };
-
-const RUN_LIKE_TYPES = new Set(['running', 'walking', 'hiking']);
+// Тренировки, дающие осмысленный пеший маршрут для захвата клеток.
+const FOOT_ACTIVITY_PATTERN = /run|walk|hik|jog|trail|treadmill|бег|ходьб/i;
 
 export const healthSync = {
   isNativeApp(): boolean {
@@ -56,7 +36,7 @@ export const healthSync = {
   async isAvailable(): Promise<boolean> {
     if (!this.isNativeApp()) return false;
     try {
-      const result = await Health.isAvailable();
+      const result = await Health.isHealthAvailable();
       return result.available;
     } catch {
       return false;
@@ -66,51 +46,54 @@ export const healthSync = {
   async requestPermissions(): Promise<boolean> {
     if (!this.isNativeApp()) return false;
     try {
-      const status = await Health.requestAuthorization({
-        read: ['workouts', 'distance'],
+      const status = await Health.requestHealthPermissions({
+        permissions: [...READ_PERMISSIONS],
       });
-      return status.readAuthorized.includes('workouts');
+      // mley возвращает permissions как массив объектов вида [{ READ_WORKOUTS: true }, ...].
+      return status.permissions.some((entry) => entry.READ_WORKOUTS === true);
     } catch (error) {
       console.error('Health permissions denied', error);
       return false;
     }
   },
 
-  async getRecentWorkouts(days = 14): Promise<WorkoutWithRoute[]> {
+  async getRecentWorkouts(days = 14): Promise<Workout[]> {
     if (!this.isNativeApp()) return [];
 
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    const collected: WorkoutWithRoute[] = [];
-    let anchor: string | undefined;
+    const result = await Health.queryWorkouts({
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      includeRoute: true,
+      includeHeartRate: false,
+      includeSteps: false,
+    });
 
-    do {
-      const result = await Health.queryWorkouts({
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        limit: 50,
-        ascending: true,
-        anchor,
-      });
-      collected.push(...(result.workouts as WorkoutWithRoute[]));
-      anchor = result.anchor;
-    } while (anchor);
-
-    return collected.filter((w) => RUN_LIKE_TYPES.has(w.workoutType));
+    const workouts = result.workouts ?? [];
+    // Импортируем только тренировки, у которых есть GPS-маршрут (>= 2 точки).
+    // Тип фильтруем мягко: явный пеший тип ИЛИ неизвестный тип, но с маршрутом.
+    return workouts.filter((w) => {
+      const hasRoute = Array.isArray(w.route) && w.route.length >= 2;
+      if (!hasRoute) return false;
+      if (!w.workoutType) return true;
+      return FOOT_ACTIVITY_PATTERN.test(w.workoutType);
+    });
   },
 
-  extractRoute(workout: WorkoutWithRoute): TrackPoint[] {
-    if (!Array.isArray(workout.route)) return [];
+  extractRoute(workout: Workout): TrackPoint[] {
+    const route: RouteSample[] = Array.isArray(workout.route) ? workout.route : [];
 
-    return workout.route
+    return route
       .map((point) => {
-        const lat = point.latitude ?? point.lat;
-        const lng = point.longitude ?? point.lng;
-        const timestamp = point.timestamp ?? point.time ?? point.date;
-        if (lat == null || lng == null || !timestamp) return null;
-        return { lat, lng, timestamp } satisfies TrackPoint;
+        if (point.lat == null || point.lng == null || !point.timestamp) return null;
+        return {
+          lat: point.lat,
+          lng: point.lng,
+          timestamp: new Date(point.timestamp).toISOString(),
+        } satisfies TrackPoint;
       })
       .filter((p): p is TrackPoint => p !== null);
   },
@@ -136,7 +119,7 @@ export const healthSync = {
         continue;
       }
 
-      const platformId = workout.platformId || `${workout.startDate}-${workout.endDate}`;
+      const platformId = workout.id || `${workout.startDate}-${workout.endDate}`;
       const durationSeconds =
         workout.duration ||
         Math.round(
@@ -149,7 +132,7 @@ export const healthSync = {
           body: JSON.stringify({
             source,
             platformId,
-            distanceMeters: Math.round(workout.totalDistance ?? 0),
+            distanceMeters: Math.round(workout.distance ?? 0),
             durationSeconds,
             startedAt: new Date(workout.startDate).toISOString(),
             finishedAt: new Date(workout.endDate).toISOString(),
