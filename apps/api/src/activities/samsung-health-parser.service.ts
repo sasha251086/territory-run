@@ -1,8 +1,31 @@
 import { Injectable } from '@nestjs/common';
 import { gunzipSync } from 'zlib';
-import * as yauzl from 'yauzl';
+import type { Entry, Options, ZipFile } from 'yauzl';
 import { haversineDistance } from '../common/geo.util';
 import type { GpxTrackPoint } from './gpx-parser.service';
+
+// Runtime require avoids ESM/CJS interop issues with yauzl in compiled dist/.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const yauzl = require('yauzl') as {
+  open: (
+    path: string,
+    options: Options,
+    callback: (err: Error | null, zipfile?: ZipFile) => void,
+  ) => void;
+  openPromise?: (path: string, options?: Options) => Promise<ZipFile>;
+  fromBuffer: (
+    buffer: Buffer,
+    options: Options,
+    callback: (err: Error | null, zipfile?: ZipFile) => void,
+  ) => void;
+  fromBufferPromise?: (buffer: Buffer, options?: Options) => Promise<ZipFile>;
+};
+
+const ZIP_OPEN_OPTIONS: Options = {
+  lazyEntries: true,
+  // Samsung export ZIPs may report sizes that do not match streamed bytes.
+  validateEntrySizes: false,
+};
 
 export interface SamsungParsedWorkout {
   id: string;
@@ -56,7 +79,7 @@ interface ExerciseCsvRow {
 
 interface ZipEntryRef {
   path: string;
-  entry: yauzl.Entry;
+  entry: Entry;
 }
 
 interface ParseAccumulator {
@@ -91,7 +114,7 @@ export class SamsungHealthParserService {
       return await this.parseZipfile(zipfile, options);
     } catch (error) {
       if (error instanceof SamsungHealthParseError) throw error;
-      throw new SamsungHealthParseError('File is not a valid ZIP archive');
+      throw this.toParseError(error, 'Failed to parse Samsung Health ZIP');
     } finally {
       zipfile.close();
     }
@@ -111,8 +134,9 @@ export class SamsungHealthParserService {
     options: { days?: number } | undefined,
     onWorkout: (workout: SamsungParsedWorkout) => Promise<void> | void,
   ): Promise<SamsungZipParseResult> {
-    const zipfile = await this.openZipFile(filePath);
+    let zipfile: ZipFile | undefined;
     try {
+      zipfile = await this.openZipFile(filePath);
       const entries = await this.collectEntries(zipfile);
       if (entries.length === 0) {
         throw new SamsungHealthParseError('ZIP archive contains no files');
@@ -151,13 +175,16 @@ export class SamsungHealthParserService {
       }
 
       return this.buildResult(acc, options);
+    } catch (error) {
+      if (error instanceof SamsungHealthParseError) throw error;
+      throw this.toParseError(error, 'Failed to read Samsung Health ZIP');
     } finally {
-      zipfile.close();
+      zipfile?.close();
     }
   }
 
   private async walkLocationWorkouts(
-    zipfile: yauzl.ZipFile,
+    zipfile: ZipFile,
     entries: ZipEntryRef[],
     csvRows: ExerciseCsvRow[],
     exerciseTypes: Map<string, number>,
@@ -236,7 +263,7 @@ export class SamsungHealthParserService {
   }
 
   private async parseZipfile(
-    zipfile: yauzl.ZipFile,
+    zipfile: ZipFile,
     options?: { days?: number },
   ): Promise<SamsungZipParseResult> {
     const acc = await this.processZipEntries(zipfile, options);
@@ -247,7 +274,7 @@ export class SamsungHealthParserService {
   }
 
   private async processZipEntries(
-    zipfile: yauzl.ZipFile,
+    zipfile: ZipFile,
     options?: { days?: number },
   ): Promise<
     ParseAccumulator & { entries: ZipEntryRef[]; csvRows: ExerciseCsvRow[]; workouts: SamsungParsedWorkout[] }
@@ -324,25 +351,41 @@ export class SamsungHealthParserService {
     };
   }
 
-  private openZipFile(filePath: string): Promise<yauzl.ZipFile> {
-    return new Promise((resolve, reject) => {
-      yauzl.open(filePath, { lazyEntries: true, validateEntrySizes: true }, (err, zipfile) => {
-        if (err || !zipfile) reject(err ?? new Error('Failed to open ZIP'));
-        else resolve(zipfile);
+  private async openZipFile(filePath: string): Promise<ZipFile> {
+    try {
+      if (typeof yauzl.openPromise === 'function') {
+        return await yauzl.openPromise(filePath, ZIP_OPEN_OPTIONS);
+      }
+
+      return await new Promise<ZipFile>((resolve, reject) => {
+        yauzl.open(filePath, ZIP_OPEN_OPTIONS, (err, zipfile) => {
+          if (err || !zipfile) reject(err ?? new Error('Failed to open ZIP'));
+          else resolve(zipfile);
+        });
       });
-    });
+    } catch (error) {
+      throw this.toParseError(error, 'File is not a valid ZIP archive');
+    }
   }
 
-  private openZipBuffer(buffer: Buffer): Promise<yauzl.ZipFile> {
-    return new Promise((resolve, reject) => {
-      yauzl.fromBuffer(buffer, { lazyEntries: true, validateEntrySizes: true }, (err, zipfile) => {
-        if (err || !zipfile) reject(err ?? new Error('Failed to open ZIP buffer'));
-        else resolve(zipfile);
+  private async openZipBuffer(buffer: Buffer): Promise<ZipFile> {
+    try {
+      if (typeof yauzl.fromBufferPromise === 'function') {
+        return await yauzl.fromBufferPromise(buffer, ZIP_OPEN_OPTIONS);
+      }
+
+      return await new Promise<ZipFile>((resolve, reject) => {
+        yauzl.fromBuffer(buffer, ZIP_OPEN_OPTIONS, (err, zipfile) => {
+          if (err || !zipfile) reject(err ?? new Error('Failed to open ZIP buffer'));
+          else resolve(zipfile);
+        });
       });
-    });
+    } catch (error) {
+      throw this.toParseError(error, 'File is not a valid ZIP archive');
+    }
   }
 
-  private collectEntries(zipfile: yauzl.ZipFile): Promise<ZipEntryRef[]> {
+  private collectEntries(zipfile: ZipFile): Promise<ZipEntryRef[]> {
     return new Promise((resolve, reject) => {
       const entries: ZipEntryRef[] = [];
       zipfile.on('entry', (entry) => {
@@ -359,7 +402,22 @@ export class SamsungHealthParserService {
     });
   }
 
-  private readEntryBuffer(zipfile: yauzl.ZipFile, entry: yauzl.Entry): Promise<Buffer> {
+  private async readEntryBuffer(zipfile: ZipFile, entry: Entry): Promise<Buffer> {
+    const openReadStreamPromise = (
+      zipfile as ZipFile & {
+        openReadStreamPromise?: (entry: Entry) => Promise<NodeJS.ReadableStream>;
+      }
+    ).openReadStreamPromise;
+
+    if (typeof openReadStreamPromise === 'function') {
+      const stream = await openReadStreamPromise.call(zipfile, entry);
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream as AsyncIterable<Buffer>) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks);
+    }
+
     return new Promise((resolve, reject) => {
       zipfile.openReadStream(entry, (err, stream) => {
         if (err || !stream) {
@@ -375,7 +433,7 @@ export class SamsungHealthParserService {
   }
 
   private async loadExerciseTypeMap(
-    zipfile: yauzl.ZipFile,
+    zipfile: ZipFile,
     entries: ZipEntryRef[],
   ): Promise<Map<string, number>> {
     const map = new Map<string, number>();
@@ -388,7 +446,7 @@ export class SamsungHealthParserService {
   }
 
   private async loadExerciseCsvRows(
-    zipfile: yauzl.ZipFile,
+    zipfile: ZipFile,
     entries: ZipEntryRef[],
   ): Promise<ExerciseCsvRow[]> {
     const rows: ExerciseCsvRow[] = [];
@@ -401,20 +459,32 @@ export class SamsungHealthParserService {
   }
 
   private extractLocationWorkoutId(path: string): string | null {
-    const namedMatch = path.match(SamsungHealthParserService.EXERCISE_ENTRY_RE);
-    if (namedMatch) {
-      if (namedMatch[2].toLowerCase() !== 'location_data') return null;
-      if (/location_data_internal/i.test(path)) return null;
-      return namedMatch[1];
+    const basename = path.split('/').pop() ?? path;
+    for (const candidate of [basename, path]) {
+      const namedMatch = candidate.match(SamsungHealthParserService.EXERCISE_ENTRY_RE);
+      if (namedMatch) {
+        if (namedMatch[2].toLowerCase() !== 'location_data') continue;
+        if (/location_data_internal/i.test(candidate)) continue;
+        return namedMatch[1];
+      }
     }
 
-    if (!SamsungHealthParserService.EXERCISE_PATH_RE.test(path)) return null;
-    if (/location_data_internal|live_data/i.test(path)) return null;
+    for (const candidate of [basename, path]) {
+      if (!SamsungHealthParserService.EXERCISE_PATH_RE.test(candidate)) continue;
+      if (/location_data_internal|live_data/i.test(candidate)) continue;
+      if (!/location_data/i.test(candidate)) continue;
 
-    const uuidMatch = path.match(SamsungHealthParserService.UUID_RE);
-    if (!uuidMatch) return null;
-    if (!/location_data/i.test(path)) return null;
-    return uuidMatch[1];
+      const uuidMatch = candidate.match(SamsungHealthParserService.UUID_RE);
+      if (uuidMatch) return uuidMatch[1];
+    }
+
+    return null;
+  }
+
+  private toParseError(error: unknown, fallback: string): SamsungHealthParseError {
+    if (error instanceof SamsungHealthParseError) return error;
+    const detail = error instanceof Error ? error.message : String(error);
+    return new SamsungHealthParseError(`${fallback}: ${detail}`);
   }
 
   private isBeforeCutoff(finishedAt: Date, days?: number): boolean {

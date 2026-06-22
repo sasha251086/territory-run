@@ -253,10 +253,17 @@ export class ActivitiesService {
       summary.exerciseFilesScanned = parsed.exerciseFilesScanned;
       summary.hint = parsed.hint;
     } catch (error) {
+      if (error instanceof ApiException) throw error;
       const message =
         error instanceof SamsungHealthParseError
           ? error.message
-          : 'Failed to parse Samsung Health export';
+          : importedCandidates > 0 || summary.imported > 0
+            ? `Import interrupted after ${summary.imported} workout(s): ${
+                error instanceof Error ? error.message : 'unknown error'
+              }`
+            : error instanceof Error
+              ? error.message
+              : 'Failed to parse Samsung Health export';
       throw new ApiException(ErrorCodes.INVALID_FILE, message, HttpStatus.BAD_REQUEST);
     } finally {
       await unlink(file.path).catch(() => {});
