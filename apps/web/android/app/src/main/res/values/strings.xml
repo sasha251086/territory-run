@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Territory Run</string>
+    <string name="title_activity_main">Territory Run</string>
+    <string name="package_name">com.territoryrun.app</string>
+    <string name="custom_url_scheme">com.territoryrun.app</string>
+    <string name="health_connect_privacy_policy_url">https://territory-run-cjoj.onrender.com/privacy</string>
+</resources>

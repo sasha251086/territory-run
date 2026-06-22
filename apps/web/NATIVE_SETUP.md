@@ -48,20 +48,31 @@ npx cap sync
 > `READ_EXERCISE_ROUTES` (всех тренировок) — оно выдаётся только вручную в настройках
 > Health Connect и нам не требуется.
 
-И activity для экрана обоснования (intent-filter Health Connect):
+И activity/alias обоснования (их класс уже поставляется плагином `capacitor-health`,
+нужно только сослаться). Внутри тега `<application>`:
 
 ```xml
+<!-- Android ≤13 -->
 <activity
-  android:name="io.ionic.starter.PermissionsRationaleActivity"
+  android:name="com.fit_up.health.capacitor.PermissionsRationaleActivity"
   android:exported="true">
   <intent-filter>
-    <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"/>
+    <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
   </intent-filter>
 </activity>
-```
 
-(Точный путь activity для шаблона обоснования смотри в README плагина `capacitor-health`
-для своей версии — он может отличаться именем пакета.)
+<!-- Android 14+ -->
+<activity-alias
+  android:name="ViewPermissionUsageActivity"
+  android:exported="true"
+  android:targetActivity="com.fit_up.health.capacitor.PermissionsRationaleActivity"
+  android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+  <intent-filter>
+    <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+    <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+  </intent-filter>
+</activity-alias>
+```
 
 ### 2.2 Ссылка на политику конфиденциальности
 В `android/app/src/main/res/values/strings.xml`:
