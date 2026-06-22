@@ -19,6 +19,7 @@ import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ActivitiesService } from './activities.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
+import { ImportNativeActivityDto } from './dto/import-native-activity.dto';
 import { ListActivitiesQueryDto } from './dto/list-activities.dto';
 
 const MAX_GPX_FILE_BYTES = 5 * 1024 * 1024;
@@ -70,6 +71,36 @@ export class ActivitiesController {
     }
 
     const activity = await this.activitiesService.importGpxFile(req.user.id, file);
+    return {
+      success: true,
+      data: {
+        activityId: activity.id,
+        status: activity.status,
+      },
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('import-native')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Import a workout read from the device health store (HealthKit / Health Connect)',
+  })
+  @ApiResponse({
+    status: 202,
+    schema: {
+      example: {
+        success: true,
+        data: { activityId: 'uuid', status: 'processing' },
+      },
+    },
+  })
+  async importNative(
+    @Request() req: { user: { id: string } },
+    @Body() dto: ImportNativeActivityDto,
+  ) {
+    const activity = await this.activitiesService.importNativeWorkout(req.user.id, dto);
     return {
       success: true,
       data: {

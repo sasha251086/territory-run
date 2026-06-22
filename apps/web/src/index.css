@@ -249,6 +249,20 @@ input {
   width: 100%;
 }
 
+.legal {
+  text-align: left;
+}
+
+.legal h2 {
+  margin-top: 18px;
+  font-size: 1.05rem;
+}
+
+.legal p {
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
 .map-frame,
 .onboarding-map {
   position: relative;

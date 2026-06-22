@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiRequest, apiUploadFile } from '../api/client';
 import type { ActivityItem, IntegrationInfo } from '../api/types';
 import FirstCaptureModal from '../components/FirstCaptureModal';
+import { healthSync } from '../services/health-sync.service';
 
 function formatDistance(meters: number) {
   return `${(meters / 1000).toFixed(2)} км`;
@@ -39,6 +40,8 @@ export default function ActivitiesPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [showFirstCapture, setShowFirstCapture] = useState(false);
   const [captureCells, setCaptureCells] = useState(0);
+  const [isNativeApp, setIsNativeApp] = useState(false);
+  const [healthSyncing, setHealthSyncing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = useCallback(async () => {
@@ -58,6 +61,46 @@ export default function ActivitiesPage() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    void healthSync.isAvailable().then(setIsNativeApp);
+  }, []);
+
+  async function handleHealthSync() {
+    setHealthSyncing(true);
+    setMessage(null);
+    try {
+      const granted = await healthSync.requestPermissions();
+      if (!granted) {
+        setMessage('Доступ к данным здоровья не выдан. Разрешите чтение тренировок в настройках.');
+        return;
+      }
+
+      const result = await healthSync.syncRecent(14);
+
+      if (result.imported > 0) {
+        setMessage(`Импортировано пробежек: ${result.imported}. Обработка займёт несколько секунд.`);
+        await loadData();
+        setTimeout(async () => {
+          await loadData();
+          await checkFirstCapture(setShowFirstCapture, setCaptureCells);
+        }, 8000);
+      } else if (result.withoutRoute > 0 && result.imported === 0 && result.duplicates === 0) {
+        setMessage(
+          `Найдено тренировок: ${result.total}, но без GPS-маршрута (${result.withoutRoute}). ` +
+            'Нужен источник маршрута — см. примечание разработчику.',
+        );
+      } else if (result.duplicates > 0 && result.imported === 0) {
+        setMessage('Новых пробежек нет — все уже импортированы.');
+      } else {
+        setMessage(`Пробежек за 14 дней не найдено (проверено: ${result.total}).`);
+      }
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Ошибка синхронизации с телефоном');
+    } finally {
+      setHealthSyncing(false);
+    }
+  }
 
   async function handleSync() {
     setSyncing(true);
@@ -142,6 +185,24 @@ export default function ActivitiesPage() {
           {uploading ? 'Загрузка...' : 'Загрузить трек'}
         </button>
       </section>
+
+      {isNativeApp && (
+        <section className="card highlight-card">
+          <h2>Синхронизация с телефоном</h2>
+          <p className="muted">
+            Territory Run прочитает пробежки за последние 14 дней напрямую из
+            здоровья телефона (Health Connect / Apple Health) и сам захватит территории.
+          </p>
+          <button
+            type="button"
+            className="primary-btn"
+            onClick={() => void handleHealthSync()}
+            disabled={healthSyncing}
+          >
+            {healthSyncing ? 'Синхронизация...' : 'Синхронизировать пробежки'}
+          </button>
+        </section>
+      )}
 
       <section className="card">
         <h2>Strava (опционально)</h2>

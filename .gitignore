@@ -9,6 +9,17 @@
 node_modules/
 dist/
 
+# Capacitor: генерируемые сборочные артефакты (сами папки android/ и ios/ — в git)
+apps/web/android/.gradle/
+apps/web/android/build/
+apps/web/android/app/build/
+apps/web/android/local.properties
+apps/web/android/.idea/
+apps/web/ios/Pods/
+apps/web/ios/.xcode.env.local
+apps/web/ios/App/build/
+apps/web/ios/DerivedData/
+
 # Логи
 *.log
 npm-debug.log*

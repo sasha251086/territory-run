@@ -4,6 +4,7 @@ import { ActivityStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
+import { ImportNativeActivityDto } from './dto/import-native-activity.dto';
 import { ApiException } from '../common/api.exception';
 import { ErrorCodes } from '../common/error-codes';
 import { GpxParserService, GpxParseError } from './gpx-parser.service';
@@ -119,6 +120,63 @@ export class ActivitiesService {
           startedAt: parsed.startedAt,
           finishedAt: parsed.finishedAt,
           track: parsed.points.map((point) => ({
+            lat: point.lat,
+            lng: point.lng,
+            timestamp: point.timestamp,
+          })),
+        },
+        tx,
+      );
+    });
+
+    await this.enqueueActivity(activity.id);
+    return activity;
+  }
+
+  async importNativeWorkout(userId: string, dto: ImportNativeActivityDto) {
+    if (!dto.track || dto.track.length < 2) {
+      throw new ApiException(
+        ErrorCodes.INVALID_FILE,
+        'Workout has no GPS track — cannot capture territory without route points',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const duplicate = await this.prisma.processedActivity.findUnique({
+      where: {
+        provider_externalActivityId: {
+          provider: dto.source,
+          externalActivityId: dto.platformId,
+        },
+      },
+    });
+
+    if (duplicate) {
+      throw new ApiException(
+        ErrorCodes.DUPLICATE_ACTIVITY,
+        'This workout was already imported',
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    const activity = await this.prisma.$transaction(async (tx) => {
+      await tx.processedActivity.create({
+        data: {
+          provider: dto.source,
+          externalActivityId: dto.platformId,
+        },
+      });
+
+      return this.createFromExternal(
+        userId,
+        {
+          source: dto.source,
+          distanceMeters: dto.distanceMeters,
+          durationSeconds: dto.durationSeconds,
+          avgPace: dto.avgPace,
+          startedAt: new Date(dto.startedAt),
+          finishedAt: new Date(dto.finishedAt),
+          track: dto.track.map((point) => ({
             lat: point.lat,
             lng: point.lng,
             timestamp: point.timestamp,
