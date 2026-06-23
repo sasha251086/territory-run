@@ -96,4 +96,7 @@ export class CaptureTargetsResponseDto {
 export class MapSummaryResponseDto {
   cellsAtRisk!: number;
   captureTargetsNearby!: number;
+  territoryAreaM2!: number;
+  cellsGainedThisWeek!: number;
+  weeklyProgressPercent!: number;
 }

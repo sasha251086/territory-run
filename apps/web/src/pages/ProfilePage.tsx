@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../api/client';
 import type { IntegrationInfo, RivalFollow } from '../api/types';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../hooks/useTheme';
 
 function streakBonusLabel(streak: number) {
   if (streak >= 14) return '×1.3 к влиянию';
@@ -60,6 +61,7 @@ export default function ProfilePage() {
     (item) => item.provider === 'strava' && item.connected,
   );
 
+  const { theme, toggleTheme } = useTheme();
   const currentStreak = user?.stats?.currentStreak ?? 0;
   const streakBonus = streakBonusLabel(currentStreak);
 
@@ -107,6 +109,16 @@ export default function ProfilePage() {
             <div><span>Стрик</span><strong>{currentStreak} дн.</strong></div>
           )}
         </div>
+      </section>
+
+      <section className="card">
+        <h2>Оформление</h2>
+        <p className="muted">
+          Тёмная тема «Neon Territory» по умолчанию. Переключите на светлую для дневного использования.
+        </p>
+        <button type="button" className="ghost-btn" onClick={toggleTheme}>
+          {theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+        </button>
       </section>
 
       <section className="card">

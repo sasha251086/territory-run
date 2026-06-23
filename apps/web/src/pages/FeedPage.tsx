@@ -72,14 +72,14 @@ export default function FeedPage() {
               : 'Событий пока нет.'}
           </p>
         ) : (
-          <ul className="list">
+          <ul className="feed-list">
             {items.map((event) => (
-              <li key={event.id} className="list-item">
-                <div>
-                  <strong>{event.user.nickname}</strong>
-                  <p>{formatFeedEvent(event)}</p>
-                </div>
-                <span className="list-meta">{new Date(event.createdAt).toLocaleString('ru-RU')}</span>
+              <li key={event.id} className="feed-card">
+                <strong>{event.user.nickname}</strong>
+                <p>{formatFeedEvent(event)}</p>
+                <time dateTime={event.createdAt}>
+                  {new Date(event.createdAt).toLocaleString('ru-RU')}
+                </time>
               </li>
             ))}
           </ul>

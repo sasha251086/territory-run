@@ -213,6 +213,10 @@ export class MapService {
   }
 
   async getMapSummary(userId: string): Promise<MapSummaryResponseDto> {
+    const h3Module = await import('h3-js');
+    const h3 = h3Module.default || h3Module;
+    const cellAreaM2 = h3.getHexagonAreaAvg(9, 'm2');
+
     const myOwnerships = await this.prisma.cellOwnership.findMany({
       where: { userId },
       select: { lastActivityAt: true },
@@ -224,13 +228,41 @@ export class MapService {
     }).length;
 
     let captureTargetsNearby = 0;
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { stats: true },
+    });
     if (user?.homeLat != null && user.homeLng != null) {
       const { targets } = await this.getCaptureTargets(userId, user.homeLat, user.homeLng);
       captureTargetsNearby = targets.length;
     }
 
-    return { cellsAtRisk, captureTargetsNearby };
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    const cellsGainedThisWeek = await this.prisma.event.count({
+      where: {
+        userId,
+        type: 'cell_captured',
+        createdAt: { gte: weekAgo },
+      },
+    });
+
+    const cellsOwned = user?.stats?.cellsOwned ?? 0;
+    const territoryAreaM2 = cellsOwned * cellAreaM2;
+    const weeklyGoal = Math.max(5, Math.ceil(cellsOwned * 0.08));
+    const weeklyProgressPercent = Math.min(
+      100,
+      Math.round((cellsGainedThisWeek / weeklyGoal) * 100),
+    );
+
+    return {
+      cellsAtRisk,
+      captureTargetsNearby,
+      territoryAreaM2,
+      cellsGainedThisWeek,
+      weeklyProgressPercent,
+    };
   }
 
   async getRivalCells(userId: string): Promise<

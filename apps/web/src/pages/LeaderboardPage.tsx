@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { apiRequest } from '../api/client';
 import type { LeaderboardEntry, RivalFollow } from '../api/types';
+import LeaderboardPodium from '../components/LeaderboardPodium';
+import { formatCellsArea } from '../utils/territory';
 import { useAuth } from '../context/AuthContext';
 
 type Tab = 'cells' | 'influence' | 'distance';
@@ -72,6 +74,14 @@ export default function LeaderboardPage() {
     }
   }
 
+  function valueLabel(value: number) {
+    if (tab === 'cells') return formatCellsArea(value);
+    if (tab === 'influence') return `${Math.round(value)} влияния`;
+    return `${(value / 1000).toFixed(1)} км`;
+  }
+
+  const restItems = items.slice(3);
+
   return (
     <div className="stack game-screen">
       <section className="screen-hero">
@@ -107,15 +117,21 @@ export default function LeaderboardPage() {
         ) : items.length === 0 ? (
           <p className="muted">Пока нет данных.</p>
         ) : (
-          <ol className="leaderboard">
-            {items.map((item, index) => {
+          <>
+            <LeaderboardPodium
+              items={items}
+              currentUserId={user?.id}
+              valueLabel={valueLabel}
+            />
+            <ol className="leaderboard">
+              {restItems.map((item, index) => {
               const isMe = item.userId === user?.id;
               const isFollowed = followedIds.has(item.userId);
               return (
                 <li key={item.userId} className={isMe ? 'is-you' : undefined}>
-                  <span className="rank">{index + 1}</span>
+                  <span className="rank">{index + 4}</span>
                   <span className="name">{item.nickname}{isMe ? ' (вы)' : ''}</span>
-                  <span className="value">{Math.round(item.value)}</span>
+                  <span className="value">{valueLabel(Math.round(item.value))}</span>
                   {!isMe && (
                     <button
                       type="button"
@@ -133,7 +149,8 @@ export default function LeaderboardPage() {
                 </li>
               );
             })}
-          </ol>
+            </ol>
+          </>
         )}
       </section>
     </div>

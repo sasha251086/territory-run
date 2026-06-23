@@ -91,6 +91,9 @@ export interface CaptureTarget {
 export interface MapSummary {
   cellsAtRisk: number;
   captureTargetsNearby: number;
+  territoryAreaM2: number;
+  cellsGainedThisWeek: number;
+  weeklyProgressPercent: number;
 }
 
 export interface RivalCell {

@@ -77,7 +77,7 @@ export default function AppLayout({ children }: { children?: React.ReactNode }) 
           <NavLink
             key={link.to}
             to={link.to}
-            end={link.end}
+            end={'end' in link ? link.end : false}
             className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
           >
             <NavIcon name={link.icon} />

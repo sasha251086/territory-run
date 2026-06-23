@@ -2,25 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiRequest, apiUploadFile } from '../api/client';
 import type { ActivityItem, IntegrationInfo } from '../api/types';
+import ActivityCard from '../components/ActivityCard';
 import FirstCaptureModal from '../components/FirstCaptureModal';
 import { healthSync, formatHealthSyncMessage } from '../services/health-sync.service';
-import { canReprocess, formatAnticheatMessage } from '../utils/anticheat-messages';
 
 const RUN_PREVIEW_KEY = 'territory-run-run-preview';
 
 function markRunPreviewAndGoToMap(navigate: (path: string) => void) {
   sessionStorage.setItem(RUN_PREVIEW_KEY, JSON.stringify({ ts: Date.now() }));
-  navigate('/map?preview=1');
+  navigate('/?preview=1');
 }
 
-function formatDistance(meters: number) {
-  return `${(meters / 1000).toFixed(2)} км`;
-}
-
-function formatDuration(seconds: number) {
-  const mins = Math.floor(seconds / 60);
-  return `${mins} мин`;
-}
 
 function formatSamsungImportMessage(result: {
   imported: number;
@@ -52,15 +44,6 @@ function formatSamsungImportMessage(result: {
   return parts.filter(Boolean).join(' ');
 }
 
-function sourceLabel(source: string) {
-  if (source === 'strava') return 'Strava';
-  if (source === 'gpx_import') return 'GPX файл';
-  if (source === 'samsung_health_zip') return 'Samsung Health (ZIP)';
-  if (source === 'samsung_health') return 'Samsung Health';
-  if (source === 'apple_health') return 'Apple Health';
-  if (source === 'health_connect') return 'Health Connect';
-  return source;
-}
 
 async function checkFirstCapture(setShow: (v: boolean) => void, setCells: (n: number) => void) {
   const profile = await apiRequest<{ stats: { cellsOwned: number; firstCaptureShownAt: string | null } | null }>(
@@ -460,34 +443,14 @@ export default function ActivitiesPage() {
             Пробежек пока нет. Загрузите ZIP из Samsung Health, GPX-файл или синхронизируйте Strava.
           </p>
         ) : (
-          <ul className="list">
+          <ul className="activity-list">
             {items.map((item) => (
-              <li key={item.id} className="list-item">
-                <div>
-                  <strong>{sourceLabel(item.source)}</strong>
-                  <p>{new Date(item.startedAt).toLocaleString('ru-RU')}</p>
-                </div>
-                <div className="list-meta">
-                  <span>{formatDistance(item.distanceMeters)}</span>
-                  <span>{formatDuration(item.durationSeconds)}</span>
-                  <span className={`status ${item.status}`}>
-                    {item.status === 'failed' ? 'отклонена' : item.status === 'completed' ? 'готово' : 'обработка'}
-                  </span>
-                  {item.status === 'failed' && (
-                    <p className="anticheat-msg">{formatAnticheatMessage(item.failureReason)}</p>
-                  )}
-                  {item.status === 'failed' && canReprocess(item.failureReason) && (
-                    <button
-                      type="button"
-                      className="ghost-btn small-btn"
-                      onClick={() => void handleReprocessFailed()}
-                      disabled={reprocessing}
-                    >
-                      Пересчитать
-                    </button>
-                  )}
-                </div>
-              </li>
+              <ActivityCard
+                key={item.id}
+                item={item}
+                onReprocess={() => void handleReprocessFailed()}
+                reprocessing={reprocessing}
+              />
             ))}
           </ul>
         )}
@@ -499,6 +462,16 @@ export default function ActivitiesPage() {
           onClose={() => setShowFirstCapture(false)}
         />
       )}
+
+      <button
+        type="button"
+        className="fab-upload"
+        aria-label="Загрузить GPX"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+      >
+        +
+      </button>
     </div>
   );
 }

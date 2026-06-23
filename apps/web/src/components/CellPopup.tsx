@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { apiRequest } from '../api/client';
 import type { CellPlayersResponse, MapCell } from '../api/types';
+import { getHexagonAreaAvg } from 'h3-js';
+
+const CELL_AREA_M2 = getHexagonAreaAvg(9, 'm2');
 
 export default function CellPopupContent({ cell }: { cell: MapCell }) {
   const [data, setData] = useState<CellPlayersResponse | null>(null);
@@ -54,6 +57,7 @@ export default function CellPopupContent({ cell }: { cell: MapCell }) {
 
   return (
     <div className="cell-popup">
+      <p className="cell-popup-kicker">~{Math.round(CELL_AREA_M2)} m² за клетку</p>
       <p className="cell-popup-title">
         {data.isOwner ? 'Вы владелец' : cell.ownerNickname || 'Свободна'}
       </p>
