@@ -4,6 +4,7 @@ import {
   TileLayer,
   Polygon,
   Circle,
+  CircleMarker,
   useMap,
   useMapEvents,
   Popup,
@@ -13,7 +14,7 @@ import type { LatLngBounds, LatLngExpression } from 'leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { apiRequest } from '../api/client';
-import type { LeaderboardEntry, MapCell } from '../api/types';
+import type { MapCell } from '../api/types';
 import { useAuth } from '../context/AuthContext';
 
 function boundsToQuery(bounds: LatLngBounds) {
@@ -48,10 +49,80 @@ function FlyToCells({ targets, trigger }: { targets: LatLngExpression[]; trigger
   return null;
 }
 
+function MapOverlayControls({
+  canFocusMine,
+  onFocusMine,
+}: {
+  canFocusMine: boolean;
+  onFocusMine: () => void;
+}) {
+  const map = useMap();
+
+  return (
+    <>
+      <div className="map-zoom-controls" aria-label="Масштаб карты">
+        <button type="button" aria-label="Увеличить" onClick={() => map.zoomIn()}>
+          +
+        </button>
+        <button type="button" aria-label="Уменьшить" onClick={() => map.zoomOut()}>
+          −
+        </button>
+        <button
+          type="button"
+          aria-label="К моей территории"
+          onClick={onFocusMine}
+          disabled={!canFocusMine}
+        >
+          ⌖
+        </button>
+      </div>
+
+      <div className="map-tools" aria-label="Инструменты карты">
+        <button
+          type="button"
+          className="map-tool-btn"
+          onClick={onFocusMine}
+          disabled={!canFocusMine}
+          aria-label="Показать мои клетки"
+        >
+          ◎
+        </button>
+      </div>
+    </>
+  );
+}
+
 function cellColor(cell: MapCell, currentUserId: string | undefined) {
-  if (!cell.ownerId) return '#64748b';
-  if (cell.ownerId === currentUserId) return '#8dff42';
-  return '#38bdf8';
+  if (!cell.ownerId) return '#c6d3df';
+  if (cell.ownerId === currentUserId) return '#45c8e7';
+  return '#9b6dff';
+}
+
+function seededNoise(seed: string, index: number) {
+  let hash = 2166136261;
+  const input = `${seed}:${index}`;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) % 1000) / 1000;
+}
+
+function organicBoundary(cell: MapCell) {
+  const boundary = cellToBoundary(cell.h3Index).map(([lat, lng]) => [lat, lng] as [number, number]);
+  const centerLat = boundary.reduce((sum, point) => sum + point[0], 0) / boundary.length;
+  const centerLng = boundary.reduce((sum, point) => sum + point[1], 0) / boundary.length;
+
+  return boundary.map(([lat, lng], index) => {
+    const radial = 0.9 + seededNoise(cell.h3Index, index) * 0.18;
+    const skewLat = (seededNoise(cell.h3Index, index + 11) - 0.5) * 0.00008;
+    const skewLng = (seededNoise(cell.h3Index, index + 23) - 0.5) * 0.00008;
+
+    return [
+      centerLat + (lat - centerLat) * radial + skewLat,
+      centerLng + (lng - centerLng) * radial + skewLng,
+    ] as [number, number];
+  });
 }
 
 function mergeCells(primary: MapCell[], secondary: MapCell[]) {
@@ -69,7 +140,6 @@ export default function MapPage() {
   const { user } = useAuth();
   const [nearbyCells, setNearbyCells] = useState<MapCell[]>([]);
   const [myCells, setMyCells] = useState<MapCell[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flyTrigger, setFlyTrigger] = useState(0);
@@ -108,28 +178,6 @@ export default function MapPage() {
     void loadMyCells();
   }, [loadMyCells, user?.stats?.cellsOwned]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadLeaderboard() {
-      try {
-        const data = await apiRequest<LeaderboardEntry[]>('/leaderboard/cells?limit=4');
-        if (!cancelled) {
-          setLeaderboard(data);
-        }
-      } catch {
-        if (!cancelled) {
-          setLeaderboard([]);
-        }
-      }
-    }
-
-    void loadLeaderboard();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const displayCells = useMemo(
     () => mergeCells(myCells, nearbyCells),
     [myCells, nearbyCells],
@@ -159,9 +207,37 @@ export default function MapPage() {
   const totalInfluence = Math.round(user?.stats?.totalInfluence ?? 0);
   const cellsOwned = user?.stats?.cellsOwned ?? 0;
   const totalRuns = user?.stats?.totalRuns ?? 0;
+  const level = Math.max(1, Math.floor(cellsOwned / 12) + 1);
 
   return (
     <div className="map-page game-map-page">
+      <section className="map-profile-card">
+        <div className="map-brand-row">
+          <p className="eyebrow">Territory Run</p>
+          <div className="level-ring">{level}</div>
+        </div>
+
+        <div className="map-user-row">
+          <div className="runner-avatar" aria-hidden="true">●</div>
+          <h1>{user?.nickname || 'runner'}</h1>
+        </div>
+
+        <div className="map-stat-cards">
+          <div className="map-stat-card stat-cells">
+            <span>Клетки</span>
+            <strong>{cellsOwned}</strong>
+          </div>
+          <div className="map-stat-card stat-influence">
+            <span>Влияние</span>
+            <strong>{totalInfluence}</strong>
+          </div>
+          <div className="map-stat-card stat-runs">
+            <span>Пробежки</span>
+            <strong>{totalRuns}</strong>
+          </div>
+        </div>
+      </section>
+
       <div className="map-frame game-map-frame">
         <MapContainer
           key={`${defaultCenter[0]}-${defaultCenter[1]}`}
@@ -170,25 +246,34 @@ export default function MapPage() {
           className="leaflet-map"
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
           />
           <MapEvents onMove={loadNearbyCells} />
           <FlyToCells targets={flyTargets} trigger={flyTrigger} />
+          <MapOverlayControls
+            canFocusMine={myCells.length > 0}
+            onFocusMine={() => setFlyTrigger((value) => value + 1)}
+          />
 
           {user?.homeLat != null && user.homeLng != null && (
-            <Circle
-              center={[user.homeLat, user.homeLng]}
-              radius={500}
-              pathOptions={{ color: '#f59e0b', fillColor: '#fbbf24', fillOpacity: 0.15 }}
-            />
+            <>
+              <Circle
+                center={[user.homeLat, user.homeLng]}
+                radius={500}
+                pathOptions={{ color: '#f3a3d8', fillColor: '#b36bff', fillOpacity: 0.12, weight: 2 }}
+              />
+              <CircleMarker
+                center={[user.homeLat, user.homeLng]}
+                radius={9}
+                pathOptions={{ color: '#ffffff', fillColor: '#1486ff', fillOpacity: 1, weight: 3 }}
+              />
+            </>
           )}
 
           {displayCells.map((cell) => {
             try {
-              const boundary = cellToBoundary(cell.h3Index).map(
-                ([lat, lng]) => [lat, lng] as [number, number],
-              );
+              const boundary = organicBoundary(cell);
               const color = cellColor(cell, user?.id);
               return (
                 <Polygon
@@ -197,9 +282,9 @@ export default function MapPage() {
                   pathOptions={{
                     color,
                     fillColor: color,
-                    fillOpacity: cell.ownerId === user?.id ? 0.56 : 0.42,
-                    opacity: 0.95,
-                    weight: cell.ownerId === user?.id ? 2 : 1.4,
+                    fillOpacity: cell.ownerId === user?.id ? 0.58 : 0.36,
+                    opacity: 0.86,
+                    weight: cell.ownerId === user?.id ? 1.6 : 1.1,
                     className: cell.ownerId === user?.id ? 'owned-cell' : 'rival-cell',
                   }}
                 >
@@ -217,48 +302,21 @@ export default function MapPage() {
         </MapContainer>
         <div className="map-vignette" aria-hidden="true" />
 
-        <section className="map-hud map-hud-top">
-          <div>
-            <p className="eyebrow">Run the City</p>
-            <h2>{user?.nickname || 'Runner'}</h2>
-          </div>
-          <div className="map-score-row">
-            <span className="game-chip"><strong>{cellsOwned}</strong> зон</span>
-            <span className="game-chip"><strong>{totalInfluence}</strong> влияния</span>
-            <span className="game-chip"><strong>{totalRuns}</strong> бег</span>
-          </div>
-        </section>
-
-        {leaderboard.length > 0 && (
-          <section className="map-hud map-leaderboard-panel" aria-label="Лидеры по зонам">
-            <p className="eyebrow">Urban Conquest</p>
-            <ol>
-              {leaderboard.map((item, index) => (
-                <li key={item.userId} className={item.userId === user?.id ? 'is-you' : undefined}>
-                  <span>{index + 1}</span>
-                  <strong>{item.userId === user?.id ? 'Вы' : item.nickname}</strong>
-                  <em>{Math.round(item.value)}</em>
-                </li>
-              ))}
-            </ol>
-          </section>
-        )}
-
-        <div className="map-tools" aria-label="Инструменты карты">
-          <button
-            type="button"
-            className="map-tool-btn"
-            onClick={() => setFlyTrigger((value) => value + 1)}
-            disabled={myCells.length === 0}
-          >
-            Мои зоны
-          </button>
-        </div>
-
         <section className="map-hud map-capture-card">
-          <p className="eyebrow">Ваша территория</p>
-          <strong>{cellsOwned} зон</strong>
-          <span>Влияние: {totalInfluence}</span>
+          <div className="capture-icon" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+          <div>
+            <strong>Твоя территория растёт!</strong>
+            <span>Сейчас под контролем {cellsOwned} клеток.</span>
+          </div>
+          <b aria-hidden="true">›</b>
           {cellsFarFromHome && (
             <p>Клетки далеко от базы. Нажмите «Мои зоны», чтобы перейти к ним.</p>
           )}
