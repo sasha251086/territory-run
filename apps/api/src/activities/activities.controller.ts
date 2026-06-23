@@ -191,6 +191,19 @@ export class ActivitiesController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('reprocess-failed')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @ApiOperation({ summary: 'Reprocess failed activities after GPS track cleanup' })
+  async reprocessFailed(@Request() req: { user: { id: string } }) {
+    const summary = await this.activitiesService.reprocessFailedActivities(req.user.id);
+    return {
+      success: true,
+      data: summary,
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id/status')
   @ApiOperation({ summary: 'Get activity processing status' })
   @ApiResponse({

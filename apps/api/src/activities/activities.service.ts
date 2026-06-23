@@ -8,6 +8,7 @@ import { CreateActivityDto } from './dto/create-activity.dto';
 import { ImportNativeActivityDto } from './dto/import-native-activity.dto';
 import { ApiException } from '../common/api.exception';
 import { ErrorCodes } from '../common/error-codes';
+import { sanitizeTrackPoints } from '../common/track.util';
 import { GpxParserService, GpxParseError } from './gpx-parser.service';
 import {
   SamsungHealthParserService,
@@ -429,5 +430,48 @@ export class ActivitiesService {
       status: activity.status,
       ...(activity.failureReason ? { reason: activity.failureReason } : {}),
     };
+  }
+
+  async reprocessFailedActivities(userId: string) {
+    const failed = await this.prisma.activity.findMany({
+      where: {
+        userId,
+        status: ActivityStatus.failed,
+        failureReason: { in: ['SPEED_EXCEEDED', 'GPS_ANOMALY'] },
+      },
+      include: { track: true },
+    });
+
+    let requeued = 0;
+
+    for (const activity of failed) {
+      const route = activity.track?.route as
+        | { lat: number; lng: number; timestamp?: string }[]
+        | undefined;
+      if (!route?.length) continue;
+
+      const sanitized = sanitizeTrackPoints(route);
+      if (sanitized.length < 2) continue;
+
+      await this.prisma.$transaction([
+        this.prisma.activityTrack.update({
+          where: { activityId: activity.id },
+          data: { route: sanitized as unknown as Prisma.InputJsonValue },
+        }),
+        this.prisma.activity.update({
+          where: { id: activity.id },
+          data: {
+            status: ActivityStatus.processing,
+            failureReason: null,
+            processedAt: null,
+          },
+        }),
+      ]);
+
+      await this.enqueueActivity(activity.id);
+      requeued += 1;
+    }
+
+    return { requeued };
   }
 }

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { MAX_RUN_SPEED_MS } from '../common/constants';
+import { MIN_SPEED_CHECK_INTERVAL_SECONDS } from '../common/track.util';
 import { haversineDistance } from '../common/geo.util';
 
 export type TrackPoint = {
@@ -47,6 +48,10 @@ export class AnticheatService {
       }
 
       if (deltaSeconds <= 0) {
+        continue;
+      }
+
+      if (deltaSeconds < MIN_SPEED_CHECK_INTERVAL_SECONDS) {
         continue;
       }
 

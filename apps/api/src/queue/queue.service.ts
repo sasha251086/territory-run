@@ -7,6 +7,7 @@ import { InfluenceService } from '../territories/influence.service';
 import { OwnershipService } from '../territories/ownership.service';
 import { FeedService } from '../feed/feed.service';
 import { AnticheatService, TrackPoint } from '../activities/anticheat.service';
+import { sanitizeTrackPoints } from '../common/track.util';
 import { captureException } from '../common/sentry.util';
 
 @Injectable()
@@ -81,8 +82,11 @@ export class QueueService implements OnModuleInit {
     });
     if (!activity) throw new Error('Activity not found');
 
-    const track = activity.track?.route as TrackPoint[] | undefined;
-    if (!track || track.length === 0) throw new Error('No track points');
+    const rawTrack = activity.track?.route as TrackPoint[] | undefined;
+    if (!rawTrack || rawTrack.length === 0) throw new Error('No track points');
+
+    const track = sanitizeTrackPoints(rawTrack);
+    if (track.length < 2) throw new Error('No track points after sanitization');
 
     const validation = this.anticheatService.validateTrack(track);
     if (validation.valid === false) {

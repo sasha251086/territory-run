@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { gunzipSync } from 'zlib';
 import type { Entry, Options, ZipFile } from 'yauzl';
 import { haversineDistance } from '../common/geo.util';
+import { sanitizeTrackPoints } from '../common/track.util';
 import type { GpxTrackPoint } from './gpx-parser.service';
 
 // Runtime require avoids ESM/CJS interop issues with yauzl in compiled dist/.
@@ -771,17 +772,20 @@ export class SamsungHealthParserService {
 
     if (points.length < 2) return null;
 
-    const startedAt = new Date(points[0].timestamp);
-    const finishedAt = new Date(points[points.length - 1].timestamp);
+    const sanitizedPoints = sanitizeTrackPoints(points);
+    if (sanitizedPoints.length < 2) return null;
+
+    const startedAt = new Date(sanitizedPoints[0].timestamp);
+    const finishedAt = new Date(sanitizedPoints[sanitizedPoints.length - 1].timestamp);
     if (Number.isNaN(startedAt.getTime()) || Number.isNaN(finishedAt.getTime())) return null;
 
     let distanceMeters = 0;
-    for (let i = 1; i < points.length; i += 1) {
+    for (let i = 1; i < sanitizedPoints.length; i += 1) {
       distanceMeters += haversineDistance(
-        points[i - 1].lat,
-        points[i - 1].lng,
-        points[i].lat,
-        points[i].lng,
+        sanitizedPoints[i - 1].lat,
+        sanitizedPoints[i - 1].lng,
+        sanitizedPoints[i].lat,
+        sanitizedPoints[i].lng,
       );
     }
 
@@ -792,7 +796,7 @@ export class SamsungHealthParserService {
 
     return {
       id: workoutId,
-      points,
+      points: sanitizedPoints,
       startedAt,
       finishedAt,
       distanceMeters: Math.round(distanceMeters),
