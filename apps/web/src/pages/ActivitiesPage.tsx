@@ -64,6 +64,9 @@ async function checkFirstCapture(setShow: (v: boolean) => void, setCells: (n: nu
 
 export default function ActivitiesPage() {
   const [items, setItems] = useState<ActivityItem[]>([]);
+  const [totalActivities, setTotalActivities] = useState(0);
+  const [activitiesPage, setActivitiesPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [integrations, setIntegrations] = useState<IntegrationInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -78,19 +81,43 @@ export default function ActivitiesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const samsungZipInputRef = useRef<HTMLInputElement>(null);
 
+  const PAGE_SIZE = 50;
+
+  const loadActivities = useCallback(async (page: number, append: boolean) => {
+    const activities = await apiRequest<{
+      items: ActivityItem[];
+      total: number;
+      page: number;
+      totalPages: number;
+    }>(`/activities?page=${page}&limit=${PAGE_SIZE}`);
+
+    setItems((prev) => (append ? [...prev, ...activities.items] : activities.items));
+    setTotalActivities(activities.total);
+    setActivitiesPage(activities.page);
+  }, []);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [activities, connected] = await Promise.all([
-        apiRequest<{ items: ActivityItem[] }>('/activities?limit=30'),
+      const [, connected] = await Promise.all([
+        loadActivities(1, false),
         apiRequest<IntegrationInfo[]>('/integrations'),
       ]);
-      setItems(activities.items);
       setIntegrations(connected);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadActivities]);
+
+  async function handleLoadMore() {
+    if (items.length >= totalActivities) return;
+    setLoadingMore(true);
+    try {
+      await loadActivities(activitiesPage + 1, true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   useEffect(() => {
     void loadData();
@@ -379,30 +406,48 @@ export default function ActivitiesPage() {
       </section>
 
       <section className="card">
-        <h2>Strava (опционально)</h2>
+        <h2>Мои пробежки</h2>
+        {totalActivities > 0 && (
+          <p className="muted small">
+            Показано {items.length} из {totalActivities}
+          </p>
+        )}
         {items.length === 0 ? (
           <p className="muted">
             Пробежек пока нет. Загрузите ZIP из Samsung Health, GPX-файл или синхронизируйте Strava.
           </p>
         ) : (
-          <ul className="list">
-            {items.map((item) => (
-              <li key={item.id} className="list-item">
-                <div>
-                  <strong>{sourceLabel(item.source)}</strong>
-                  <p>{new Date(item.startedAt).toLocaleString('ru-RU')}</p>
-                </div>
-                <div className="list-meta">
-                  <span>{formatDistance(item.distanceMeters)}</span>
-                  <span>{formatDuration(item.durationSeconds)}</span>
-                  <span className={`status ${item.status}`}>{item.status}</span>
-                  {item.status === 'failed' && item.failureReason && (
-                    <span className="muted small"> ({item.failureReason})</span>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className="list">
+              {items.map((item) => (
+                <li key={item.id} className="list-item">
+                  <div>
+                    <strong>{sourceLabel(item.source)}</strong>
+                    <p>{new Date(item.startedAt).toLocaleString('ru-RU')}</p>
+                  </div>
+                  <div className="list-meta">
+                    <span>{formatDistance(item.distanceMeters)}</span>
+                    <span>{formatDuration(item.durationSeconds)}</span>
+                    <span className={`status ${item.status}`}>{item.status}</span>
+                    {item.status === 'failed' && item.failureReason && (
+                      <span className="muted small"> ({item.failureReason})</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {items.length < totalActivities && (
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => void handleLoadMore()}
+                disabled={loadingMore}
+                style={{ marginTop: '1rem' }}
+              >
+                {loadingMore ? 'Загрузка...' : `Загрузить ещё (${totalActivities - items.length})`}
+              </button>
+            )}
+          </>
         )}
       </section>
 
