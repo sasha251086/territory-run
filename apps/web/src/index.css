@@ -1960,8 +1960,21 @@ body::before {
   filter: none;
 }
 
-.map-target-btn {
-  background: rgba(245, 200, 66, 0.25) !important;
+.map-tool-btn.is-active {
+  color: #fff;
+  background: linear-gradient(135deg, #7c61df, #45c8e7);
+  box-shadow: 0 12px 26px rgba(98, 87, 200, 0.35);
+}
+
+.map-districts-hint {
+  display: block;
+  color: #6257c8 !important;
+  font-weight: 600;
+}
+
+.game-map-frame .map-cell-polygon {
+  stroke: none;
+  shape-rendering: geometricPrecision;
 }
 
 .anticheat-msg {

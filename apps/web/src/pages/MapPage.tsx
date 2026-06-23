@@ -17,8 +17,6 @@ import 'leaflet/dist/leaflet.css';
 import { apiRequest } from '../api/client';
 import type {
   CaptureTarget,
-  DistrictListItem,
-  DistrictProgress,
   MapCell,
   MapSummary,
   RivalCell,
@@ -70,18 +68,6 @@ function MapControlBridge({ onMap }: { onMap: (map: L.Map) => void }) {
 
 function cellBoundary(h3Index: string): [number, number][] {
   return cellToBoundary(h3Index).map(([lat, lng]) => [lat, lng] as [number, number]);
-}
-
-function polygonCoords(polygon: DistrictListItem['polygon']): [number, number][][] {
-  const coords = polygon.coordinates;
-  if (polygon.type === 'Polygon') {
-    return (coords as number[][][]).map((ring) =>
-      ring.map(([lng, lat]) => [lat, lng] as [number, number]),
-    );
-  }
-  return (coords as number[][][][]).flatMap((poly) =>
-    poly.map((ring) => ring.map(([lng, lat]) => [lat, lng] as [number, number])),
-  );
 }
 
 function cellColor(
@@ -162,13 +148,9 @@ export default function MapPage() {
   const [targetsMessage, setTargetsMessage] = useState<string | null>(null);
   const [findingTargets, setFindingTargets] = useState(false);
   const [rivalCells, setRivalCells] = useState<RivalCell[]>([]);
-  const [districts, setDistricts] = useState<DistrictListItem[]>([]);
-  const [districtProgress, setDistrictProgress] = useState<DistrictProgress | null>(null);
-  const [selectedDistrictId, setSelectedDistrictId] = useState<string | null>(null);
   const [previewFlash, setPreviewFlash] = useState(false);
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
-  const [showDistricts, setShowDistricts] = useState(true);
 
   const defaultCenter = useMemo<[number, number]>(() => {
     if (user?.homeLat != null && user.homeLng != null) {
@@ -204,26 +186,11 @@ export default function MapPage() {
     }
   }, []);
 
-  const loadDistricts = useCallback(async () => {
-    try {
-      const data = await apiRequest<DistrictListItem[]>('/districts');
-      setDistricts(data);
-      if (data.length > 0 && !selectedDistrictId) {
-        setSelectedDistrictId(data[0].id);
-      }
-    } catch {
-      setDistricts([]);
-    }
-  }, [selectedDistrictId]);
-
-  const loadDistrictProgress = useCallback(async (districtId: string) => {
-    try {
-      const data = await apiRequest<DistrictProgress>(`/districts/${districtId}/progress`);
-      setDistrictProgress(data);
-    } catch {
-      setDistrictProgress(null);
-    }
-  }, []);
+  useEffect(() => {
+    void loadMyCells();
+    void loadSummary();
+    void loadRivalCells();
+  }, [loadMyCells, loadSummary, loadRivalCells, user?.stats?.cellsOwned]);
 
   const loadNearbyCells = useCallback(async (bounds: LatLngBounds) => {
     setLoading(true);
@@ -238,19 +205,6 @@ export default function MapPage() {
       setLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    void loadMyCells();
-    void loadSummary();
-    void loadRivalCells();
-    void loadDistricts();
-  }, [loadMyCells, loadSummary, loadRivalCells, loadDistricts, user?.stats?.cellsOwned]);
-
-  useEffect(() => {
-    if (selectedDistrictId) {
-      void loadDistrictProgress(selectedDistrictId);
-    }
-  }, [selectedDistrictId, loadDistrictProgress, user?.stats?.cellsOwned]);
 
   useEffect(() => {
     const isPreview = searchParams.get('preview') === '1';
@@ -406,35 +360,6 @@ export default function MapPage() {
             </>
           )}
 
-          {showDistricts &&
-            districts.flatMap((district) =>
-              polygonCoords(district.polygon).map((ring, ringIndex) => (
-                <Polygon
-                  key={`${district.id}-${ringIndex}`}
-                  positions={ring}
-                  pathOptions={{
-                    color: '#6b7cff',
-                    fillColor: 'transparent',
-                    fillOpacity: 0,
-                    weight: 2,
-                    dashArray: '6 4',
-                    className: 'district-boundary',
-                  }}
-                  eventHandlers={{
-                    click: () => setSelectedDistrictId(district.id),
-                  }}
-                >
-                  <Popup>
-                    <strong>{district.name}</strong>
-                    <br />
-                    {district.king
-                      ? `Король: ${district.king.nickname}`
-                      : 'Король не определён'}
-                  </Popup>
-                </Polygon>
-              )),
-            )}
-
           {displayCells.map((cell) => {
             try {
               const boundary = cellBoundary(cell.h3Index);
@@ -447,9 +372,9 @@ export default function MapPage() {
                   pathOptions={{
                     color,
                     fillColor: color,
-                    fillOpacity: isMine ? 0.62 : targetH3.has(cell.h3Index) ? 0.52 : 0.42,
+                    fillOpacity: isMine ? 0.78 : targetH3.has(cell.h3Index) ? 0.68 : 0.58,
                     opacity: 1,
-                    weight: 0.8,
+                    weight: 0,
                     lineJoin: 'round',
                     className: cellClassName(cell, user?.id, rivalH3, targetH3, previewFlash),
                   }}
@@ -463,6 +388,7 @@ export default function MapPage() {
               return null;
             }
           })}
+
         </MapContainer>
 
         <div className="map-zoom-controls" aria-label="Масштаб карты">
@@ -508,19 +434,6 @@ export default function MapPage() {
           </svg>
         </button>
 
-        <button
-          type="button"
-          className="map-tool-btn map-tool-right"
-          onClick={() => setShowDistricts((value) => !value)}
-          aria-label={showDistricts ? 'Скрыть районы' : 'Показать районы'}
-          title={showDistricts ? 'Скрыть районы' : 'Показать районы'}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true" className="map-btn-icon">
-            <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-            <path d="M12 12 3 7M12 12l9-5M12 12v10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-          </svg>
-        </button>
-
         <div className="map-vignette" aria-hidden="true" />
 
         <section className="map-hud map-capture-card">
@@ -539,12 +452,6 @@ export default function MapPage() {
             {summary != null && summary.cellsAtRisk > 0 && (
               <span className="map-risk-count">
                 {summary.cellsAtRisk} клеток под угрозой затухания
-              </span>
-            )}
-            {districtProgress && districtProgress.myControlPercent > 0 && (
-              <span className="map-district-hud">
-                Район «{districtProgress.districtName}»: {districtProgress.myControlPercent}%
-                {districtProgress.isKing ? ' · вы король!' : ` · до короны ${districtProgress.kingThresholdPercent}%`}
               </span>
             )}
             {targetsMessage && <span className="map-targets-msg">{targetsMessage}</span>}
