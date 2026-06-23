@@ -9,6 +9,7 @@ import { FeedService } from '../feed/feed.service';
 import { AnticheatService, TrackPoint } from '../activities/anticheat.service';
 import { sanitizeTrackPoints } from '../common/track.util';
 import { captureException } from '../common/sentry.util';
+import { nextStreakState } from '../common/streak.util';
 
 @Injectable()
 export class QueueService implements OnModuleInit {
@@ -118,19 +119,41 @@ export class QueueService implements OnModuleInit {
       return;
     }
 
+    const h3Module = await import('h3-js');
+    const h3 = h3Module.default || h3Module;
+    const previewCells = new Set<string>();
+    for (const point of track) {
+      previewCells.add(h3.latLngToCell(point.lat, point.lng, 9));
+    }
+    const previewIndices = [...previewCells];
+    const previousOwners = await this.ownershipService.snapshotOwners(previewIndices);
+
     const affectedCells = await this.influenceService.processTrack(activity.userId, track);
-    await this.ownershipService.recalculateOwners(affectedCells);
+    await this.ownershipService.recalculateOwners(affectedCells, previousOwners);
+
+    const existingStats = await this.prisma.userStats.findUnique({
+      where: { userId: activity.userId },
+    });
+    const streakState = nextStreakState(
+      existingStats?.currentStreak ?? 0,
+      existingStats?.lastRunDate ?? null,
+      activity.finishedAt,
+    );
 
     await this.prisma.userStats.upsert({
       where: { userId: activity.userId },
       update: {
         totalDistance: { increment: activity.distanceMeters },
         totalRuns: { increment: 1 },
+        currentStreak: streakState.currentStreak,
+        lastRunDate: streakState.lastRunDate,
       },
       create: {
         userId: activity.userId,
         totalDistance: activity.distanceMeters,
         totalRuns: 1,
+        currentStreak: streakState.currentStreak,
+        lastRunDate: streakState.lastRunDate,
       },
     });
 

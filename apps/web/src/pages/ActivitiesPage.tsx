@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiRequest, apiUploadFile } from '../api/client';
 import type { ActivityItem, IntegrationInfo } from '../api/types';
 import FirstCaptureModal from '../components/FirstCaptureModal';
 import { healthSync, formatHealthSyncMessage } from '../services/health-sync.service';
+import { canReprocess, formatAnticheatMessage } from '../utils/anticheat-messages';
+
+const RUN_PREVIEW_KEY = 'territory-run-run-preview';
+
+function markRunPreviewAndGoToMap(navigate: (path: string) => void) {
+  sessionStorage.setItem(RUN_PREVIEW_KEY, JSON.stringify({ ts: Date.now() }));
+  navigate('/map?preview=1');
+}
 
 function formatDistance(meters: number) {
   return `${(meters / 1000).toFixed(2)} км`;
@@ -64,6 +73,7 @@ async function checkFirstCapture(setShow: (v: boolean) => void, setCells: (n: nu
 }
 
 export default function ActivitiesPage() {
+  const navigate = useNavigate();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [totalActivities, setTotalActivities] = useState(0);
   const [integrations, setIntegrations] = useState<IntegrationInfo[]>([]);
@@ -78,6 +88,7 @@ export default function ActivitiesPage() {
   const [isNativeApp, setIsNativeApp] = useState(false);
   const [healthSyncing, setHealthSyncing] = useState(false);
   const [healthSyncProgress, setHealthSyncProgress] = useState<string | null>(null);
+  const [reprocessing, setReprocessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const samsungZipInputRef = useRef<HTMLInputElement>(null);
 
@@ -184,6 +195,7 @@ export default function ActivitiesPage() {
         setTimeout(async () => {
           await loadData();
           await checkFirstCapture(setShowFirstCapture, setCaptureCells);
+          markRunPreviewAndGoToMap(navigate);
         }, 8000);
       }
     } catch (err) {
@@ -209,6 +221,7 @@ export default function ActivitiesPage() {
         setTimeout(async () => {
           await loadData();
           await checkFirstCapture(setShowFirstCapture, setCaptureCells);
+          markRunPreviewAndGoToMap(navigate);
         }, 8000);
       } else {
         setMessage('Новых пробежек не найдено. Как только появится бег в Strava, он появится здесь.');
@@ -240,6 +253,7 @@ export default function ActivitiesPage() {
       setTimeout(async () => {
         await loadData();
         await checkFirstCapture(setShowFirstCapture, setCaptureCells);
+        markRunPreviewAndGoToMap(navigate);
       }, 8000);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Не удалось загрузить файл');
@@ -283,6 +297,7 @@ export default function ActivitiesPage() {
         setTimeout(async () => {
           await loadData();
           await checkFirstCapture(setShowFirstCapture, setCaptureCells);
+          markRunPreviewAndGoToMap(navigate);
         }, 8000);
       }
     } catch (err) {
@@ -292,7 +307,27 @@ export default function ActivitiesPage() {
     }
   }
 
+  async function handleReprocessFailed() {
+    setReprocessing(true);
+    setMessage(null);
+    try {
+      const result = await apiRequest<{ requeued: number; skipped: number }>(
+        '/activities/reprocess-failed',
+        { method: 'POST' },
+      );
+      setMessage(
+        `В очередь на пересчёт: ${result.requeued}. Обновите список через несколько секунд.`,
+      );
+      setTimeout(() => void loadData(), 5000);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Не удалось пересчитать пробежки');
+    } finally {
+      setReprocessing(false);
+    }
+  }
+
   const hasStrava = integrations.some((item) => item.provider === 'strava' && item.connected);
+  const failedCount = items.filter((item) => item.status === 'failed').length;
 
   if (loading) {
     return <div className="page-center">Загрузка пробежек...</div>;
@@ -403,6 +438,18 @@ export default function ActivitiesPage() {
 
       <section className="card">
         <h2>Мои пробежки</h2>
+        {failedCount > 0 && (
+          <div className="button-row" style={{ marginBottom: '0.75rem' }}>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => void handleReprocessFailed()}
+              disabled={reprocessing}
+            >
+              {reprocessing ? 'Пересчёт...' : 'Пересчитать отклонённые'}
+            </button>
+          </div>
+        )}
         {totalActivities > 0 && (
           <p className="muted small">
             Показано {items.length} из {totalActivities}
@@ -423,9 +470,21 @@ export default function ActivitiesPage() {
                 <div className="list-meta">
                   <span>{formatDistance(item.distanceMeters)}</span>
                   <span>{formatDuration(item.durationSeconds)}</span>
-                  <span className={`status ${item.status}`}>{item.status}</span>
-                  {item.status === 'failed' && item.failureReason && (
-                    <span className="muted small"> ({item.failureReason})</span>
+                  <span className={`status ${item.status}`}>
+                    {item.status === 'failed' ? 'отклонена' : item.status === 'completed' ? 'готово' : 'обработка'}
+                  </span>
+                  {item.status === 'failed' && (
+                    <p className="anticheat-msg">{formatAnticheatMessage(item.failureReason)}</p>
+                  )}
+                  {item.status === 'failed' && canReprocess(item.failureReason) && (
+                    <button
+                      type="button"
+                      className="ghost-btn small-btn"
+                      onClick={() => void handleReprocessFailed()}
+                      disabled={reprocessing}
+                    >
+                      Пересчитать
+                    </button>
                   )}
                 </div>
               </li>

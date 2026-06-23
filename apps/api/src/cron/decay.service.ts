@@ -1,5 +1,6 @@
 ﻿import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { DECAY_DELETE_AFTER_DAYS, DECAY_RATE_PER_DAY } from '../common/constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { OwnershipService } from '../territories/ownership.service';
 
@@ -17,7 +18,7 @@ export class DecayService {
     this.logger.log('Starting daily influence decay');
 
     const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - 14); // 14 дней назад
+    cutoffDate.setDate(cutoffDate.getDate() - DECAY_DELETE_AFTER_DAYS);
 
     // 1. Удаляем записи старше 14 дней (заброшенные территории)
     const deleted = await this.prisma.cellOwnership.deleteMany({
@@ -46,7 +47,7 @@ export class DecayService {
     // Обновляем каждую запись в цикле (для MVP подходит)
     // Для продакшена лучше использовать один большой UPDATE запрос
     for (const ownership of ownerships) {
-      const newInfluence = ownership.influence * 0.98;
+      const newInfluence = ownership.influence * DECAY_RATE_PER_DAY;
       // Округляем до 2 знаков, чтобы не накапливать ошибки
       const rounded = Math.round(newInfluence * 100) / 100;
 

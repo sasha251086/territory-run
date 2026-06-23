@@ -186,6 +186,37 @@ export class DistrictService {
     };
   }
 
+  async listDistricts() {
+    const districts = await this.prisma.district.findMany({
+      include: { kingUser: { select: { id: true, nickname: true } } },
+      orderBy: { name: 'asc' },
+    });
+
+    return districts.map((d) => ({
+      id: d.id,
+      name: d.name,
+      polygon: d.polygon,
+      king: d.kingUser
+        ? { userId: d.kingUser.id, nickname: d.kingUser.nickname }
+        : null,
+    }));
+  }
+
+  async getUserDistrictProgress(userId: string, districtId: string) {
+    const district = await this.getDistrict(districtId);
+    const myEntry = district.topPlayers.find((p) => p.userId === userId);
+    const controlPercent = myEntry?.controlPercent ?? 0;
+
+    return {
+      districtId: district.id,
+      districtName: district.name,
+      myControlPercent: controlPercent,
+      kingThresholdPercent: 60,
+      isKing: district.king?.userId === userId,
+      king: district.king,
+    };
+  }
+
   async getDistrictCells(id: string) {
     const district = await this.prisma.district.findUnique({
       where: { id },

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   MapContainer,
   TileLayer,
@@ -14,8 +15,18 @@ import type { LatLngBounds, LatLngExpression } from 'leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { apiRequest } from '../api/client';
-import type { MapCell } from '../api/types';
+import type {
+  CaptureTarget,
+  DistrictListItem,
+  DistrictProgress,
+  MapCell,
+  MapSummary,
+  RivalCell,
+} from '../api/types';
+import CellPopupContent from '../components/CellPopup';
 import { useAuth } from '../context/AuthContext';
+
+const RUN_PREVIEW_KEY = 'territory-run-run-preview';
 
 function boundsToQuery(bounds: LatLngBounds) {
   return new URLSearchParams({
@@ -52,9 +63,13 @@ function FlyToCells({ targets, trigger }: { targets: LatLngExpression[]; trigger
 function MapOverlayControls({
   canFocusMine,
   onFocusMine,
+  onFindTargets,
+  findingTargets,
 }: {
   canFocusMine: boolean;
   onFocusMine: () => void;
+  onFindTargets: () => void;
+  findingTargets: boolean;
 }) {
   const map = useMap();
 
@@ -80,6 +95,16 @@ function MapOverlayControls({
       <div className="map-tools" aria-label="Инструменты карты">
         <button
           type="button"
+          className="map-tool-btn map-target-btn"
+          onClick={onFindTargets}
+          disabled={findingTargets}
+          aria-label="Найти цели захвата"
+          title="Найти цели"
+        >
+          ★
+        </button>
+        <button
+          type="button"
           className="map-tool-btn"
           onClick={onFocusMine}
           disabled={!canFocusMine}
@@ -92,10 +117,63 @@ function MapOverlayControls({
   );
 }
 
-function cellColor(cell: MapCell, currentUserId: string | undefined) {
+function polygonCoords(polygon: DistrictListItem['polygon']): [number, number][][] {
+  const coords = polygon.coordinates;
+  if (polygon.type === 'Polygon') {
+    return (coords as number[][][]).map((ring) =>
+      ring.map(([lng, lat]) => [lat, lng] as [number, number]),
+    );
+  }
+  return (coords as number[][][][]).flatMap((poly) =>
+    poly.map((ring) => ring.map(([lng, lat]) => [lat, lng] as [number, number])),
+  );
+}
+
+function cellColor(
+  cell: MapCell,
+  currentUserId: string | undefined,
+  rivalH3: Set<string>,
+  targetH3: Set<string>,
+  previewFlash: boolean,
+) {
+  if (targetH3.has(cell.h3Index)) {
+    return '#f5c842';
+  }
+  if (rivalH3.has(cell.h3Index) && cell.ownerId !== currentUserId) {
+    return '#ff6b9d';
+  }
+  if (cell.ownerId === currentUserId) {
+    if (previewFlash) return '#3dff8a';
+    if (cell.decayRisk === 'critical') return '#ff5a4a';
+    if (cell.decayRisk === 'warning') return '#ff9f43';
+    return '#45c8e7';
+  }
   if (!cell.ownerId) return '#c6d3df';
-  if (cell.ownerId === currentUserId) return '#45c8e7';
   return '#9b6dff';
+}
+
+function cellClassName(
+  cell: MapCell,
+  currentUserId: string | undefined,
+  rivalH3: Set<string>,
+  targetH3: Set<string>,
+  previewFlash: boolean,
+) {
+  const classes = ['map-cell-polygon'];
+  if (cell.ownerId === currentUserId) {
+    classes.push('owned-cell');
+    if (previewFlash) classes.push('cell-preview-flash');
+    if (cell.decayRisk === 'warning') classes.push('decay-warning');
+    if (cell.decayRisk === 'critical') classes.push('decay-critical');
+  } else if (rivalH3.has(cell.h3Index)) {
+    classes.push('rival-tracked-cell');
+  } else {
+    classes.push('rival-cell');
+  }
+  if (targetH3.has(cell.h3Index)) {
+    classes.push('capture-target-cell');
+  }
+  return classes.join(' ');
 }
 
 function seededNoise(seed: string, index: number) {
@@ -136,13 +214,31 @@ function mergeCells(primary: MapCell[], secondary: MapCell[]) {
   return Array.from(byId.values());
 }
 
+function streakLabel(streak: number) {
+  if (streak >= 14) return '×1.3';
+  if (streak >= 7) return '×1.2';
+  if (streak >= 4) return '×1.1';
+  return '';
+}
+
 export default function MapPage() {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [nearbyCells, setNearbyCells] = useState<MapCell[]>([]);
   const [myCells, setMyCells] = useState<MapCell[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flyTrigger, setFlyTrigger] = useState(0);
+  const [summary, setSummary] = useState<MapSummary | null>(null);
+  const [targets, setTargets] = useState<CaptureTarget[]>([]);
+  const [targetsMessage, setTargetsMessage] = useState<string | null>(null);
+  const [findingTargets, setFindingTargets] = useState(false);
+  const [rivalCells, setRivalCells] = useState<RivalCell[]>([]);
+  const [districts, setDistricts] = useState<DistrictListItem[]>([]);
+  const [districtProgress, setDistrictProgress] = useState<DistrictProgress | null>(null);
+  const [selectedDistrictId, setSelectedDistrictId] = useState<string | null>(null);
+  const [previewFlash, setPreviewFlash] = useState(false);
+  const [previewMessage, setPreviewMessage] = useState<string | null>(null);
 
   const defaultCenter = useMemo<[number, number]>(() => {
     if (user?.homeLat != null && user.homeLng != null) {
@@ -157,6 +253,45 @@ export default function MapPage() {
       setMyCells(data.cells);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось загрузить ваши клетки');
+    }
+  }, []);
+
+  const loadSummary = useCallback(async () => {
+    try {
+      const data = await apiRequest<MapSummary>('/map/summary');
+      setSummary(data);
+    } catch {
+      setSummary(null);
+    }
+  }, []);
+
+  const loadRivalCells = useCallback(async () => {
+    try {
+      const data = await apiRequest<{ cells: RivalCell[] }>('/map/rivals/cells');
+      setRivalCells(data.cells);
+    } catch {
+      setRivalCells([]);
+    }
+  }, []);
+
+  const loadDistricts = useCallback(async () => {
+    try {
+      const data = await apiRequest<DistrictListItem[]>('/districts');
+      setDistricts(data);
+      if (data.length > 0 && !selectedDistrictId) {
+        setSelectedDistrictId(data[0].id);
+      }
+    } catch {
+      setDistricts([]);
+    }
+  }, [selectedDistrictId]);
+
+  const loadDistrictProgress = useCallback(async (districtId: string) => {
+    try {
+      const data = await apiRequest<DistrictProgress>(`/districts/${districtId}/progress`);
+      setDistrictProgress(data);
+    } catch {
+      setDistrictProgress(null);
     }
   }, []);
 
@@ -176,20 +311,85 @@ export default function MapPage() {
 
   useEffect(() => {
     void loadMyCells();
-  }, [loadMyCells, user?.stats?.cellsOwned]);
+    void loadSummary();
+    void loadRivalCells();
+    void loadDistricts();
+  }, [loadMyCells, loadSummary, loadRivalCells, loadDistricts, user?.stats?.cellsOwned]);
+
+  useEffect(() => {
+    if (selectedDistrictId) {
+      void loadDistrictProgress(selectedDistrictId);
+    }
+  }, [selectedDistrictId, loadDistrictProgress, user?.stats?.cellsOwned]);
+
+  useEffect(() => {
+    const isPreview = searchParams.get('preview') === '1';
+    const raw = sessionStorage.getItem(RUN_PREVIEW_KEY);
+    if (!isPreview || !raw) {
+      return;
+    }
+
+    sessionStorage.removeItem(RUN_PREVIEW_KEY);
+    setSearchParams({}, { replace: true });
+    setPreviewFlash(true);
+    setPreviewMessage('Пробежка обработана! Ваши клетки подсвечены на карте.');
+    setFlyTrigger((value) => value + 1);
+
+    const timer = window.setTimeout(() => setPreviewFlash(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [searchParams, setSearchParams]);
 
   const displayCells = useMemo(
     () => mergeCells(myCells, nearbyCells),
     [myCells, nearbyCells],
   );
 
-  const flyTargets = useMemo(
-    () =>
-      myCells
-        .filter((cell) => cell.lat != null && cell.lng != null)
-        .map((cell) => [cell.lat as number, cell.lng as number] as LatLngExpression),
-    [myCells],
-  );
+  const rivalH3 = useMemo(() => new Set(rivalCells.map((c) => c.h3Index)), [rivalCells]);
+  const targetH3 = useMemo(() => new Set(targets.map((t) => t.h3Index)), [targets]);
+
+  const flyTargets = useMemo(() => {
+    if (targets.length > 0) {
+      return targets.map((t) => [t.lat, t.lng] as LatLngExpression);
+    }
+    return myCells
+      .filter((cell) => cell.lat != null && cell.lng != null)
+      .map((cell) => [cell.lat as number, cell.lng as number] as LatLngExpression);
+  }, [myCells, targets]);
+
+  async function handleFindTargets() {
+    setFindingTargets(true);
+    setTargetsMessage(null);
+    try {
+      let lat = user?.homeLat;
+      let lng = user?.homeLng;
+
+      if (lat == null || lng == null) {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+          });
+        });
+        lat = position.coords.latitude;
+        lng = position.coords.longitude;
+      }
+
+      const data = await apiRequest<{ targets: CaptureTarget[]; message: string }>(
+        `/map/targets?lat=${lat}&lng=${lng}`,
+      );
+      setTargets(data.targets);
+      setTargetsMessage(data.message);
+      if (data.targets.length > 0) {
+        setFlyTrigger((value) => value + 1);
+      }
+    } catch (err) {
+      setTargetsMessage(
+        err instanceof Error ? err.message : 'Не удалось найти цели. Укажите домашнюю базу на карте.',
+      );
+    } finally {
+      setFindingTargets(false);
+    }
+  }
 
   const cellsFarFromHome =
     user?.homeLat != null &&
@@ -207,7 +407,9 @@ export default function MapPage() {
   const totalInfluence = Math.round(user?.stats?.totalInfluence ?? 0);
   const cellsOwned = user?.stats?.cellsOwned ?? 0;
   const totalRuns = user?.stats?.totalRuns ?? 0;
+  const currentStreak = user?.stats?.currentStreak ?? 0;
   const level = Math.max(1, Math.floor(cellsOwned / 12) + 1);
+  const streakBonus = streakLabel(currentStreak);
 
   return (
     <div className="map-page game-map-page">
@@ -220,6 +422,12 @@ export default function MapPage() {
         <div className="map-user-row">
           <div className="runner-avatar" aria-hidden="true">●</div>
           <h1>{user?.nickname || 'runner'}</h1>
+          {currentStreak > 0 && (
+            <span className="streak-badge" title="Стрик активности">
+              🔥 {currentStreak}
+              {streakBonus ? ` ${streakBonus}` : ''}
+            </span>
+          )}
         </div>
 
         <div className="map-stat-cards">
@@ -254,6 +462,8 @@ export default function MapPage() {
           <MapOverlayControls
             canFocusMine={myCells.length > 0}
             onFocusMine={() => setFlyTrigger((value) => value + 1)}
+            onFindTargets={() => void handleFindTargets()}
+            findingTargets={findingTargets}
           />
 
           {user?.homeLat != null && user.homeLng != null && (
@@ -271,10 +481,39 @@ export default function MapPage() {
             </>
           )}
 
+          {districts.map((district) =>
+            polygonCoords(district.polygon).map((ring, ringIndex) => (
+              <Polygon
+                key={`${district.id}-${ringIndex}`}
+                positions={ring}
+                pathOptions={{
+                  color: '#6b7cff',
+                  fillColor: 'transparent',
+                  fillOpacity: 0,
+                  weight: 2,
+                  dashArray: '6 4',
+                  className: 'district-boundary',
+                }}
+                eventHandlers={{
+                  click: () => setSelectedDistrictId(district.id),
+                }}
+              >
+                <Popup>
+                  <strong>{district.name}</strong>
+                  <br />
+                  {district.king
+                    ? `Король: ${district.king.nickname}`
+                    : 'Король не определён'}
+                </Popup>
+              </Polygon>
+            )),
+          )}
+
           {displayCells.map((cell) => {
             try {
               const boundary = organicBoundary(cell);
-              const color = cellColor(cell, user?.id);
+              const color = cellColor(cell, user?.id, rivalH3, targetH3, previewFlash);
+              const isMine = cell.ownerId === user?.id;
               return (
                 <Polygon
                   key={cell.h3Index}
@@ -282,16 +521,14 @@ export default function MapPage() {
                   pathOptions={{
                     color,
                     fillColor: color,
-                    fillOpacity: cell.ownerId === user?.id ? 0.58 : 0.36,
+                    fillOpacity: isMine ? 0.58 : targetH3.has(cell.h3Index) ? 0.5 : 0.36,
                     opacity: 0.86,
-                    weight: cell.ownerId === user?.id ? 1.6 : 1.1,
-                    className: cell.ownerId === user?.id ? 'owned-cell' : 'rival-cell',
+                    weight: isMine || targetH3.has(cell.h3Index) ? 1.8 : 1.1,
+                    className: cellClassName(cell, user?.id, rivalH3, targetH3, previewFlash),
                   }}
                 >
-                  <Popup>
-                    <strong>{cell.ownerNickname || 'Свободна'}</strong>
-                    <br />
-                    Влияние: {cell.influence}
+                  <Popup maxWidth={280}>
+                    <CellPopupContent cell={cell} />
                   </Popup>
                 </Polygon>
               );
@@ -315,6 +552,37 @@ export default function MapPage() {
           <div>
             <strong>Твоя территория растёт!</strong>
             <span>Сейчас под контролем {cellsOwned} клеток.</span>
+            {summary != null && summary.cellsAtRisk > 0 && (
+              <span className="map-risk-count">
+                {summary.cellsAtRisk} клеток под угрозой затухания
+              </span>
+            )}
+            {districtProgress && districtProgress.myControlPercent > 0 && (
+              <span className="map-district-hud">
+                Район «{districtProgress.districtName}»: {districtProgress.myControlPercent}%
+                {districtProgress.isKing ? ' · вы король!' : ` · до короны ${districtProgress.kingThresholdPercent}%`}
+              </span>
+            )}
+            {targetsMessage && <span className="map-targets-msg">{targetsMessage}</span>}
+            {previewMessage && (
+              <span className="map-preview-msg">
+                {previewMessage}
+                {'share' in navigator && (
+                  <button
+                    type="button"
+                    className="ghost-btn small-btn map-share-btn"
+                    onClick={() =>
+                      void navigator.share?.({
+                        title: 'Territory Run',
+                        text: previewMessage,
+                      })
+                    }
+                  >
+                    Поделиться
+                  </button>
+                )}
+              </span>
+            )}
           </div>
           <b aria-hidden="true">›</b>
           {cellsFarFromHome && (

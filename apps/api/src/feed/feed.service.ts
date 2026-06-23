@@ -5,13 +5,25 @@ import { PrismaService } from '../prisma/prisma.service';
 export class FeedService {
   constructor(private prisma: PrismaService) {}
 
-  async getFeed(userId: string, page: number = 1, limit: number = 20) {
+  async getFeed(userId: string, page: number = 1, limit: number = 20, rivalsOnly = false) {
     const skip = (page - 1) * limit;
 
+    let rivalIds: string[] = [];
+    if (rivalsOnly) {
+      const follows = await this.prisma.rivalFollow.findMany({
+        where: { followerId: userId },
+        select: { targetUserId: true },
+      });
+      rivalIds = follows.map((f) => f.targetUserId);
+      if (rivalIds.length === 0) {
+        return { items: [], total: 0, page, limit, totalPages: 0 };
+      }
+    }
+
+    const where = rivalsOnly ? { userId: { in: rivalIds } } : {};
+
     const events = await this.prisma.event.findMany({
-      where: {
-        // Можно фильтровать по подпискам, но для MVP показываем все события
-      },
+      where,
       include: {
         user: {
           select: {
@@ -26,7 +38,7 @@ export class FeedService {
       take: limit,
     });
 
-    const total = await this.prisma.event.count();
+    const total = await this.prisma.event.count({ where });
 
     return {
       items: events,

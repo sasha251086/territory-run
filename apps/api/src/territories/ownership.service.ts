@@ -14,15 +14,12 @@ export class OwnershipService {
     private districtService: DistrictService,
   ) {}
 
-  async recalculateOwners(h3Indices: string[]) {
+  async recalculateOwners(
+    h3Indices: string[],
+    previousOwnerByCell: Map<string, string | null> = new Map(),
+  ) {
     const results = [];
     for (const h3Index of h3Indices) {
-      const currentOwner = await this.prisma.cellOwnership.findFirst({
-        where: { h3Index },
-        orderBy: { influence: 'desc' },
-        include: { user: true },
-      });
-
       const ownerships = await this.prisma.cellOwnership.findMany({
         where: { h3Index },
         orderBy: { influence: 'desc' },
@@ -35,14 +32,31 @@ export class OwnershipService {
       }
 
       const top = ownerships[0];
-      const previousOwnerId = currentOwner?.userId || null;
+      const previousOwnerId = previousOwnerByCell.get(h3Index) ?? null;
       const newOwnerId = top.userId;
 
       if (previousOwnerId !== newOwnerId) {
+        await this.prisma.cellHistory.create({
+          data: {
+            h3Index,
+            fromUserId: previousOwnerId,
+            toUserId: newOwnerId,
+          },
+        });
+
+        const previousNickname = previousOwnerId
+          ? (
+              await this.prisma.user.findUnique({
+                where: { id: previousOwnerId },
+                select: { nickname: true },
+              })
+            )?.nickname ?? null
+          : null;
+
         await this.feedService.createEvent('cell_captured', newOwnerId, {
           h3Index,
           cellOwnerNickname: top.user.nickname,
-          previousOwnerNickname: currentOwner?.user?.nickname || null,
+          previousOwnerNickname: previousNickname,
           influence: top.influence,
           timestamp: new Date(),
         });
@@ -75,5 +89,14 @@ export class OwnershipService {
       include: { user: true },
     });
     return ownerships[0] || null;
+  }
+
+  async snapshotOwners(h3Indices: string[]): Promise<Map<string, string | null>> {
+    const map = new Map<string, string | null>();
+    for (const h3Index of h3Indices) {
+      const owner = await this.getCurrentOwner(h3Index);
+      map.set(h3Index, owner?.userId ?? null);
+    }
+    return map;
   }
 }

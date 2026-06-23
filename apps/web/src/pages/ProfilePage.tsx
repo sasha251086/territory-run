@@ -1,13 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../api/client';
-import type { IntegrationInfo } from '../api/types';
+import type { IntegrationInfo, RivalFollow } from '../api/types';
 import { useAuth } from '../context/AuthContext';
+
+function streakBonusLabel(streak: number) {
+  if (streak >= 14) return '×1.3 к влиянию';
+  if (streak >= 7) return '×1.2 к влиянию';
+  if (streak >= 4) return '×1.1 к влиянию';
+  return null;
+}
 
 export default function ProfilePage() {
   const { user, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [integrations, setIntegrations] = useState<IntegrationInfo[]>([]);
+  const [rivals, setRivals] = useState<RivalFollow[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -15,8 +23,12 @@ export default function ProfilePage() {
 
   useEffect(() => {
     async function load() {
-      const data = await apiRequest<IntegrationInfo[]>('/integrations');
-      setIntegrations(data);
+      const [integrationsData, rivalsData] = await Promise.all([
+        apiRequest<IntegrationInfo[]>('/integrations'),
+        apiRequest<RivalFollow[]>('/rivals'),
+      ]);
+      setIntegrations(integrationsData);
+      setRivals(rivalsData);
     }
     void load();
   }, []);
@@ -35,9 +47,21 @@ export default function ProfilePage() {
     }
   }
 
+  async function unfollowRival(targetUserId: string) {
+    try {
+      await apiRequest(`/rivals/${targetUserId}`, { method: 'DELETE' });
+      setRivals((prev) => prev.filter((r) => r.userId !== targetUserId));
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Не удалось отписаться');
+    }
+  }
+
   const stravaConnected = integrations.some(
     (item) => item.provider === 'strava' && item.connected,
   );
+
+  const currentStreak = user?.stats?.currentStreak ?? 0;
+  const streakBonus = streakBonusLabel(currentStreak);
 
   async function handleRefreshProfile() {
     setRefreshing(true);
@@ -58,6 +82,12 @@ export default function ProfilePage() {
         <p className="eyebrow">Runner Profile</p>
         <h1>{user?.nickname}</h1>
         <p>{user?.email}</p>
+        {currentStreak > 0 && (
+          <p className="streak-line">
+            🔥 Стрик: {currentStreak} дн.
+            {streakBonus ? ` · бонус ${streakBonus}` : ''}
+          </p>
+        )}
         <div className="stats-grid hero-stats">
           <div><span>Клетки</span><strong>{user?.stats?.cellsOwned ?? 0}</strong></div>
           <div><span>Влияние</span><strong>{Math.round(user?.stats?.totalInfluence ?? 0)}</strong></div>
@@ -73,7 +103,36 @@ export default function ProfilePage() {
           <div><span>Клетки</span><strong>{user?.stats?.cellsOwned ?? 0}</strong></div>
           <div><span>Влияние</span><strong>{Math.round(user?.stats?.totalInfluence ?? 0)}</strong></div>
           <div><span>Пробежки</span><strong>{user?.stats?.totalRuns ?? 0}</strong></div>
+          {currentStreak > 0 && (
+            <div><span>Стрик</span><strong>{currentStreak} дн.</strong></div>
+          )}
         </div>
+      </section>
+
+      <section className="card">
+        <h2>Соперники</h2>
+        <p className="muted">
+          До 3 соперников — их клетки подсвечиваются на карте. Добавьте из{' '}
+          <Link to="/leaderboard">рейтинга</Link>.
+        </p>
+        {rivals.length === 0 ? (
+          <p className="muted">Соперников пока нет.</p>
+        ) : (
+          <ul className="list">
+            {rivals.map((rival) => (
+              <li key={rival.userId} className="list-item">
+                <strong>{rival.nickname}</strong>
+                <button
+                  type="button"
+                  className="ghost-btn small-btn"
+                  onClick={() => void unfollowRival(rival.userId)}
+                >
+                  Отписаться
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="card highlight-card action-card">

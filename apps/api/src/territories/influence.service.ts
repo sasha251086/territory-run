@@ -8,6 +8,7 @@ import {
   MAX_INFLUENCE_PER_CELL,
   NEW_PLAYER_BONUS_MULTIPLIER,
   NEW_PLAYER_PERIOD_MS,
+  streakMultiplier,
 } from '../common/constants';
 
 @Injectable()
@@ -39,8 +40,12 @@ export class InfluenceService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
+      include: { stats: true },
     });
     if (!user) throw new Error('User not found');
+
+    const streak = user.stats?.currentStreak ?? 0;
+    const streakMult = streakMultiplier(streak);
 
     for (const h3Index of h3Indices) {
       const centerCoords = h3.cellToLatLng(h3Index);
@@ -69,7 +74,7 @@ export class InfluenceService {
         },
       });
 
-      const influence = this.calculateInfluence(user, center, existing);
+      const influence = this.calculateInfluence(user, center, existing) * streakMult;
 
       if (existing) {
         await this.prisma.cellOwnership.update({

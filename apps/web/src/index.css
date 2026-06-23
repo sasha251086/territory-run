@@ -1730,3 +1730,174 @@ body::before {
     width: auto;
   }
 }
+
+/* Game improvements UI */
+.streak-badge,
+.streak-line {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #ea580c;
+}
+
+.streak-badge {
+  margin-left: auto;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(234, 88, 12, 0.12);
+}
+
+.cell-popup {
+  min-width: 200px;
+  font-size: 0.88rem;
+}
+
+.cell-popup-title {
+  margin: 0 0 0.35rem;
+  font-weight: 700;
+}
+
+.cell-popup-meta {
+  margin: 0 0 0.5rem;
+  color: #64748b;
+}
+
+.cell-popup-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+  margin-bottom: 0.35rem;
+}
+
+.cell-popup-progress-bar span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #45c8e7, #3dff8a);
+  border-radius: inherit;
+}
+
+.cell-popup-leaderboard {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cell-popup-leaderboard li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+}
+
+.cell-popup-leaderboard li.is-me {
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.cell-popup-history {
+  margin-top: 0.65rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.cell-popup-history ul {
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8rem;
+}
+
+.cell-popup-history li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-bottom: 0.25rem;
+}
+
+.cell-popup-history span {
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.map-risk-count {
+  display: block;
+  color: #ea580c !important;
+  font-weight: 600;
+}
+
+.map-district-hud,
+.map-targets-msg,
+.map-preview-msg {
+  display: block;
+  color: #475569 !important;
+}
+
+.map-preview-msg {
+  color: #059669 !important;
+  font-weight: 600;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.map-share-btn {
+  margin-left: 0.25rem;
+}
+
+.game-map-frame .decay-warning {
+  filter: saturate(1.2);
+}
+
+.game-map-frame .decay-critical {
+  animation: decay-pulse 1.5s ease-in-out infinite;
+}
+
+.game-map-frame .cell-preview-flash {
+  animation: cell-flash 0.8s ease-in-out 3;
+}
+
+.game-map-frame .capture-target-cell {
+  filter: drop-shadow(0 0 4px rgba(245, 200, 66, 0.8));
+}
+
+.game-map-frame .rival-tracked-cell {
+  filter: drop-shadow(0 0 3px rgba(255, 107, 157, 0.6));
+}
+
+.map-target-btn {
+  background: rgba(245, 200, 66, 0.25) !important;
+}
+
+.anticheat-msg {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  color: #be123c;
+  max-width: 280px;
+}
+
+.small-btn {
+  padding: 0.25rem 0.55rem !important;
+  font-size: 0.78rem !important;
+}
+
+.leaderboard li {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.follow-btn.is-followed {
+  opacity: 0.7;
+}
+
+@keyframes decay-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
+@keyframes cell-flash {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.45); }
+}

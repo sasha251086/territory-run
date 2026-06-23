@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { DistrictService } from './district.service';
@@ -8,6 +8,23 @@ import { DistrictService } from './district.service';
 @Controller('districts')
 export class DistrictsController {
   constructor(private districtService: DistrictService) {}
+
+  @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'List all districts with polygons' })
+  async listDistricts() {
+    return this.districtService.listDistricts();
+  }
+
+  @Get(':id/progress')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Current user control in a district' })
+  async getProgress(
+    @Param('id') id: string,
+    @Request() req: { user: { id: string } },
+  ) {
+    return this.districtService.getUserDistrictProgress(req.user.id, id);
+  }
 
   @Get(':id')
   @UseGuards(JwtAuthGuard)
