@@ -26,9 +26,12 @@ export default function LoginPage() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card">
-        <p className="eyebrow">Territory Run</p>
-        <h1>Вход</h1>
+      <div className="auth-card game-auth-card">
+        <div className="auth-hero-copy">
+          <p className="eyebrow">Territory Run</p>
+          <h1>Вход в город</h1>
+          <p>Продолжайте захватывать районы и защищать свою территорию.</p>
+        </div>
         <form className="stack" onSubmit={handleSubmit}>
           <label>
             Email

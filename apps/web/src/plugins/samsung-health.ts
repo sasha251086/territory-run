@@ -13,7 +13,12 @@ export interface SamsungWorkout {
 export interface SamsungHealthPlugin {
   isAvailable(): Promise<{ available: boolean }>;
   requestSamsungPermissions(): Promise<{ granted: boolean }>;
-  getExercisesWithLocation(options: { days?: number }): Promise<{ workouts: SamsungWorkout[] }>;
+  getExercisesWithLocation(options: { days?: number }): Promise<{
+    workouts: SamsungWorkout[];
+    sessionsSeen?: number;
+    skippedNoRoute?: number;
+    skippedExerciseType?: number;
+  }>;
 }
 
 export const SamsungHealth = registerPlugin<SamsungHealthPlugin>('SamsungHealth', {

@@ -21,6 +21,7 @@ export async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
   auth = true,
+  timeoutMs = 120_000,
 ): Promise<T> {
   const headers = new Headers(options.headers);
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
@@ -35,24 +36,43 @@ export async function apiRequest<T>(
     }
   }
 
-  let response = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const fetchOptions: RequestInit = {
+    ...options,
+    headers,
+    signal: options.signal ?? controller.signal,
+  };
 
-  if (response.status === 401 && auth) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      headers.set('Authorization', `Bearer ${newToken}`);
-      response = await fetch(`${API_URL}${path}`, { ...options, headers });
+  try {
+    let response = await fetch(`${API_URL}${path}`, fetchOptions);
+
+    if (response.status === 401 && auth) {
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        headers.set('Authorization', `Bearer ${newToken}`);
+        response = await fetch(`${API_URL}${path}`, { ...fetchOptions, headers });
+      }
     }
+
+    const payload = await parseJson<T>(response);
+
+    if (!response.ok || payload.success === false) {
+      const message = payload.error?.message || `Request failed (${response.status})`;
+      throw new Error(message);
+    }
+
+    return payload.data;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(
+        'Сервер не ответил вовремя (таймаут 2 мин). Render мог просыпаться — попробуйте ещё раз.',
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  const payload = await parseJson<T>(response);
-
-  if (!response.ok || payload.success === false) {
-    const message = payload.error?.message || `Request failed (${response.status})`;
-    throw new Error(message);
-  }
-
-  return payload.data;
 }
 
 export async function apiUploadFile<T>(path: string, file: File): Promise<T> {

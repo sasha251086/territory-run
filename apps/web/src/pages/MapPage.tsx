@@ -13,7 +13,7 @@ import type { LatLngBounds, LatLngExpression } from 'leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { apiRequest } from '../api/client';
-import type { MapCell } from '../api/types';
+import type { LeaderboardEntry, MapCell } from '../api/types';
 import { useAuth } from '../context/AuthContext';
 
 function boundsToQuery(bounds: LatLngBounds) {
@@ -49,9 +49,9 @@ function FlyToCells({ targets, trigger }: { targets: LatLngExpression[]; trigger
 }
 
 function cellColor(cell: MapCell, currentUserId: string | undefined) {
-  if (!cell.ownerId) return '#94a3b8';
-  if (cell.ownerId === currentUserId) return '#22c55e';
-  return '#3b82f6';
+  if (!cell.ownerId) return '#64748b';
+  if (cell.ownerId === currentUserId) return '#8dff42';
+  return '#38bdf8';
 }
 
 function mergeCells(primary: MapCell[], secondary: MapCell[]) {
@@ -69,6 +69,7 @@ export default function MapPage() {
   const { user } = useAuth();
   const [nearbyCells, setNearbyCells] = useState<MapCell[]>([]);
   const [myCells, setMyCells] = useState<MapCell[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flyTrigger, setFlyTrigger] = useState(0);
@@ -107,6 +108,28 @@ export default function MapPage() {
     void loadMyCells();
   }, [loadMyCells, user?.stats?.cellsOwned]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLeaderboard() {
+      try {
+        const data = await apiRequest<LeaderboardEntry[]>('/leaderboard/cells?limit=4');
+        if (!cancelled) {
+          setLeaderboard(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setLeaderboard([]);
+        }
+      }
+    }
+
+    void loadLeaderboard();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const displayCells = useMemo(
     () => mergeCells(myCells, nearbyCells),
     [myCells, nearbyCells],
@@ -133,42 +156,13 @@ export default function MapPage() {
       return dLat > 0.05 || dLng > 0.05;
     });
 
+  const totalInfluence = Math.round(user?.stats?.totalInfluence ?? 0);
+  const cellsOwned = user?.stats?.cellsOwned ?? 0;
+  const totalRuns = user?.stats?.totalRuns ?? 0;
+
   return (
-    <div className="map-page">
-      <section className="stats-strip">
-        <div>
-          <span>Клетки</span>
-          <strong>{user?.stats?.cellsOwned ?? 0}</strong>
-        </div>
-        <div>
-          <span>Влияние</span>
-          <strong>{Math.round(user?.stats?.totalInfluence ?? 0)}</strong>
-        </div>
-        <div>
-          <span>Пробежки</span>
-          <strong>{user?.stats?.totalRuns ?? 0}</strong>
-        </div>
-      </section>
-
-      {cellsFarFromHome && (
-        <p className="info-box">
-          Ваши клетки от пробежки в другом районе. Нажмите «Показать мои клетки», чтобы перейти к ним на карте.
-        </p>
-      )}
-
-      {myCells.length > 0 && (
-        <button
-          type="button"
-          className="primary-btn map-action-btn"
-          onClick={() => setFlyTrigger((value) => value + 1)}
-        >
-          Показать мои клетки
-        </button>
-      )}
-
-      {error && <p className="error-banner">{error}</p>}
-
-      <div className="map-frame">
+    <div className="map-page game-map-page">
+      <div className="map-frame game-map-frame">
         <MapContainer
           key={`${defaultCenter[0]}-${defaultCenter[1]}`}
           center={defaultCenter}
@@ -195,15 +189,18 @@ export default function MapPage() {
               const boundary = cellToBoundary(cell.h3Index).map(
                 ([lat, lng]) => [lat, lng] as [number, number],
               );
+              const color = cellColor(cell, user?.id);
               return (
                 <Polygon
                   key={cell.h3Index}
                   positions={boundary}
                   pathOptions={{
-                    color: cellColor(cell, user?.id),
-                    fillColor: cellColor(cell, user?.id),
-                    fillOpacity: 0.45,
-                    weight: 1,
+                    color,
+                    fillColor: color,
+                    fillOpacity: cell.ownerId === user?.id ? 0.56 : 0.42,
+                    opacity: 0.95,
+                    weight: cell.ownerId === user?.id ? 2 : 1.4,
+                    className: cell.ownerId === user?.id ? 'owned-cell' : 'rival-cell',
                   }}
                 >
                   <Popup>
@@ -218,6 +215,56 @@ export default function MapPage() {
             }
           })}
         </MapContainer>
+        <div className="map-vignette" aria-hidden="true" />
+
+        <section className="map-hud map-hud-top">
+          <div>
+            <p className="eyebrow">Run the City</p>
+            <h2>{user?.nickname || 'Runner'}</h2>
+          </div>
+          <div className="map-score-row">
+            <span className="game-chip"><strong>{cellsOwned}</strong> зон</span>
+            <span className="game-chip"><strong>{totalInfluence}</strong> влияния</span>
+            <span className="game-chip"><strong>{totalRuns}</strong> бег</span>
+          </div>
+        </section>
+
+        {leaderboard.length > 0 && (
+          <section className="map-hud map-leaderboard-panel" aria-label="Лидеры по зонам">
+            <p className="eyebrow">Urban Conquest</p>
+            <ol>
+              {leaderboard.map((item, index) => (
+                <li key={item.userId} className={item.userId === user?.id ? 'is-you' : undefined}>
+                  <span>{index + 1}</span>
+                  <strong>{item.userId === user?.id ? 'Вы' : item.nickname}</strong>
+                  <em>{Math.round(item.value)}</em>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+
+        <div className="map-tools" aria-label="Инструменты карты">
+          <button
+            type="button"
+            className="map-tool-btn"
+            onClick={() => setFlyTrigger((value) => value + 1)}
+            disabled={myCells.length === 0}
+          >
+            Мои зоны
+          </button>
+        </div>
+
+        <section className="map-hud map-capture-card">
+          <p className="eyebrow">Ваша территория</p>
+          <strong>{cellsOwned} зон</strong>
+          <span>Влияние: {totalInfluence}</span>
+          {cellsFarFromHome && (
+            <p>Клетки далеко от базы. Нажмите «Мои зоны», чтобы перейти к ним.</p>
+          )}
+          {error && <p className="map-inline-error">{error}</p>}
+        </section>
+
         {loading && <div className="map-overlay">Обновление карты...</div>}
       </div>
     </div>

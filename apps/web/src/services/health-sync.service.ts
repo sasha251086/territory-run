@@ -21,6 +21,10 @@ export interface HealthSyncResult {
   samsungEmpty?: boolean;
   /** Samsung permissions dialog was not fully granted. */
   samsungPermissionDenied?: boolean;
+  /** Foot sessions seen in Samsung Health (including those without GPS). */
+  samsungSessionsSeen?: number;
+  /** Sessions skipped because route was missing in Samsung Health. */
+  samsungSkippedNoRoute?: number;
   /** Which sync backend actually ran on Android. */
   syncSource?: 'samsung_health' | 'health_connect' | 'apple_health' | 'none';
 }
@@ -33,9 +37,10 @@ export interface ConsentSyncPreview {
 }
 
 export interface SyncProgress {
-  current: number;
-  total: number;
-  recordId: string;
+  current?: number;
+  total?: number;
+  recordId?: string;
+  message?: string;
 }
 
 interface TrackPoint {
@@ -166,14 +171,35 @@ function samsungWorkoutTrack(workout: SamsungWorkout): TrackPoint[] {
 }
 
 function formatHealthSyncMessage(result: HealthSyncResult): string {
+  const parts: string[] = [];
+
   if (result.imported > 0) {
-    return result.samsungHealthUsed
-      ? `Импортировано из Samsung Health: ${result.imported}. Обработка займёт несколько секунд.`
-      : `Импортировано пробежек: ${result.imported}. Обработка займёт несколько секунд.`;
+    parts.push(
+      result.samsungHealthUsed
+        ? `Импортировано из Samsung Health: ${result.imported}.`
+        : `Импортировано пробежек: ${result.imported}.`,
+    );
   }
 
   if (result.duplicates > 0) {
-    return `Новых пробежек нет — уже импортированы (${result.duplicates}).`;
+    parts.push(`Уже были в приложении: ${result.duplicates}.`);
+  }
+
+  if (result.samsungSkippedNoRoute && result.samsungSkippedNoRoute > 0) {
+    parts.push(
+      `Без GPS в Samsung Health (не импортированы): ${result.samsungSkippedNoRoute}. ` +
+        'Нужна уличная пробежка с GPS, не вручную.',
+    );
+  } else if (result.withoutRoute > 0) {
+    parts.push(`Без GPS-маршрута: ${result.withoutRoute}.`);
+  }
+
+  if (parts.length > 0) {
+    const tail =
+      result.imported > 0
+        ? ' Обработка займёт несколько секунд — обновите список.'
+        : '';
+    return parts.join(' ') + tail;
   }
 
   if (result.samsungPermissionDenied) {
@@ -293,6 +319,7 @@ export const healthSync = {
       try {
         const { granted } = await SamsungHealth.requestSamsungPermissions();
         if (granted) return true;
+        return false;
       } catch (error) {
         console.warn('Samsung Health permissions unavailable, trying Health Connect', error);
       }
@@ -382,24 +409,22 @@ export const healthSync = {
     return Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('ExerciseRoute');
   },
 
-  async syncViaSamsungHealth(days: number): Promise<HealthSyncResult | null> {
+  async syncViaSamsungHealth(
+    days: number,
+    onProgress?: (progress: SyncProgress) => void,
+  ): Promise<HealthSyncResult | null> {
     const available = await isSamsungHealthAvailable();
     if (!available) return null;
 
-    const { granted } = await SamsungHealth.requestSamsungPermissions();
-    if (!granted) {
-      return {
-        ...emptySyncResult(),
-        pluginAvailable: true,
-        samsungHealthUsed: true,
-        samsungPermissionDenied: true,
-        syncSource: 'samsung_health',
-      };
-    }
-
     let workouts: SamsungWorkout[] = [];
+    let sessionsSeen = 0;
+    let skippedNoRoute = 0;
     try {
-      ({ workouts } = await SamsungHealth.getExercisesWithLocation({ days }));
+      onProgress?.({ message: 'Читаем пробежки с GPS из Samsung Health…' });
+      const samsungData = await SamsungHealth.getExercisesWithLocation({ days });
+      workouts = samsungData.workouts;
+      sessionsSeen = samsungData.sessionsSeen ?? workouts.length;
+      skippedNoRoute = samsungData.skippedNoRoute ?? 0;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Samsung Health: не удалось прочитать тренировки (${detail})`);
@@ -408,12 +433,16 @@ export const healthSync = {
     const result: HealthSyncResult = {
       ...emptySyncResult(),
       total: workouts.length,
+      withoutRoute: skippedNoRoute,
       pluginAvailable: true,
       samsungHealthUsed: true,
-      samsungEmpty: workouts.length === 0,
+      samsungEmpty: workouts.length === 0 && sessionsSeen === 0,
+      samsungSessionsSeen: sessionsSeen,
+      samsungSkippedNoRoute: skippedNoRoute,
       syncSource: 'samsung_health',
     };
 
+    let uploadIndex = 0;
     for (const workout of workouts) {
       const rawTrack = samsungWorkoutTrack(workout);
       if (rawTrack.length < 2) {
@@ -421,6 +450,13 @@ export const healthSync = {
         continue;
       }
       const track = simplifyTrackForUpload(rawTrack);
+      uploadIndex += 1;
+      onProgress?.({
+        current: uploadIndex,
+        total: workouts.length,
+        recordId: workout.platformId,
+        message: `Отправляем пробежку ${uploadIndex} из ${workouts.length}…`,
+      });
 
       const durationSeconds =
         workout.durationSeconds > 0
@@ -573,7 +609,7 @@ export const healthSync = {
       };
     }
 
-    const samsungResult = await this.syncViaSamsungHealth(days);
+    const samsungResult = await this.syncViaSamsungHealth(days, onProgress);
     if (samsungResult) {
       return samsungResult;
     }

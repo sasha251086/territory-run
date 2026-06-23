@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiRequest, apiUploadFile } from '../api/client';
 import type { ActivityItem, IntegrationInfo } from '../api/types';
 import FirstCaptureModal from '../components/FirstCaptureModal';
-import { healthSync } from '../services/health-sync.service';
+import { healthSync, formatHealthSyncMessage } from '../services/health-sync.service';
 
 function formatDistance(meters: number) {
   return `${(meters / 1000).toFixed(2)} км`;
@@ -46,7 +46,8 @@ function formatSamsungImportMessage(result: {
 function sourceLabel(source: string) {
   if (source === 'strava') return 'Strava';
   if (source === 'gpx_import') return 'GPX файл';
-  if (source === 'samsung_health_zip') return 'Samsung Health';
+  if (source === 'samsung_health_zip') return 'Samsung Health (ZIP)';
+  if (source === 'samsung_health') return 'Samsung Health';
   if (source === 'apple_health') return 'Apple Health';
   if (source === 'health_connect') return 'Health Connect';
   return source;
@@ -71,6 +72,7 @@ export default function ActivitiesPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadingSamsungZip, setUploadingSamsungZip] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [healthSyncMessage, setHealthSyncMessage] = useState<string | null>(null);
   const [showFirstCapture, setShowFirstCapture] = useState(false);
   const [captureCells, setCaptureCells] = useState(0);
   const [isNativeApp, setIsNativeApp] = useState(false);
@@ -132,24 +134,28 @@ export default function ActivitiesPage() {
   async function handleHealthSync() {
     setHealthSyncing(true);
     setMessage(null);
+    setHealthSyncMessage(null);
     setHealthSyncProgress(null);
     try {
+      setHealthSyncProgress('Проверяем доступ к данным…');
       const granted = await healthSync.requestPermissions();
       if (!granted) {
-        setMessage('Доступ к данным здоровья не выдан. Разрешите чтение тренировок в настройках.');
+        const text = 'Доступ к данным здоровья не выдан. Разрешите чтение тренировок в настройках.';
+        setHealthSyncMessage(text);
         return;
       }
 
       if (healthSync.isAndroid()) {
-        if (!healthSync.isExerciseRoutePluginAvailable()) {
-          setMessage(
-            'Плагин GPS-маршрута не установлен. Пересоберите APK: pnpm build → npx cap sync android → Build APK.',
-          );
+        const samsungAvailable = await healthSync.isSamsungHealthAvailable();
+        if (!samsungAvailable && !healthSync.isExerciseRoutePluginAvailable()) {
+          const text =
+            'Плагин GPS-маршрута не установлен. Пересоберите APK: pnpm build → npx cap sync android → Build APK.';
+          setHealthSyncMessage(text);
           return;
         }
 
         const preview = await healthSync.previewConsentSync(14);
-        if (preview.pendingConsent > 0) {
+        if (!samsungAvailable && preview.pendingConsent > 0) {
           const confirmed = window.confirm(
             `Найдено тренировок: ${preview.total}.\n\n` +
               `Android покажет до ${preview.pendingConsent} системных запросов на доступ к GPS-маршруту ` +
@@ -157,56 +163,31 @@ export default function ActivitiesPage() {
               'Продолжить?',
           );
           if (!confirmed) {
-            setMessage('Синхронизация отменена.');
+            setHealthSyncMessage('Синхронизация отменена.');
             return;
           }
         }
       }
 
       const result = await healthSync.syncWithConsentFlow(14, (progress) => {
-        setHealthSyncProgress(`Запрашиваем маршрут ${progress.current} из ${progress.total}…`);
+        setHealthSyncProgress(
+          progress.message ??
+            `Запрашиваем маршрут ${progress.current} из ${progress.total}…`,
+        );
       });
 
+      const syncText = formatHealthSyncMessage(result);
+      setHealthSyncMessage(syncText);
+
       if (result.imported > 0) {
-        setMessage(`Импортировано пробежек: ${result.imported}. Обработка займёт несколько секунд.`);
         await loadData();
         setTimeout(async () => {
           await loadData();
           await checkFirstCapture(setShowFirstCapture, setCaptureCells);
         }, 8000);
-      } else if (result.withoutRoute > 0 && result.imported === 0 && result.duplicates === 0) {
-        if (result.routeAttempts > 0) {
-          if (result.noDataInHealthConnect === result.routeAttempts) {
-            setMessage(
-              `Плагин работает: проверено ${result.total} тренировок, запросов маршрута ${result.routeAttempts}. ` +
-                'Health Connect ответил «маршрута нет» по всем — Samsung Health не передаёт GPS в Health Connect. ' +
-                'Проверь: открой приложение Health Connect → Упражнения → выбери пробежку → есть ли карта маршрута? ' +
-                'Если карты нет — загрузите ZIP из Samsung Health (раздел выше), Strava или GPX.',
-            );
-          } else {
-            setMessage(
-              `Проверено тренировок: ${result.total}. Запросов маршрута: ${result.routeAttempts}, ` +
-                `без GPS: ${result.withoutRoute}, отказ: ${result.userDenied}, нет в HC: ${result.noDataInHealthConnect}. ` +
-                'Если системные диалоги не появлялись — пересоберите APK.',
-            );
-          }
-        } else {
-          setMessage(
-            `Найдено тренировок: ${result.total}, но без GPS-маршрута (${result.withoutRoute}). ` +
-              'Пробежки на дорожке/в зале без GPS не захватывают территорию — нужен трек с улицы.',
-          );
-        }
-      } else if (result.duplicates > 0 && result.imported === 0) {
-        setMessage('Новых пробежек нет — все уже импортированы.');
-      } else {
-        setMessage(
-          `В Health Connect нет тренировок за 14 дней (проверено: ${result.total}). ` +
-            'Открой Samsung Health → Настройки → Health Connect и включи передачу «Тренировки» и «Маршрут», ' +
-            'затем убедись, что есть хотя бы одна уличная пробежка с GPS.',
-        );
       }
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Ошибка синхронизации с телефоном');
+      setHealthSyncMessage(err instanceof Error ? err.message : 'Ошибка синхронизации с телефоном');
     } finally {
       setHealthSyncing(false);
       setHealthSyncProgress(null);
@@ -318,66 +299,74 @@ export default function ActivitiesPage() {
   }
 
   return (
-    <div className="stack">
+    <div className="stack game-screen">
+      <section className="screen-hero">
+        <p className="eyebrow">Run Control</p>
+        <h1>Пробежки</h1>
+        <p>Загружайте маршруты, синхронизируйте трекеры и превращайте бег в новые зоны на карте.</p>
+      </section>
+
       {message && (
         <section className="card">
           <p className="info-box">{message}</p>
         </section>
       )}
 
-      <section className="card highlight-card">
-        <h2>Загрузить ZIP из Samsung Health</h2>
-        <p className="muted">
-          Samsung Health не передаёт GPS-маршруты в Health Connect, но хранит их в архиве персональных данных.
-          Открой Samsung Health → Настройки → Загрузить персональные данные → заархивируй{' '}
-          <strong>корневую папку экспорта</strong> (где лежат CSV и папка jsons/) и загрузи ZIP сюда.
-          Если архив больше 350 МБ — упакуй только папку jsons/com.samsung.shealth.exercise.
-        </p>
-        <input
-          ref={samsungZipInputRef}
-          type="file"
-          accept=".zip,application/zip"
-          hidden
-          onChange={handleSamsungZipSelected}
-        />
-        <button
-          type="button"
-          className="primary-btn"
-          onClick={() => samsungZipInputRef.current?.click()}
-          disabled={uploadingSamsungZip}
-        >
-          {uploadingSamsungZip ? 'Разбор архива...' : 'Загрузить ZIP Samsung Health'}
-        </button>
-      </section>
+      <div className="action-grid">
+        <section className="card highlight-card action-card">
+          <h2>Загрузить ZIP из Samsung Health</h2>
+          <p className="muted">
+            Samsung Health не передаёт GPS-маршруты в Health Connect, но хранит их в архиве персональных данных.
+            Открой Samsung Health → Настройки → Загрузить персональные данные → заархивируй{' '}
+            <strong>корневую папку экспорта</strong> (где лежат CSV и папка jsons/) и загрузи ZIP сюда.
+            Если архив больше 350 МБ — упакуй только папку jsons/com.samsung.shealth.exercise.
+          </p>
+          <input
+            ref={samsungZipInputRef}
+            type="file"
+            accept=".zip,application/zip"
+            hidden
+            onChange={handleSamsungZipSelected}
+          />
+          <button
+            type="button"
+            className="primary-btn"
+            onClick={() => samsungZipInputRef.current?.click()}
+            disabled={uploadingSamsungZip}
+          >
+            {uploadingSamsungZip ? 'Разбор архива...' : 'Загрузить ZIP Samsung Health'}
+          </button>
+        </section>
 
-      <section className="card highlight-card">
-        <h2>Загрузить GPX файл</h2>
-        <p className="muted">
-          Экспортируйте пробежку из Samsung Health, Garmin, Nike или другого приложения в формат GPX и загрузите файл сюда.
-        </p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".gpx"
-          hidden
-          onChange={handleFileSelected}
-        />
-        <button
-          type="button"
-          className="primary-btn"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-        >
-          {uploading ? 'Загрузка...' : 'Загрузить трек'}
-        </button>
-      </section>
+        <section className="card highlight-card action-card">
+          <h2>Загрузить GPX файл</h2>
+          <p className="muted">
+            Экспортируйте пробежку из Samsung Health, Garmin, Nike или другого приложения в формат GPX и загрузите файл сюда.
+          </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".gpx"
+            hidden
+            onChange={handleFileSelected}
+          />
+          <button
+            type="button"
+            className="primary-btn"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            {uploading ? 'Загрузка...' : 'Загрузить трек'}
+          </button>
+        </section>
+      </div>
 
       {isNativeApp && (
-        <section className="card highlight-card">
+        <section className="card highlight-card action-card">
           <h2>Синхронизация с телефоном</h2>
           <p className="muted">
-            Territory Run прочитает пробежки за последние 14 дней напрямую из
-            здоровья телефона (Health Connect / Apple Health) и сам захватит территории.
+            На Samsung сначала читаем GPS напрямую из Samsung Health (Data SDK).
+            Если недоступно — fallback через Health Connect. На iOS — Apple Health.
           </p>
           <button
             type="button"
@@ -388,6 +377,11 @@ export default function ActivitiesPage() {
             {healthSyncing ? 'Синхронизация...' : 'Синхронизировать пробежки'}
           </button>
           {healthSyncProgress && <p className="muted small">{healthSyncProgress}</p>}
+          {healthSyncMessage && (
+            <p className="info-box" style={{ marginTop: '0.75rem' }}>
+              {healthSyncMessage}
+            </p>
+          )}
         </section>
       )}
 

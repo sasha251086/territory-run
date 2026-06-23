@@ -53,7 +53,18 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="stack">
+    <div className="stack game-screen">
+      <section className="screen-hero profile-hero">
+        <p className="eyebrow">Runner Profile</p>
+        <h1>{user?.nickname}</h1>
+        <p>{user?.email}</p>
+        <div className="stats-grid hero-stats">
+          <div><span>Клетки</span><strong>{user?.stats?.cellsOwned ?? 0}</strong></div>
+          <div><span>Влияние</span><strong>{Math.round(user?.stats?.totalInfluence ?? 0)}</strong></div>
+          <div><span>Пробежки</span><strong>{user?.stats?.totalRuns ?? 0}</strong></div>
+        </div>
+      </section>
+
       <section className="card">
         <h2>Профиль</h2>
         <p><strong>{user?.nickname}</strong></p>
@@ -65,7 +76,7 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      <section className="card highlight-card">
+      <section className="card highlight-card action-card">
         <h2>Загрузить пробежку</h2>
         <p className="muted">
           Самый простой способ — загрузить GPX-файл на вкладке{' '}

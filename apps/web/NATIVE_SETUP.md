@@ -119,7 +119,48 @@ pnpm build && npx cap sync && npx cap open ios        # запуск из Xcode
 5. Повторная синхронизация не показывает диалоги (уже импортированные пропускаются).
 6. Тренировка на дорожке/в зале без GPS попадёт в `withoutRoute` — это нормально.
 
-## 6. Публикация
+## 7. Samsung Health Data SDK (этап 12 — прямой GPS без Health Connect)
+
+Samsung Health **не передаёт GPS** в Health Connect. Для Android добавлен плагин
+`SamsungHealthPlugin.kt`, который читает маршруты напрямую из Samsung Health Data SDK v1.1.0.
+
+### 7.1 Скачать SDK
+
+1. https://developer.samsung.com/health/data/overview.html
+2. Скачать **Samsung Health Data SDK v1.1.0** — это **ZIP** (не `.aar` напрямую)
+3. Положить ZIP в `android/app/libs/`, например:
+   `samsung-health-data-sdk-1.1.0.zip`
+4. Gradle сам извлечёт `Libs/samsung-health-data-api-1.1.0.aar` при сборке.
+   Или распакуйте вручную — см. `android/app/libs/README.md`
+
+### 7.2 Developer Mode в Samsung Health (до публикации в Google Play)
+
+1. Samsung Health → Профиль → ⋮ → Настройки
+2. «Сведения о Samsung Health» → нажать номер версии **10 раз**
+3. Включить **Developer Mode (Samsung Health Data SDK)**
+4. Добавить пакет: `com.territoryrun.app`
+
+### 7.3 Сборка
+
+```bash
+cd apps/web
+pnpm build
+npx cap sync android
+npx cap open android
+```
+
+### 7.4 Проверка на устройстве
+
+1. Установить APK на **реальный Samsung** (эмулятор не поддерживается)
+2. Samsung Health **6.30.2+**
+3. «Синхронизировать пробежки» → диалог разрешений **Samsung Health** (не Health Connect)
+4. Уличная пробежка с GPS должна импортироваться с источником `Samsung Health`
+5. Повторная синхронизация не создаёт дублей
+
+Если SDK недоступен (нет Samsung Health, Developer Mode выключен) — автоматически
+используется Health Connect (этап 10/11) или ZIP-импорт.
+
+## 8. Публикация
 - Google Play: аккаунт разработчика $25 (разово), AAB, декларация Health Connect,
   публичная ссылка на политику (`/privacy`).
 - App Store: Apple Developer Program $99/год, сборка на Mac, ревью с проверкой HealthKit

@@ -20,7 +20,13 @@ export default function FeedPage() {
   }, []);
 
   return (
-    <div className="stack">
+    <div className="stack game-screen">
+      <section className="screen-hero">
+        <p className="eyebrow">City Log</p>
+        <h1>Лента событий</h1>
+        <p>Следите, кто расширяет территорию, возвращает районы и набирает влияние.</p>
+      </section>
+
       <section className="card">
         <h2>Лента событий</h2>
         {loading ? (

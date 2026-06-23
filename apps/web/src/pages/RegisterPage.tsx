@@ -27,9 +27,12 @@ export default function RegisterPage() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card wide">
-        <p className="eyebrow">Territory Run</p>
-        <h1>Регистрация</h1>
+      <div className="auth-card wide game-auth-card">
+        <div className="auth-hero-copy">
+          <p className="eyebrow">Territory Run</p>
+          <h1>Создать команду</h1>
+          <p>Начните с аккаунта, выберите базу и превращайте пробежки в контроль города.</p>
+        </div>
 
         <section className="onboarding-copy">
           <p>Бегай и захватывай территории на карте города.</p>

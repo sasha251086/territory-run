@@ -65,14 +65,16 @@ export default function OnboardingPage() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card wide">
-        <p className="eyebrow">
-          {user?.homeLat != null ? 'Домашняя база' : 'Шаг 2 из 2'}
-        </p>
-        <h1>{user?.homeLat != null ? 'Изменить домашнюю базу' : 'Выберите домашнюю базу'}</h1>
-        <p className="muted">
-          Нажмите на карту, чтобы указать дом. В радиусе 500 м действует бонус к влиянию.
-        </p>
+      <div className="auth-card wide game-auth-card">
+        <div className="auth-hero-copy">
+          <p className="eyebrow">
+            {user?.homeLat != null ? 'Домашняя база' : 'Шаг 2 из 2'}
+          </p>
+          <h1>{user?.homeLat != null ? 'Новая база' : 'Выберите базу'}</h1>
+          <p>
+            Нажмите на карту, чтобы указать дом. В радиусе 500 м действует бонус к влиянию.
+          </p>
+        </div>
 
         <div className="map-frame onboarding-map">
           <MapContainer center={position} zoom={14} className="leaflet-map">

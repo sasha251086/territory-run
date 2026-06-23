@@ -33,8 +33,14 @@ export default function LeaderboardPage() {
   }, [tab]);
 
   return (
-    <div className="stack">
-      <section className="card">
+    <div className="stack game-screen">
+      <section className="screen-hero">
+        <p className="eyebrow">Urban Conquest</p>
+        <h1>Рейтинг районов</h1>
+        <p>Сравните контроль зон, влияние и дистанцию с другими бегунами города.</p>
+      </section>
+
+      <section className="card compact-card">
         <h2>Рейтинг</h2>
         <div className="tabs">
           <button type="button" className={tab === 'cells' ? 'tab active' : 'tab'} onClick={() => setTab('cells')}>
@@ -49,7 +55,7 @@ export default function LeaderboardPage() {
         </div>
       </section>
 
-      <section className="card">
+      <section className="card leaderboard-card">
         {loading ? (
           <p className="muted">Загрузка...</p>
         ) : items.length === 0 ? (
