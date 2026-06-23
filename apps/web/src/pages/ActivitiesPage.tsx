@@ -65,8 +65,6 @@ async function checkFirstCapture(setShow: (v: boolean) => void, setCells: (n: nu
 export default function ActivitiesPage() {
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [totalActivities, setTotalActivities] = useState(0);
-  const [activitiesPage, setActivitiesPage] = useState(1);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [integrations, setIntegrations] = useState<IntegrationInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -81,26 +79,40 @@ export default function ActivitiesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const samsungZipInputRef = useRef<HTMLInputElement>(null);
 
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 100;
 
-  const loadActivities = useCallback(async (page: number, append: boolean) => {
-    const activities = await apiRequest<{
-      items: ActivityItem[];
-      total: number;
-      page: number;
-      totalPages: number;
-    }>(`/activities?page=${page}&limit=${PAGE_SIZE}`);
+  const loadActivities = useCallback(async () => {
+    let page = 1;
+    let allItems: ActivityItem[] = [];
+    let total = 0;
 
-    setItems((prev) => (append ? [...prev, ...activities.items] : activities.items));
-    setTotalActivities(activities.total);
-    setActivitiesPage(activities.page);
+    while (page <= 100) {
+      const response = await apiRequest<{
+        items: ActivityItem[];
+        total: number;
+        page: number;
+        totalPages: number;
+      }>(`/activities?page=${page}&limit=${PAGE_SIZE}`);
+
+      total = response.total;
+      allItems = [...allItems, ...response.items];
+
+      if (allItems.length >= total || response.items.length === 0 || page >= response.totalPages) {
+        break;
+      }
+
+      page += 1;
+    }
+
+    setItems(allItems);
+    setTotalActivities(total);
   }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [, connected] = await Promise.all([
-        loadActivities(1, false),
+        loadActivities(),
         apiRequest<IntegrationInfo[]>('/integrations'),
       ]);
       setIntegrations(connected);
@@ -108,16 +120,6 @@ export default function ActivitiesPage() {
       setLoading(false);
     }
   }, [loadActivities]);
-
-  async function handleLoadMore() {
-    if (items.length >= totalActivities) return;
-    setLoadingMore(true);
-    try {
-      await loadActivities(activitiesPage + 1, true);
-    } finally {
-      setLoadingMore(false);
-    }
-  }
 
   useEffect(() => {
     void loadData();
@@ -417,37 +419,24 @@ export default function ActivitiesPage() {
             Пробежек пока нет. Загрузите ZIP из Samsung Health, GPX-файл или синхронизируйте Strava.
           </p>
         ) : (
-          <>
-            <ul className="list">
-              {items.map((item) => (
-                <li key={item.id} className="list-item">
-                  <div>
-                    <strong>{sourceLabel(item.source)}</strong>
-                    <p>{new Date(item.startedAt).toLocaleString('ru-RU')}</p>
-                  </div>
-                  <div className="list-meta">
-                    <span>{formatDistance(item.distanceMeters)}</span>
-                    <span>{formatDuration(item.durationSeconds)}</span>
-                    <span className={`status ${item.status}`}>{item.status}</span>
-                    {item.status === 'failed' && item.failureReason && (
-                      <span className="muted small"> ({item.failureReason})</span>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-            {items.length < totalActivities && (
-              <button
-                type="button"
-                className="ghost-btn"
-                onClick={() => void handleLoadMore()}
-                disabled={loadingMore}
-                style={{ marginTop: '1rem' }}
-              >
-                {loadingMore ? 'Загрузка...' : `Загрузить ещё (${totalActivities - items.length})`}
-              </button>
-            )}
-          </>
+          <ul className="list">
+            {items.map((item) => (
+              <li key={item.id} className="list-item">
+                <div>
+                  <strong>{sourceLabel(item.source)}</strong>
+                  <p>{new Date(item.startedAt).toLocaleString('ru-RU')}</p>
+                </div>
+                <div className="list-meta">
+                  <span>{formatDistance(item.distanceMeters)}</span>
+                  <span>{formatDuration(item.durationSeconds)}</span>
+                  <span className={`status ${item.status}`}>{item.status}</span>
+                  {item.status === 'failed' && item.failureReason && (
+                    <span className="muted small"> ({item.failureReason})</span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
