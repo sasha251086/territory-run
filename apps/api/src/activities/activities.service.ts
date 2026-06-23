@@ -306,6 +306,22 @@ export class ActivitiesService {
       );
     }
 
+    const track = sanitizeTrackPoints(
+      dto.track.map((point) => ({
+        lat: point.lat,
+        lng: point.lng,
+        timestamp: point.timestamp,
+      })),
+    );
+
+    if (track.length < 2) {
+      throw new ApiException(
+        ErrorCodes.INVALID_FILE,
+        'Workout GPS track is too sparse after cleanup — cannot capture territory',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     const activity = await this.prisma.$transaction(async (tx) => {
       await tx.processedActivity.create({
         data: {
@@ -323,11 +339,7 @@ export class ActivitiesService {
           avgPace: dto.avgPace,
           startedAt: new Date(dto.startedAt),
           finishedAt: new Date(dto.finishedAt),
-          track: dto.track.map((point) => ({
-            lat: point.lat,
-            lng: point.lng,
-            timestamp: point.timestamp,
-          })),
+          track,
         },
         tx,
       );
