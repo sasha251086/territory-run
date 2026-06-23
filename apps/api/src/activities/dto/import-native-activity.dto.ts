@@ -26,9 +26,9 @@ class NativeTrackPointDto {
 }
 
 export class ImportNativeActivityDto {
-  @ApiProperty({ enum: ['health_connect', 'apple_health'] })
-  @IsIn(['health_connect', 'apple_health'])
-  source!: 'health_connect' | 'apple_health';
+  @ApiProperty({ enum: ['health_connect', 'apple_health', 'samsung_health'] })
+  @IsIn(['health_connect', 'apple_health', 'samsung_health'])
+  source!: 'health_connect' | 'apple_health' | 'samsung_health';
 
   @ApiProperty({
     example: 'a1b2c3-uuid-from-healthkit',

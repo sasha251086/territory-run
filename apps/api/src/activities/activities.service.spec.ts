@@ -1,5 +1,6 @@
 import { ActivitiesService } from './activities.service';
 import { GpxParserService } from './gpx-parser.service';
+import { SamsungHealthParserService } from './samsung-health-parser.service';
 
 const mockPrisma = {
   processedActivity: {
@@ -36,6 +37,7 @@ describe('ActivitiesService GPX import deduplication', () => {
       mockPrisma as never,
       mockQueueService as never,
       new GpxParserService(),
+      new SamsungHealthParserService(),
     );
   });
 

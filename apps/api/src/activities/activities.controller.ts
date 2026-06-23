@@ -140,7 +140,8 @@ export class ActivitiesController {
   @HttpCode(HttpStatus.ACCEPTED)
   @Throttle({ default: { limit: 30, ttl: 60000 } })
   @ApiOperation({
-    summary: 'Import a workout read from the device health store (HealthKit / Health Connect)',
+    summary:
+      'Import a workout from the device health store (HealthKit / Health Connect / Samsung Health)',
   })
   @ApiResponse({
     status: 202,

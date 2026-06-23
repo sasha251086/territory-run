@@ -194,10 +194,16 @@ describe('SamsungHealthParserService', () => {
 
   it('reads GPS from disk-backed ZIP via consumeWorkouts (production path)', async () => {
     const workoutId = '641aab23-3128-4af5-9d5b-520b7033d82d';
+    const baseTime = Date.now() - 60 * 60 * 1000;
+    const recentLocationJson = [
+      { start_time: baseTime, latitude: 56.9496, longitude: 24.1052 },
+      { start_time: baseTime + 10_000, latitude: 56.9498, longitude: 24.1055 },
+      { start_time: baseTime + 20_000, latitude: 56.9501, longitude: 24.1059 },
+    ];
     const jsonPath =
       `samsunghealth_user/jsons/com.samsung.shealth.exercise/6/` +
       `${workoutId}.com.samsung.health.exercise.location_data.json`;
-    const zipBuffer = buildZip({ [jsonPath]: JSON.stringify(locationJson) });
+    const zipBuffer = buildZip({ [jsonPath]: JSON.stringify(recentLocationJson) });
     const zipPath = join(tmpdir(), `samsung-test-${workoutId}.zip`);
     writeFileSync(zipPath, zipBuffer);
 
