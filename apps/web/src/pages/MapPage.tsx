@@ -8,6 +8,7 @@ import {
   CircleMarker,
   useMap,
   useMapEvents,
+  Popup,
 } from 'react-leaflet';
 import { cellToBoundary } from 'h3-js';
 import type { LatLngBounds, LatLngExpression } from 'leaflet';
@@ -20,9 +21,7 @@ import type {
   MapSummary,
   RivalCell,
 } from '../api/types';
-import CellBottomSheet from '../components/CellBottomSheet';
-import MapMiniLeaderboard from '../components/MapMiniLeaderboard';
-import RunCelebrationOverlay from '../components/RunCelebrationOverlay';
+import CellPopupContent from '../components/CellPopup';
 import { useAuth } from '../context/AuthContext';
 import { formatAreaM2, formatCellsArea } from '../utils/territory';
 
@@ -151,10 +150,8 @@ export default function MapPage() {
   const [findingTargets, setFindingTargets] = useState(false);
   const [rivalCells, setRivalCells] = useState<RivalCell[]>([]);
   const [previewFlash, setPreviewFlash] = useState(false);
-  const [showCelebration, setShowCelebration] = useState(false);
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
-  const [selectedCell, setSelectedCell] = useState<MapCell | null>(null);
 
   const defaultCenter = useMemo<[number, number]>(() => {
     if (user?.homeLat != null && user.homeLng != null) {
@@ -220,7 +217,6 @@ export default function MapPage() {
     sessionStorage.removeItem(RUN_PREVIEW_KEY);
     setSearchParams({}, { replace: true });
     setPreviewFlash(true);
-    setShowCelebration(true);
     setPreviewMessage('Пробежка обработана! Ваши клетки подсвечены на карте.');
     setFlyTrigger((value) => value + 1);
 
@@ -303,16 +299,7 @@ export default function MapPage() {
     summary?.territoryAreaM2 != null
       ? formatAreaM2(summary.territoryAreaM2)
       : formatCellsArea(cellsOwned);
-  const weeklyProgress = summary?.weeklyProgressPercent ?? 0;
-  const cellsGainedWeek = summary?.cellsGainedThisWeek ?? 0;
   const atRisk = summary?.cellsAtRisk ?? 0;
-
-  function handleShare() {
-    void navigator.share?.({
-      title: 'Territory Run',
-      text: previewMessage ?? `Моя территория: ${territoryArea}`,
-    });
-  }
 
   return (
     <div className="map-page game-map-page">
@@ -405,18 +392,17 @@ export default function MapPage() {
                     lineJoin: 'round',
                     className: cellClassName(cell, user?.id, rivalH3, targetH3, previewFlash),
                   }}
-                  eventHandlers={{
-                    click: () => setSelectedCell(cell),
-                  }}
-                />
+                >
+                  <Popup minWidth={240}>
+                    <CellPopupContent cell={cell} />
+                  </Popup>
+                </Polygon>
               );
             } catch {
               return null;
             }
           })}
         </MapContainer>
-
-        <MapMiniLeaderboard />
 
         <div className="map-zoom-controls" aria-label="Масштаб карты">
           <button
@@ -441,10 +427,7 @@ export default function MapPage() {
             onClick={() => setFlyTrigger((value) => value + 1)}
             disabled={myCells.length === 0}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true" className="map-btn-icon">
-              <path d="M12 21s6-5.2 6-10a6 6 0 1 0-12 0c0 4.8 6 10 6 10Z" fill="none" stroke="currentColor" strokeWidth="1.8" />
-              <circle cx="12" cy="11" r="2.2" fill="currentColor" />
-            </svg>
+            ⌖
           </button>
         </div>
 
@@ -453,77 +436,44 @@ export default function MapPage() {
           className="map-tool-btn map-tool-left"
           onClick={() => setFlyTrigger((value) => value + 1)}
           disabled={myCells.length === 0}
-          aria-label="Показать мои клетки"
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true" className="map-btn-icon">
-            <circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
+          Мои зоны
         </button>
 
         <div className="map-vignette" aria-hidden="true" />
 
         <section className="map-hud map-capture-card">
-          <div className="capture-icon" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-            <span />
-            <span />
-            <span />
-            <span />
-          </div>
-          <div className="map-capture-copy">
-            {atRisk > 0 ? (
-              <>
-                <strong>⚠ {atRisk} клеток под угрозой</strong>
-                <span>Забегите снова, чтобы удержать территорию</span>
-              </>
-            ) : previewMessage ? (
-              <>
-                <strong>+{cellsGainedWeek || 'новые'} клетки на этой неделе</strong>
-                <span>{previewMessage}</span>
-              </>
-            ) : (
-              <>
-                <strong>Моя территория</strong>
-                <span>
-                  {cellsOwned} клеток · {territoryArea}
-                </span>
-              </>
-            )}
+          {atRisk > 0 ? (
+            <>
+              <strong>⚠ {atRisk} под угрозой</strong>
+              <span>Забегите снова, чтобы удержать территорию</span>
+            </>
+          ) : previewMessage ? (
+            <>
+              <strong>Готово!</strong>
+              <span>{previewMessage}</span>
+            </>
+          ) : (
+            <>
+              <strong>{cellsOwned}</strong>
+              <span>
+                {territoryArea} · {totalInfluence} влияния
+              </span>
+            </>
+          )}
 
-            <div className="weekly-progress">
-              <div className="weekly-progress-bar">
-                <span style={{ width: `${weeklyProgress}%` }} />
-              </div>
-              <small>
-                {cellsGainedWeek > 0
-                  ? `+${cellsGainedWeek} за неделю · ${weeklyProgress}% цели`
-                  : `${weeklyProgress}% недельной цели`}
-              </small>
-            </div>
+          {targetsMessage && <p className="map-targets-msg">{targetsMessage}</p>}
+          {!targetsMessage && atRisk === 0 && (
+            <button
+              type="button"
+              className="map-find-targets-btn"
+              onClick={() => void handleFindTargets()}
+              disabled={findingTargets}
+            >
+              {findingTargets ? 'Поиск целей…' : 'Найти цели'}
+            </button>
+          )}
 
-            {targetsMessage && <span className="map-targets-msg">{targetsMessage}</span>}
-            {!targetsMessage && atRisk === 0 && (
-              <button
-                type="button"
-                className="map-find-targets-btn"
-                onClick={() => void handleFindTargets()}
-                disabled={findingTargets}
-              >
-                {findingTargets ? 'Поиск целей…' : 'Найти цели'}
-              </button>
-            )}
-          </div>
-          <button
-            type="button"
-            className="map-capture-cta"
-            onClick={() => (atRisk > 0 ? setFlyTrigger((v) => v + 1) : void handleFindTargets())}
-            aria-label={atRisk > 0 ? 'Защитить территорию' : 'Найти цели'}
-          >
-            ›
-          </button>
           {cellsFarFromHome && (
             <p className="map-capture-footnote">Клетки далеко от базы. Нажмите «Мои зоны».</p>
           )}
@@ -532,17 +482,6 @@ export default function MapPage() {
 
         {loading && <div className="map-overlay">Обновление карты...</div>}
       </div>
-
-      <CellBottomSheet cell={selectedCell} onClose={() => setSelectedCell(null)} />
-
-      {showCelebration && (
-        <RunCelebrationOverlay
-          cellsOwned={cellsOwned}
-          message={previewMessage ?? 'Пробежка обработана!'}
-          onDismiss={() => setShowCelebration(false)}
-          onShare={'share' in navigator ? handleShare : undefined}
-        />
-      )}
     </div>
   );
 }
