@@ -565,7 +565,7 @@ a {
 
 .nav-link {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
   border: 1px solid transparent;
   border-radius: 16px;
@@ -574,6 +574,12 @@ a {
   text-align: center;
   text-decoration: none;
   text-transform: uppercase;
+  justify-items: center;
+}
+
+.nav-link svg {
+  width: 22px;
+  height: 22px;
 }
 
 .nav-link span {
@@ -1313,6 +1319,7 @@ body::before {
   width: min(100%, 620px);
   min-height: 100dvh;
   padding: 12px;
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
   margin: 0 auto;
 }
 
@@ -1376,8 +1383,56 @@ body::before {
 }
 
 .nav-link {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  padding: 8px 3px;
   color: #778397;
+  text-align: center;
+  text-decoration: none;
   text-transform: none;
+  justify-items: center;
+}
+
+.nav-link svg {
+  width: 22px;
+  height: 22px;
+}
+
+.app-nav-map {
+  border-color: rgba(124, 97, 223, 0.14);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 32px rgba(88, 102, 126, 0.16);
+}
+
+.app-nav-map .nav-link {
+  color: #778397;
+}
+
+.app-nav-map .nav-link.active {
+  color: #6257c8;
+  border-color: rgba(124, 97, 223, 0.18);
+  background: rgba(124, 97, 223, 0.1);
+}
+
+.map-find-targets-btn {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  color: #6257c8;
+  background: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.map-find-targets-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .nav-link.active {
@@ -1540,12 +1595,14 @@ body::before {
 }
 
 .game-map-frame {
+  position: relative;
   height: min(58dvh, 500px);
   min-height: 430px;
   border: none;
   border-radius: 18px;
   background: #f3f6f9;
   box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.12);
+  overflow: hidden;
 }
 
 .game-map-frame .leaflet-container {
@@ -1553,7 +1610,7 @@ body::before {
 }
 
 .game-map-frame .leaflet-tile {
-  filter: saturate(0.86) contrast(0.94) brightness(1.04);
+  filter: none;
 }
 
 .game-map-frame .leaflet-control-container {
@@ -1566,15 +1623,15 @@ body::before {
 }
 
 .game-map-frame .leaflet-interactive {
-  filter: drop-shadow(0 8px 12px rgba(76, 96, 130, 0.18));
+  filter: none;
 }
 
 .game-map-frame .owned-cell {
-  filter: drop-shadow(0 10px 18px rgba(69, 200, 231, 0.34));
+  filter: none;
 }
 
 .game-map-frame .rival-cell {
-  filter: drop-shadow(0 8px 14px rgba(124, 97, 223, 0.2));
+  filter: none;
 }
 
 .map-vignette {
@@ -1587,16 +1644,19 @@ body::before {
   position: absolute;
   top: 14px;
   left: 14px;
-  z-index: 510;
+  z-index: 620;
   overflow: hidden;
   display: grid;
   width: 44px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 12px 26px rgba(88, 102, 126, 0.18);
+  pointer-events: auto;
 }
 
 .map-zoom-controls button {
+  display: grid;
+  place-items: center;
   width: 44px;
   height: 42px;
   border: 0;
@@ -1605,26 +1665,60 @@ body::before {
   background: transparent;
   font-size: 1.25rem;
   font-weight: 800;
+  cursor: pointer;
 }
 
-.map-tools {
-  top: auto;
-  right: 18px;
-  bottom: 126px;
+.map-zoom-controls button:last-child {
+  border-bottom: 0;
+}
+
+.map-zoom-controls button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.map-btn-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .map-tool-btn {
+  position: absolute;
+  z-index: 620;
   display: grid;
   width: 54px;
   height: 54px;
   place-items: center;
+  border: 0;
   border-radius: 16px;
   color: #7c61df;
-  background: rgba(255, 255, 255, 0.88);
-  font-size: 1.35rem;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 26px rgba(88, 102, 126, 0.18);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.map-tool-left {
+  left: 14px;
+  bottom: 118px;
+}
+
+.map-tool-right {
+  right: 14px;
+  bottom: 118px;
+}
+
+.map-tool-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.map-tools {
+  display: none;
 }
 
 .map-capture-card {
+  z-index: 610;
   right: 14px;
   bottom: 14px;
   left: 14px;
@@ -1846,7 +1940,7 @@ body::before {
 }
 
 .game-map-frame .decay-warning {
-  filter: saturate(1.2);
+  filter: none;
 }
 
 .game-map-frame .decay-critical {
@@ -1858,11 +1952,12 @@ body::before {
 }
 
 .game-map-frame .capture-target-cell {
-  filter: drop-shadow(0 0 4px rgba(245, 200, 66, 0.8));
+  filter: none;
+  stroke-width: 2px;
 }
 
 .game-map-frame .rival-tracked-cell {
-  filter: drop-shadow(0 0 3px rgba(255, 107, 157, 0.6));
+  filter: none;
 }
 
 .map-target-btn {

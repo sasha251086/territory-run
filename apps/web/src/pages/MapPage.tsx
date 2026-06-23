@@ -60,61 +60,16 @@ function FlyToCells({ targets, trigger }: { targets: LatLngExpression[]; trigger
   return null;
 }
 
-function MapOverlayControls({
-  canFocusMine,
-  onFocusMine,
-  onFindTargets,
-  findingTargets,
-}: {
-  canFocusMine: boolean;
-  onFocusMine: () => void;
-  onFindTargets: () => void;
-  findingTargets: boolean;
-}) {
+function MapControlBridge({ onMap }: { onMap: (map: L.Map) => void }) {
   const map = useMap();
+  useEffect(() => {
+    onMap(map);
+  }, [map, onMap]);
+  return null;
+}
 
-  return (
-    <>
-      <div className="map-zoom-controls" aria-label="Масштаб карты">
-        <button type="button" aria-label="Увеличить" onClick={() => map.zoomIn()}>
-          +
-        </button>
-        <button type="button" aria-label="Уменьшить" onClick={() => map.zoomOut()}>
-          −
-        </button>
-        <button
-          type="button"
-          aria-label="К моей территории"
-          onClick={onFocusMine}
-          disabled={!canFocusMine}
-        >
-          ⌖
-        </button>
-      </div>
-
-      <div className="map-tools" aria-label="Инструменты карты">
-        <button
-          type="button"
-          className="map-tool-btn map-target-btn"
-          onClick={onFindTargets}
-          disabled={findingTargets}
-          aria-label="Найти цели захвата"
-          title="Найти цели"
-        >
-          ★
-        </button>
-        <button
-          type="button"
-          className="map-tool-btn"
-          onClick={onFocusMine}
-          disabled={!canFocusMine}
-          aria-label="Показать мои клетки"
-        >
-          ◎
-        </button>
-      </div>
-    </>
-  );
+function cellBoundary(h3Index: string): [number, number][] {
+  return cellToBoundary(h3Index).map(([lat, lng]) => [lat, lng] as [number, number]);
 }
 
 function polygonCoords(polygon: DistrictListItem['polygon']): [number, number][][] {
@@ -176,33 +131,6 @@ function cellClassName(
   return classes.join(' ');
 }
 
-function seededNoise(seed: string, index: number) {
-  let hash = 2166136261;
-  const input = `${seed}:${index}`;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return ((hash >>> 0) % 1000) / 1000;
-}
-
-function organicBoundary(cell: MapCell) {
-  const boundary = cellToBoundary(cell.h3Index).map(([lat, lng]) => [lat, lng] as [number, number]);
-  const centerLat = boundary.reduce((sum, point) => sum + point[0], 0) / boundary.length;
-  const centerLng = boundary.reduce((sum, point) => sum + point[1], 0) / boundary.length;
-
-  return boundary.map(([lat, lng], index) => {
-    const radial = 0.9 + seededNoise(cell.h3Index, index) * 0.18;
-    const skewLat = (seededNoise(cell.h3Index, index + 11) - 0.5) * 0.00008;
-    const skewLng = (seededNoise(cell.h3Index, index + 23) - 0.5) * 0.00008;
-
-    return [
-      centerLat + (lat - centerLat) * radial + skewLat,
-      centerLng + (lng - centerLng) * radial + skewLng,
-    ] as [number, number];
-  });
-}
-
 function mergeCells(primary: MapCell[], secondary: MapCell[]) {
   const byId = new Map<string, MapCell>();
   for (const cell of primary) {
@@ -239,6 +167,8 @@ export default function MapPage() {
   const [selectedDistrictId, setSelectedDistrictId] = useState<string | null>(null);
   const [previewFlash, setPreviewFlash] = useState(false);
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
+  const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
+  const [showDistricts, setShowDistricts] = useState(true);
 
   const defaultCenter = useMemo<[number, number]>(() => {
     if (user?.homeLat != null && user.homeLng != null) {
@@ -455,16 +385,11 @@ export default function MapPage() {
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+            url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
           />
+          <MapControlBridge onMap={setMapInstance} />
           <MapEvents onMove={loadNearbyCells} />
           <FlyToCells targets={flyTargets} trigger={flyTrigger} />
-          <MapOverlayControls
-            canFocusMine={myCells.length > 0}
-            onFocusMine={() => setFlyTrigger((value) => value + 1)}
-            onFindTargets={() => void handleFindTargets()}
-            findingTargets={findingTargets}
-          />
 
           {user?.homeLat != null && user.homeLng != null && (
             <>
@@ -481,37 +406,38 @@ export default function MapPage() {
             </>
           )}
 
-          {districts.map((district) =>
-            polygonCoords(district.polygon).map((ring, ringIndex) => (
-              <Polygon
-                key={`${district.id}-${ringIndex}`}
-                positions={ring}
-                pathOptions={{
-                  color: '#6b7cff',
-                  fillColor: 'transparent',
-                  fillOpacity: 0,
-                  weight: 2,
-                  dashArray: '6 4',
-                  className: 'district-boundary',
-                }}
-                eventHandlers={{
-                  click: () => setSelectedDistrictId(district.id),
-                }}
-              >
-                <Popup>
-                  <strong>{district.name}</strong>
-                  <br />
-                  {district.king
-                    ? `Король: ${district.king.nickname}`
-                    : 'Король не определён'}
-                </Popup>
-              </Polygon>
-            )),
-          )}
+          {showDistricts &&
+            districts.flatMap((district) =>
+              polygonCoords(district.polygon).map((ring, ringIndex) => (
+                <Polygon
+                  key={`${district.id}-${ringIndex}`}
+                  positions={ring}
+                  pathOptions={{
+                    color: '#6b7cff',
+                    fillColor: 'transparent',
+                    fillOpacity: 0,
+                    weight: 2,
+                    dashArray: '6 4',
+                    className: 'district-boundary',
+                  }}
+                  eventHandlers={{
+                    click: () => setSelectedDistrictId(district.id),
+                  }}
+                >
+                  <Popup>
+                    <strong>{district.name}</strong>
+                    <br />
+                    {district.king
+                      ? `Король: ${district.king.nickname}`
+                      : 'Король не определён'}
+                  </Popup>
+                </Polygon>
+              )),
+            )}
 
           {displayCells.map((cell) => {
             try {
-              const boundary = organicBoundary(cell);
+              const boundary = cellBoundary(cell.h3Index);
               const color = cellColor(cell, user?.id, rivalH3, targetH3, previewFlash);
               const isMine = cell.ownerId === user?.id;
               return (
@@ -521,9 +447,10 @@ export default function MapPage() {
                   pathOptions={{
                     color,
                     fillColor: color,
-                    fillOpacity: isMine ? 0.58 : targetH3.has(cell.h3Index) ? 0.5 : 0.36,
-                    opacity: 0.86,
-                    weight: isMine || targetH3.has(cell.h3Index) ? 1.8 : 1.1,
+                    fillOpacity: isMine ? 0.62 : targetH3.has(cell.h3Index) ? 0.52 : 0.42,
+                    opacity: 1,
+                    weight: 0.8,
+                    lineJoin: 'round',
                     className: cellClassName(cell, user?.id, rivalH3, targetH3, previewFlash),
                   }}
                 >
@@ -537,6 +464,63 @@ export default function MapPage() {
             }
           })}
         </MapContainer>
+
+        <div className="map-zoom-controls" aria-label="Масштаб карты">
+          <button
+            type="button"
+            aria-label="Увеличить"
+            onClick={() => mapInstance?.zoomIn()}
+            disabled={!mapInstance}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            aria-label="Уменьшить"
+            onClick={() => mapInstance?.zoomOut()}
+            disabled={!mapInstance}
+          >
+            −
+          </button>
+          <button
+            type="button"
+            aria-label="К моей территории"
+            onClick={() => setFlyTrigger((value) => value + 1)}
+            disabled={myCells.length === 0}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" className="map-btn-icon">
+              <path d="M12 21s6-5.2 6-10a6 6 0 1 0-12 0c0 4.8 6 10 6 10Z" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <circle cx="12" cy="11" r="2.2" fill="currentColor" />
+            </svg>
+          </button>
+        </div>
+
+        <button
+          type="button"
+          className="map-tool-btn map-tool-left"
+          onClick={() => setFlyTrigger((value) => value + 1)}
+          disabled={myCells.length === 0}
+          aria-label="Показать мои клетки"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="map-btn-icon">
+            <circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          className="map-tool-btn map-tool-right"
+          onClick={() => setShowDistricts((value) => !value)}
+          aria-label={showDistricts ? 'Скрыть районы' : 'Показать районы'}
+          title={showDistricts ? 'Скрыть районы' : 'Показать районы'}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="map-btn-icon">
+            <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+            <path d="M12 12 3 7M12 12l9-5M12 12v10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+          </svg>
+        </button>
+
         <div className="map-vignette" aria-hidden="true" />
 
         <section className="map-hud map-capture-card">
@@ -564,6 +548,16 @@ export default function MapPage() {
               </span>
             )}
             {targetsMessage && <span className="map-targets-msg">{targetsMessage}</span>}
+            {!targetsMessage && (
+              <button
+                type="button"
+                className="map-find-targets-btn"
+                onClick={() => void handleFindTargets()}
+                disabled={findingTargets}
+              >
+                {findingTargets ? 'Поиск целей…' : 'Найти цели'}
+              </button>
+            )}
             {previewMessage && (
               <span className="map-preview-msg">
                 {previewMessage}
