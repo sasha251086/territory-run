@@ -1,5 +1,6 @@
 ﻿import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { Logger as PinoLogger } from 'nestjs-pino';
 import { AppModule } from './app.module';
@@ -10,7 +11,7 @@ import { ResponseInterceptor } from './common/response.interceptor';
 initSentry();
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
   app.useLogger(app.get(PinoLogger));
 
   // Samsung Health can send thousands of GPS points per workout (default Express limit is 100kb).
