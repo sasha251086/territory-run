@@ -350,6 +350,7 @@ export default function MapPage() {
           center={defaultCenter}
           zoom={13}
           className="leaflet-map"
+          style={{ width: '100%', height: '100%' }}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
@@ -433,7 +434,7 @@ export default function MapPage() {
 
         <button
           type="button"
-          className="map-tool-btn map-tool-left"
+          className="map-tool-btn map-tool-right"
           onClick={() => setFlyTrigger((value) => value + 1)}
           disabled={myCells.length === 0}
         >
