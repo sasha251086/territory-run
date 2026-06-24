@@ -3,6 +3,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../api/client';
 import type { IntegrationInfo, RivalFollow } from '../api/types';
 import { useAuth } from '../context/AuthContext';
+import {
+  canActivateFreeze,
+  daysUntilFreezeAvailable,
+  daysUntilFreezeEnds,
+} from '../utils/freeze';
 
 function streakBonusLabel(streak: number) {
   if (streak >= 14) return '×1.3 к влиянию';
@@ -20,6 +25,8 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+  const [freezeLoading, setFreezeLoading] = useState(false);
+  const [freezeMessage, setFreezeMessage] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -76,6 +83,45 @@ export default function ProfilePage() {
     }
   }
 
+  async function handleActivateFreeze() {
+    setFreezeLoading(true);
+    setFreezeMessage(null);
+    try {
+      await apiRequest('/users/me/freeze', { method: 'POST' });
+      await refreshProfile();
+      setFreezeMessage('Территория заморожена на 7 дней');
+    } catch (err) {
+      setFreezeMessage(err instanceof Error ? err.message : 'Не удалось активировать заморозку');
+    } finally {
+      setFreezeLoading(false);
+    }
+  }
+
+  async function handleCancelFreeze() {
+    setFreezeLoading(true);
+    setFreezeMessage(null);
+    try {
+      await apiRequest('/users/me/freeze', { method: 'DELETE' });
+      await refreshProfile();
+      setFreezeMessage('Заморозка отменена');
+    } catch (err) {
+      setFreezeMessage(err instanceof Error ? err.message : 'Не удалось отменить заморозку');
+    } finally {
+      setFreezeLoading(false);
+    }
+  }
+
+  const freezeActive = user?.freezeActive ?? false;
+  const freezeDaysLeft =
+    freezeActive && user?.freezeActivatedAt
+      ? daysUntilFreezeEnds(user.freezeActivatedAt)
+      : null;
+  const freezeCooldownDays =
+    !freezeActive && user?.freezeLastUsedAt && !canActivateFreeze(freezeActive, user.freezeLastUsedAt)
+      ? daysUntilFreezeAvailable(user.freezeLastUsedAt)
+      : null;
+  const showActivateFreeze = canActivateFreeze(freezeActive, user?.freezeLastUsedAt);
+
   return (
     <div className="stack game-screen">
       <section className="screen-hero profile-hero">
@@ -107,6 +153,49 @@ export default function ProfilePage() {
             <div><span>Стрик</span><strong>{currentStreak} дн.</strong></div>
           )}
         </div>
+      </section>
+
+      <section className="card highlight-card">
+        <h2>Защита территории</h2>
+        {freezeActive && freezeDaysLeft != null ? (
+          <>
+            <p className="info-box">
+              Заморозка активна · осталось {freezeDaysLeft}{' '}
+              {freezeDaysLeft === 1 ? 'день' : freezeDaysLeft < 5 ? 'дня' : 'дней'}
+            </p>
+            <p className="muted small">
+              Клетки не удаляются, пока заморозка активна. Влияние по-прежнему медленно угасает.
+            </p>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => void handleCancelFreeze()}
+              disabled={freezeLoading}
+            >
+              {freezeLoading ? '…' : 'Отменить заморозку'}
+            </button>
+          </>
+        ) : showActivateFreeze ? (
+          <>
+            <p className="muted">
+              Клетки не будут удаляться, пока вы в отпуске или на больничном. Доступно раз в 90 дней.
+            </p>
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={() => void handleActivateFreeze()}
+              disabled={freezeLoading}
+            >
+              {freezeLoading ? '…' : 'Заморозить территорию на 7 дней'}
+            </button>
+          </>
+        ) : freezeCooldownDays != null ? (
+          <p className="muted">
+            Следующая заморозка доступна через {freezeCooldownDays}{' '}
+            {freezeCooldownDays === 1 ? 'день' : freezeCooldownDays < 5 ? 'дня' : 'дней'}
+          </p>
+        ) : null}
+        {freezeMessage && <p className="info-box">{freezeMessage}</p>}
       </section>
 
       <section className="card">

@@ -1,4 +1,4 @@
-﻿import { Body, Controller, Get, Patch, Post, UseGuards, Request } from '@nestjs/common';
+﻿import { Body, Controller, Delete, Get, Patch, Post, UseGuards, Request } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UsersService } from './users.service';
@@ -32,5 +32,19 @@ export class UsersController {
   @ApiOperation({ summary: 'Mark first capture celebration as shown' })
   async markFirstCaptureShown(@Request() req: { user: { id: string } }) {
     return this.usersService.markFirstCaptureShown(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('me/freeze')
+  @ApiOperation({ summary: 'Activate territory freeze for 7 days' })
+  async activateFreeze(@Request() req: { user: { id: string } }) {
+    return this.usersService.activateFreeze(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('me/freeze')
+  @ApiOperation({ summary: 'Cancel active territory freeze early' })
+  async cancelFreeze(@Request() req: { user: { id: string } }) {
+    return this.usersService.cancelFreeze(req.user.id);
   }
 }

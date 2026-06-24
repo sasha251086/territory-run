@@ -2,6 +2,7 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { FeedService } from '../feed/feed.service';
 import { DistrictService } from '../districts/district.service';
+import { SIEGE_THRESHOLD } from '../common/constants';
 
 @Injectable()
 export class OwnershipService {
@@ -34,6 +35,8 @@ export class OwnershipService {
       const top = ownerships[0];
       const previousOwnerId = previousOwnerByCell.get(h3Index) ?? null;
       const newOwnerId = top.userId;
+
+      await this.maybeNotifySiege(h3Index, ownerships);
 
       if (previousOwnerId !== newOwnerId) {
         await this.prisma.cellHistory.create({
@@ -98,5 +101,57 @@ export class OwnershipService {
       map.set(h3Index, owner?.userId ?? null);
     }
     return map;
+  }
+
+  private async maybeNotifySiege(
+    h3Index: string,
+    ownerships: {
+      userId: string;
+      influence: number;
+      user: { nickname: string };
+    }[],
+  ) {
+    if (ownerships.length < 2) {
+      return;
+    }
+
+    const top = ownerships[0];
+    const challenger = ownerships[1];
+
+    if (top.userId === challenger.userId || top.influence <= 0) {
+      return;
+    }
+
+    if (challenger.influence < top.influence * SIEGE_THRESHOLD) {
+      return;
+    }
+
+    const hasRecent = await this.feedService.hasRecentSiegeEvent(
+      top.userId,
+      challenger.userId,
+      h3Index,
+    );
+    if (hasRecent) {
+      return;
+    }
+
+    const gapPercent = Math.round((challenger.influence / top.influence) * 100);
+
+    await this.feedService.createEvent('cell_siege', top.userId, {
+      h3Index,
+      challengerUserId: challenger.userId,
+      challengerNickname: challenger.user.nickname,
+      challengerInfluence: challenger.influence,
+      ownerInfluence: top.influence,
+      gapPercent,
+    });
+
+    this.logger.log({
+      msg: 'Cell siege warning',
+      h3Index,
+      ownerId: top.userId,
+      challengerId: challenger.userId,
+      gapPercent,
+    });
   }
 }

@@ -16,6 +16,14 @@ export class DistrictsController {
     return this.districtService.listDistricts();
   }
 
+  @Get('my/overview')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Districts where current user controls at least 15%' })
+  async getMyOverview(@Request() req: { user: { id: string } }) {
+    const districts = await this.districtService.listUserDistrictOverview(req.user.id);
+    return { districts };
+  }
+
   @Get(':id/progress')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Current user control in a district' })

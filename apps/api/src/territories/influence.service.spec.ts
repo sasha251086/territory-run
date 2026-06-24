@@ -45,13 +45,14 @@ describe('InfluenceService', () => {
       homeLat: null,
       homeLng: null,
       createdAt: new Date('2020-01-01'),
+      stats: { currentStreak: 0, cellsOwned: 0 },
     });
     mockPrisma.cell.upsert.mockResolvedValue({});
     mockPrisma.cellOwnership.findUnique.mockResolvedValue(null);
     mockPrisma.cellOwnership.create.mockResolvedValue({});
 
     const result = await service.processTrack('user1', track);
-    expect(result).toHaveLength(3);
+    expect(result.h3Indices).toHaveLength(3);
     expect(mockPrisma.cellOwnership.create).toHaveBeenCalledTimes(3);
   });
 
@@ -62,6 +63,7 @@ describe('InfluenceService', () => {
       homeLat: null,
       homeLng: null,
       createdAt: new Date('2020-01-01'),
+      stats: { currentStreak: 0, cellsOwned: 0 },
     });
     mockPrisma.cell.upsert.mockResolvedValue({});
     mockPrisma.cellOwnership.findUnique.mockResolvedValue({
@@ -88,6 +90,7 @@ describe('InfluenceService', () => {
       homeLat: null,
       homeLng: null,
       createdAt: oneDayAgo,
+      stats: { currentStreak: 0, cellsOwned: 0 },
     });
     mockPrisma.cell.upsert.mockResolvedValue({});
     mockPrisma.cellOwnership.findUnique.mockResolvedValue(null);
@@ -110,6 +113,7 @@ describe('InfluenceService', () => {
       homeLat: 56.95,
       homeLng: 24.1,
       createdAt: oneDayAgo,
+      stats: { currentStreak: 0, cellsOwned: 0 },
     });
     mockPrisma.cell.upsert.mockResolvedValue({});
     mockPrisma.cellOwnership.findUnique.mockResolvedValue(null);
@@ -119,7 +123,7 @@ describe('InfluenceService', () => {
 
     expect(mockPrisma.cellOwnership.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ influence: 1.5 }),
+        data: expect.objectContaining({ influence: 1.25 }),
       }),
     );
   });

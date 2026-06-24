@@ -1,4 +1,4 @@
-﻿import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+﻿import { Controller, Get, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { LeaderboardService } from './leaderboard.service';
@@ -34,5 +34,33 @@ export class LeaderboardController {
   async getTopByDistance(@Query('limit') limit: string = '100') {
     const limitNum = parseInt(limit, 10) || 100;
     return this.leaderboardService.getTopByDistance(limitNum);
+  }
+
+  @Get('regional')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Regional leaderboard within radius of home base' })
+  @ApiQuery({ name: 'radiusKm', required: false, example: 5 })
+  async getRegional(
+    @Request() req: { user: { id: string } },
+    @Query('radiusKm') radiusKm: string = '5',
+  ) {
+    const radius = parseFloat(radiusKm) || 5;
+    return this.leaderboardService.getRegionalLeaderboard(req.user.id, radius);
+  }
+
+  @Get('season/history')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Past season placements for current user' })
+  async getSeasonHistory(@Request() req: { user: { id: string } }) {
+    return this.leaderboardService.getSeasonHistory(req.user.id);
+  }
+
+  @Get('season')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Current season leaderboard' })
+  @ApiQuery({ name: 'limit', required: false, example: 50 })
+  async getSeasonLeaderboard(@Query('limit') limit: string = '50') {
+    const limitNum = parseInt(limit, 10) || 50;
+    return this.leaderboardService.getSeasonLeaderboard(limitNum);
   }
 }

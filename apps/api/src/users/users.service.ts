@@ -1,5 +1,22 @@
-﻿import { Injectable } from '@nestjs/common';
+﻿import { HttpStatus, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ApiException } from '../common/api.exception';
+import { ErrorCodes } from '../common/error-codes';
+import { FREEZE_COOLDOWN_DAYS } from '../common/constants';
+
+const profileSelect = {
+  id: true,
+  email: true,
+  nickname: true,
+  avatarUrl: true,
+  homeLat: true,
+  homeLng: true,
+  freezeActive: true,
+  freezeActivatedAt: true,
+  freezeLastUsedAt: true,
+  createdAt: true,
+  stats: true,
+} as const;
 
 @Injectable()
 export class UsersService {
@@ -20,16 +37,7 @@ export class UsersService {
   async getProfile(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      select: {
-        id: true,
-        email: true,
-        nickname: true,
-        avatarUrl: true,
-        homeLat: true,
-        homeLng: true,
-        createdAt: true,
-        stats: true,
-      },
+      select: profileSelect,
     });
 
     return user;
@@ -63,6 +71,73 @@ export class UsersService {
     });
 
     return { firstCaptureShownAt: new Date() };
+  }
+
+  async activateFreeze(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        freezeActive: true,
+        freezeLastUsedAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new ApiException(ErrorCodes.NOT_FOUND, 'User not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (user.freezeActive) {
+      throw new ApiException(
+        ErrorCodes.VALIDATION_ERROR,
+        'Заморозка уже активна',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (user.freezeLastUsedAt) {
+      const cooldownEnds = new Date(user.freezeLastUsedAt);
+      cooldownEnds.setDate(cooldownEnds.getDate() + FREEZE_COOLDOWN_DAYS);
+      if (new Date() < cooldownEnds) {
+        throw new ApiException(
+          ErrorCodes.VALIDATION_ERROR,
+          'Заморозка доступна раз в 90 дней',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        freezeActive: true,
+        freezeActivatedAt: new Date(),
+        freezeLastUsedAt: new Date(),
+      },
+    });
+
+    return this.getProfile(userId);
+  }
+
+  async cancelFreeze(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { freezeActive: true },
+    });
+
+    if (!user) {
+      throw new ApiException(ErrorCodes.NOT_FOUND, 'User not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (!user.freezeActive) {
+      return this.getProfile(userId);
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { freezeActive: false },
+    });
+
+    return this.getProfile(userId);
   }
 
   async create(email: string, nickname: string, passwordHash: string) {

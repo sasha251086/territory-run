@@ -129,7 +129,16 @@ export class QueueService implements OnModuleInit {
     const previousOwners = await this.ownershipService.snapshotOwners(previewIndices);
 
     const affectedCells = await this.influenceService.processTrack(activity.userId, track);
-    await this.ownershipService.recalculateOwners(affectedCells, previousOwners);
+    const ownerResults = await this.ownershipService.recalculateOwners(
+      affectedCells.h3Indices,
+      previousOwners,
+    );
+
+    const seasonNewCaptures = ownerResults.filter(
+      (result) =>
+        result.ownerId === activity.userId &&
+        previousOwners.get(result.h3Index) !== activity.userId,
+    ).length;
 
     const existingStats = await this.prisma.userStats.findUnique({
       where: { userId: activity.userId },
@@ -170,6 +179,8 @@ export class QueueService implements OnModuleInit {
       data: {
         cellsOwned: Number(stats[0]?.cells || 0),
         totalInfluence: Number(stats[0]?.influence || 0),
+        seasonCellsOwned: { increment: seasonNewCaptures },
+        seasonInfluence: { increment: affectedCells.influenceAdded },
       },
     });
 
@@ -177,7 +188,7 @@ export class QueueService implements OnModuleInit {
       activityId: activity.id,
       distance: activity.distanceMeters,
       duration: activity.durationSeconds,
-      cellsAffected: affectedCells.length,
+      cellsAffected: affectedCells.h3Indices.length,
     });
 
     await this.prisma.activity.update({
@@ -192,7 +203,7 @@ export class QueueService implements OnModuleInit {
       msg: 'Activity processed successfully',
       activityId,
       userId: activity.userId,
-      cellsAffected: affectedCells.length,
+      cellsAffected: affectedCells.h3Indices.length,
     });
   }
 }
