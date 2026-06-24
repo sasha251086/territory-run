@@ -26,6 +26,10 @@ const mockFeedService = {
   createEvent: jest.fn(),
 };
 
+const mockRedisService = {
+  set: jest.fn(),
+};
+
 describe('QueueService anticheat integration', () => {
   let service: QueueService;
   let anticheatService: AnticheatService;
@@ -35,6 +39,7 @@ describe('QueueService anticheat integration', () => {
     anticheatService = new AnticheatService();
     service = new QueueService(
       mockPrisma as never,
+      mockRedisService as never,
       mockInfluenceService as never,
       mockOwnershipService as never,
       mockFeedService as never,

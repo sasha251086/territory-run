@@ -1,34 +1,34 @@
 
-/* Game UI skin */
+/* Game UI skin — bridged to Neon Territory v1 (design/Header.css) */
 :root {
-  color: #f8fafc;
-  background: #07111f;
-  font-family: Outfit, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --bg: #07111f;
-  --panel: rgba(7, 17, 31, 0.78);
-  --panel-strong: rgba(9, 18, 32, 0.92);
-  --panel-soft: rgba(15, 23, 42, 0.58);
-  --line: rgba(148, 163, 184, 0.25);
-  --line-hot: rgba(132, 204, 22, 0.56);
-  --text: #f8fafc;
-  --muted: #a7b4c8;
-  --green: #8dff42;
-  --green-strong: #5be322;
-  --blue: #38bdf8;
-  --purple: #b15cff;
-  --orange: #fb923c;
-  --danger: #fb7185;
+  color: var(--tr-text-primary);
+  background: var(--tr-bg0);
+  font-family: var(--tr-font-body);
+  --bg: var(--tr-bg0);
+  --panel: var(--tr-glass-bg);
+  --panel-strong: var(--tr-bg1);
+  --panel-soft: var(--tr-bg2);
+  --line: var(--tr-bg3);
+  --line-hot: var(--tr-cyan-mid);
+  --text: var(--tr-text-primary);
+  --muted: var(--tr-text-secondary);
+  --green: var(--tr-cyan);
+  --green-strong: var(--tr-cyan-pressed);
+  --blue: var(--tr-cyan);
+  --purple: var(--tr-purple);
+  --orange: var(--tr-orange);
+  --danger: var(--tr-red);
   --shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
 }
 
 body {
   min-width: 320px;
   min-height: 100dvh;
-  color: var(--text);
+  color: var(--tr-text-primary);
   background:
-    radial-gradient(circle at 12% 8%, rgba(56, 189, 248, 0.18), transparent 34rem),
-    radial-gradient(circle at 88% 18%, rgba(141, 255, 66, 0.14), transparent 30rem),
-    linear-gradient(145deg, #08111f 0%, #0f172a 48%, #061018 100%);
+    radial-gradient(circle at 12% 8%, rgba(62, 207, 184, 0.12), transparent 34rem),
+    radial-gradient(circle at 88% 18%, rgba(61, 255, 138, 0.08), transparent 30rem),
+    linear-gradient(160deg, var(--tr-bg0) 0%, var(--tr-bg1) 52%, #060a14 100%);
 }
 
 body::before {
@@ -437,7 +437,7 @@ input:focus {
     padding-bottom: 112px;
   }
 
-  .app-nav {
+  .app-nav:not(.tr-navbar) {
     width: min(100% - 32px, 720px);
     right: auto;
     left: 50%;
@@ -448,19 +448,20 @@ input:focus {
 .game-map-page {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: calc(100dvh - 96px - env(safe-area-inset-bottom));
+  gap: 10px;
+  min-height: 0;
   margin: 0;
-  padding: calc(12px + env(safe-area-inset-top)) 14px 0;
+  padding: 0;
 }
 
-.map-shell .app-main {
-  width: min(100%, 620px);
-  min-height: 100dvh;
-  padding: 0 0 calc(96px + env(safe-area-inset-bottom));
-  margin: 0 auto;
+.map-shell .app-main,
+.map-shell .tr-app-main {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  width: min(100%, 620px);
+  min-height: 0;
+  margin: 0 auto;
 }
 
 .map-zoom-controls {
@@ -555,30 +556,31 @@ input:focus {
 
 .game-map-frame {
   position: relative;
-  flex: 1;
-  min-height: 320px;
-  height: auto;
-  border: 1px solid rgba(141, 255, 66, 0.28);
-  border-radius: 28px;
-  background: #07111f;
-  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.48);
+  flex: 1 1 auto;
+  min-height: 220px;
+  border: 1px solid var(--tr-glass-border);
+  border-radius: var(--tr-radius-xl);
+  background: var(--tr-bg0);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
   isolation: isolate;
   overflow: hidden;
 }
 
 .game-map-frame .leaflet-map,
 .game-map-frame .leaflet-container {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   z-index: 1;
 }
 
 .game-map-frame .leaflet-container {
-  background: #07111f;
+  background: #e8eef4;
 }
 
 .game-map-frame .leaflet-tile {
-  filter: saturate(1.15) contrast(1.08) brightness(0.72) hue-rotate(170deg);
+  filter: saturate(1.05) contrast(1.02) brightness(1.02);
 }
 
 .game-map-frame .leaflet-control-container {
@@ -611,8 +613,8 @@ input:focus {
   z-index: 400;
   pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(3, 7, 18, 0.56), transparent 24%, transparent 62%, rgba(3, 7, 18, 0.76)),
-    radial-gradient(circle at center, transparent 42%, rgba(3, 7, 18, 0.36));
+    linear-gradient(180deg, rgba(8, 13, 24, 0.22), transparent 20%, transparent 68%, rgba(8, 13, 24, 0.35)),
+    radial-gradient(circle at center, transparent 50%, rgba(8, 13, 24, 0.12));
 }
 
 .map-hud {
@@ -771,14 +773,8 @@ input:focus {
 }
 
 @media (max-width: 520px) {
-  .game-map-page {
-    min-height: calc(100dvh - 88px - env(safe-area-inset-bottom));
-  }
-
   .game-map-frame {
-    border-radius: 18px;
-    border-right: 0;
-    border-left: 0;
+    border-radius: var(--tr-radius-lg);
   }
 }
 
@@ -986,7 +982,7 @@ input:focus {
 }
 
 .onboarding-map .leaflet-tile {
-  filter: saturate(1.08) contrast(1.06) brightness(0.78) hue-rotate(150deg);
+  filter: saturate(1.05) contrast(1.02) brightness(1.02);
 }
 
 @media (min-width: 720px) {

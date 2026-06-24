@@ -3,6 +3,7 @@ import { ActivityStatus } from '@prisma/client';
 import { Queue, Worker } from 'bullmq';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { InfluenceService } from '../territories/influence.service';
 import { OwnershipService } from '../territories/ownership.service';
 import { FeedService } from '../feed/feed.service';
@@ -19,6 +20,7 @@ export class QueueService implements OnModuleInit {
 
   constructor(
     private prisma: PrismaService,
+    private redisService: RedisService,
     private influenceService: InfluenceService,
     private ownershipService: OwnershipService,
     private feedService: FeedService,
@@ -128,8 +130,56 @@ export class QueueService implements OnModuleInit {
     const previewIndices = [...previewCells];
     const previousOwners = await this.ownershipService.snapshotOwners(previewIndices);
 
+    const beforeOwnership = await this.prisma.cellOwnership.findMany({
+      where: { userId: activity.userId, h3Index: { in: previewIndices } },
+      select: { h3Index: true, influence: true },
+    });
+    const influenceBefore = new Map(
+      beforeOwnership.map((row) => [row.h3Index, row.influence]),
+    );
+
     const affectedCells = await this.influenceService.processTrack(activity.userId, track);
-    await this.ownershipService.recalculateOwners(affectedCells, previousOwners);
+    const ownerResults = await this.ownershipService.recalculateOwners(
+      affectedCells,
+      previousOwners,
+    );
+
+    const afterOwnership = await this.prisma.cellOwnership.findMany({
+      where: { userId: activity.userId, h3Index: { in: affectedCells } },
+      select: { h3Index: true, influence: true },
+    });
+    const influenceAfter = new Map(
+      afterOwnership.map((row) => [row.h3Index, row.influence]),
+    );
+
+    let newCellsCount = 0;
+    let influenceGained = 0;
+    for (const h3Index of affectedCells) {
+      const before = influenceBefore.get(h3Index) ?? 0;
+      const after = influenceAfter.get(h3Index) ?? 0;
+      if (before <= 0 && after > 0) newCellsCount += 1;
+      influenceGained += Math.max(0, after - before);
+    }
+
+    let capturedCellsCount = 0;
+    for (const result of ownerResults) {
+      const prevOwner = previousOwners.get(result.h3Index) ?? null;
+      if (result.ownerId === activity.userId && prevOwner !== activity.userId) {
+        capturedCellsCount += 1;
+      }
+    }
+
+    await this.redisService.set(
+      `activity_result:${activityId}`,
+      JSON.stringify({
+        newCellsCount,
+        capturedCellsCount,
+        influenceGained,
+        affectedH3Indices: affectedCells,
+        distanceMeters: activity.distanceMeters,
+      }),
+      3600,
+    );
 
     const existingStats = await this.prisma.userStats.findUnique({
       where: { userId: activity.userId },

@@ -205,6 +205,30 @@ export class ActivitiesController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post(':id/reprocess')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: 'Reprocess a single failed activity' })
+  async reprocessOne(
+    @Request() req: { user: { id: string } },
+    @Param('id') activityId: string,
+  ) {
+    const data = await this.activitiesService.reprocessActivity(req.user.id, activityId);
+    return { success: true, data };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/result')
+  @ApiOperation({ summary: 'Get processing result for a completed activity' })
+  async getResult(
+    @Request() req: { user: { id: string } },
+    @Param('id') activityId: string,
+  ) {
+    const data = await this.activitiesService.getActivityResult(req.user.id, activityId);
+    return { success: true, data };
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id/status')
   @ApiOperation({ summary: 'Get activity processing status' })
   @ApiResponse({
@@ -230,6 +254,7 @@ export class ActivitiesController {
     @Request() req: { user: { id: string } },
     @Param('id') activityId: string,
   ) {
-    return this.activitiesService.getStatus(req.user.id, activityId);
+    const data = await this.activitiesService.getStatus(req.user.id, activityId);
+    return { success: true, data };
   }
 }

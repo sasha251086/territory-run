@@ -1,0 +1,257 @@
+/**
+ * Territory Run — Design Tokens (CSS Custom Properties)
+ * Neon Territory v1 · Teal-green accent
+ *
+ * Usage:
+ *   import '@/design/Header.css';
+ *   then use var(--tr-cyan) etc. in any stylesheet or inline style.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+/* ─── Root variables ────────────────────────────────────────────────────────── */
+:root {
+
+  /* Backgrounds */
+  --tr-bg0: #080d18;
+  --tr-bg1: #111827;
+  --tr-bg2: #1a2336;
+  --tr-bg3: #2a3045;
+
+  /* Text */
+  --tr-text-primary:   #eef2ff;
+  --tr-text-secondary: #8899bb;
+  --tr-text-muted:     #3d4f6a;
+
+  /* Primary accent — teal-green */
+  --tr-cyan:         #3ecfb8;
+  --tr-cyan-lo:      rgba(62, 207, 184, 0.13);
+  --tr-cyan-mid:     rgba(62, 207, 184, 0.27);
+  --tr-cyan-hover:   #62dcc7;
+  --tr-cyan-pressed: #28b09c;
+
+  /* Game / status */
+  --tr-green:  #3dff8a;
+  --tr-orange: #ff9f43;
+  --tr-red:    #ff5a4a;
+  --tr-pink:   #ff6b9d;
+  --tr-yellow: #f5c842;
+  --tr-purple: #9b6dff;
+
+  /* Status opacity helpers */
+  --tr-green-lo:  rgba(61,  255, 138, 0.13);
+  --tr-orange-lo: rgba(255, 159, 67,  0.13);
+  --tr-red-lo:    rgba(255, 90,  74,  0.13);
+
+  /* Glassmorphism */
+  --tr-glass-bg:     rgba(17, 24, 54, 0.84);
+  --tr-glass-border: rgba(62, 207, 184, 0.22);
+
+  /* Fonts */
+  --tr-font-display: 'Rajdhani', 'Exo 2', sans-serif;
+  --tr-font-body:    'Inter', system-ui, sans-serif;
+  --tr-font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Font sizes */
+  --tr-fs-hero:  22px;   /* hero numbers — streak, key metrics */
+  --tr-fs-h1:    16px;   /* screen titles, usernames            */
+  --tr-fs-h2:    13px;   /* section headings, buttons           */
+  --tr-fs-body:  12px;   /* main content                        */
+  --tr-fs-label: 10px;   /* chips, metadata                     */
+  --tr-fs-xs:     9px;   /* timestamps, annotations             */
+  --tr-fs-nav:    8px;   /* navigation bar labels               */
+
+  /* Border radii */
+  --tr-radius-sm:   6px;
+  --tr-radius-md:   8px;
+  --tr-radius-lg:  10px;
+  --tr-radius-xl:  14px;
+  --tr-radius-full: 9999px;
+}
+
+/* ─── Base reset for TR screens ─────────────────────────────────────────────── */
+.tr-app {
+  background-color: var(--tr-bg0);
+  color:            var(--tr-text-primary);
+  font-family:      var(--tr-font-body);
+  font-size:        var(--tr-fs-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Glass panel ───────────────────────────────────────────────────────────── */
+.tr-glass {
+  background:    var(--tr-glass-bg);
+  border:        1px solid var(--tr-glass-border);
+  border-radius: var(--tr-radius-lg);
+}
+
+/* ─── Buttons ───────────────────────────────────────────────────────────────── */
+.tr-btn {
+  display:         inline-flex;
+  align-items:     center;
+  justify-content: center;
+  border:          none;
+  cursor:          pointer;
+  transition:      background 120ms ease, transform 80ms ease, opacity 120ms ease;
+  user-select:     none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Primary */
+.tr-btn-primary {
+  background:    var(--tr-cyan);
+  color:         var(--tr-bg0);
+  font-family:   var(--tr-font-display);
+  font-size:     var(--tr-fs-h2);
+  font-weight:   700;
+  letter-spacing: 0.08em;
+  border-radius: var(--tr-radius-md);
+  height:        44px;
+  padding:       0 20px;
+}
+.tr-btn-primary:hover  { background: var(--tr-cyan-hover); }
+.tr-btn-primary:active { background: var(--tr-cyan-pressed); transform: scale(0.96); }
+.tr-btn-primary:disabled { background: var(--tr-bg3); opacity: 0.5; cursor: default; }
+
+/* Secondary */
+.tr-btn-secondary {
+  background:    var(--tr-bg1);
+  color:         var(--tr-cyan);
+  font-family:   var(--tr-font-body);
+  font-size:     var(--tr-fs-h2);
+  font-weight:   600;
+  border:        1.5px solid var(--tr-cyan);
+  border-radius: var(--tr-radius-md);
+  height:        42px;
+  padding:       0 18px;
+}
+.tr-btn-secondary:hover  { background: var(--tr-bg2); }
+.tr-btn-secondary:active { background: var(--tr-cyan-mid); transform: scale(0.96); }
+.tr-btn-secondary:disabled { opacity: 0.45; cursor: default; }
+
+/* Danger */
+.tr-btn-danger {
+  background:    var(--tr-red);
+  color:         var(--tr-text-primary);
+  font-family:   var(--tr-font-display);
+  font-size:     var(--tr-fs-h2);
+  font-weight:   700;
+  border-radius: var(--tr-radius-md);
+  height:        44px;
+  padding:       0 20px;
+}
+.tr-btn-danger:hover  { background: #ff7a6e; }
+.tr-btn-danger:active { background: #c43020; transform: scale(0.96); }
+
+/* Ghost */
+.tr-btn-ghost {
+  background:  transparent;
+  color:       var(--tr-text-secondary);
+  font-family: var(--tr-font-body);
+  font-size:   var(--tr-fs-body);
+  height:      36px;
+  padding:     0 12px;
+}
+.tr-btn-ghost:hover  { background: rgba(255,255,255,0.05); color: var(--tr-text-primary); }
+.tr-btn-ghost:active { background: rgba(255,255,255,0.10); }
+
+/* ─── Input field ───────────────────────────────────────────────────────────── */
+.tr-input {
+  width:         100%;
+  height:        42px;
+  background:    var(--tr-bg2);
+  border:        1px solid var(--tr-bg3);
+  border-radius: var(--tr-radius-md);
+  color:         var(--tr-text-primary);
+  font-family:   var(--tr-font-body);
+  font-size:     var(--tr-fs-body);
+  padding:       0 13px;
+  outline:       none;
+  transition:    border-color 120ms ease;
+}
+.tr-input::placeholder { color: var(--tr-text-muted); }
+.tr-input:focus        { border-color: var(--tr-cyan); border-width: 1.5px; }
+.tr-input.error        { border-color: var(--tr-red); }
+.tr-input:disabled     { background: var(--tr-bg3); opacity: 0.5; cursor: not-allowed; }
+
+/* ─── Badge / chip ──────────────────────────────────────────────────────────── */
+.tr-badge {
+  display:       inline-flex;
+  align-items:   center;
+  gap:           4px;
+  padding:       2px 8px;
+  border-radius: var(--tr-radius-full);
+  font-family:   var(--tr-font-body);
+  font-size:     var(--tr-fs-xs);
+  font-weight:   600;
+}
+.tr-badge--cyan   { background: var(--tr-cyan-lo);  color: var(--tr-cyan);   border: 1px solid rgba(62,207,184,0.33); }
+.tr-badge--green  { background: var(--tr-green-lo); color: var(--tr-green);  border: 1px solid rgba(61,255,138,0.33); }
+.tr-badge--orange { background: var(--tr-orange-lo);color: var(--tr-orange); border: 1px solid rgba(255,159,67,0.33);  }
+.tr-badge--red    { background: var(--tr-red-lo);   color: var(--tr-red);    border: 1px solid rgba(255,90,74,0.33);   }
+
+/* ─── Stat tile ─────────────────────────────────────────────────────────────── */
+.tr-stat-tile {
+  flex:          1;
+  padding:       9px 6px;
+  text-align:    center;
+  background:    var(--tr-bg2);
+  border:        1px solid var(--tr-bg3);
+  border-radius: var(--tr-radius-md);
+}
+.tr-stat-tile__value {
+  font-family:  var(--tr-font-display);
+  font-size:    18px;
+  font-weight:  700;
+  color:        var(--tr-text-primary);
+  line-height:  1;
+}
+.tr-stat-tile__value--accent { color: var(--tr-cyan); }
+.tr-stat-tile__label {
+  font-family:  var(--tr-font-body);
+  font-size:    var(--tr-fs-xs);
+  color:        var(--tr-text-secondary);
+  margin-top:   2px;
+}
+
+/* ─── Navigation bar ────────────────────────────────────────────────────────── */
+.tr-navbar {
+  height:        50px;
+  display:       flex;
+  flex-shrink:   0;
+  background:    var(--tr-bg1);
+  border-top:    1px solid var(--tr-bg3);
+}
+.tr-navbar__item {
+  flex:           1;
+  display:        flex;
+  flex-direction: column;
+  align-items:    center;
+  justify-content:center;
+  gap:            2px;
+  border-bottom:  2px solid transparent;
+  cursor:         pointer;
+  transition:     background 100ms ease;
+}
+.tr-navbar__item--active {
+  border-bottom-color: var(--tr-cyan);
+  background:          var(--tr-cyan-lo);
+}
+.tr-navbar__icon  { font-size: 14px; color: var(--tr-text-muted); }
+.tr-navbar__label { font-family: var(--tr-font-body); font-size: var(--tr-fs-nav); color: var(--tr-text-muted); }
+.tr-navbar__item--active .tr-navbar__icon,
+.tr-navbar__item--active .tr-navbar__label { color: var(--tr-cyan); font-weight: 700; }
+
+/* ─── Progress bar ──────────────────────────────────────────────────────────── */
+.tr-progress {
+  height: 5px; border-radius: 3px;
+  background: var(--tr-bg3);
+  overflow: hidden;
+}
+.tr-progress__fill {
+  height: 100%; border-radius: 3px;
+  background: var(--tr-cyan);
+  transition: width 400ms ease;
+}
+.tr-progress__fill--green  { background: var(--tr-green);  }
+.tr-progress__fill--orange { background: var(--tr-orange); }

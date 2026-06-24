@@ -48,6 +48,7 @@ export interface MapCell {
   gapToLeader?: number;
   runsToCapture?: number;
   myRank?: number | null;
+  totalPlayers?: number;
 }
 
 export interface CellPlayer {
@@ -74,6 +75,7 @@ export interface CellPlayersResponse {
   runsToCapture: number;
   isOwner: boolean;
   leadOverNext: number | null;
+  totalPlayers: number;
   history: CellHistoryEntry[];
 }
 
@@ -139,6 +141,14 @@ export interface ActivityItem {
   status: 'processing' | 'completed' | 'failed';
   failureReason: string | null;
   processedAt: string | null;
+}
+
+export interface ActivityResult {
+  newCellsCount: number;
+  capturedCellsCount: number;
+  influenceGained: number;
+  affectedH3Indices: string[];
+  distanceMeters?: number;
 }
 
 export interface FeedEvent {

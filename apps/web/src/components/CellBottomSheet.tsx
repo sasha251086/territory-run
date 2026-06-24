@@ -10,13 +10,9 @@ export default function CellBottomSheet({
   onClose: () => void;
 }) {
   useEffect(() => {
-    if (!cell) {
-      return;
-    }
+    if (!cell) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
+      if (event.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKey);
     document.body.style.overflow = 'hidden';
@@ -26,23 +22,16 @@ export default function CellBottomSheet({
     };
   }, [cell, onClose]);
 
-  if (!cell) {
-    return null;
-  }
+  if (!cell) return null;
 
   return (
     <div className="bottom-sheet-backdrop" onClick={onClose} role="presentation">
       <section
-        className="bottom-sheet"
         role="dialog"
         aria-label="Информация о клетке"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="bottom-sheet-handle" aria-hidden="true" />
-        <CellPopupContent cell={cell} />
-        <button type="button" className="ghost-btn bottom-sheet-close" onClick={onClose}>
-          Закрыть
-        </button>
+        <CellPopupContent cell={cell} onClose={onClose} />
       </section>
     </div>
   );

@@ -1,42 +1,26 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer, Circle, CircleMarker, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Circle, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { apiRequest } from '../api/client';
+import { MAP_TILE } from '../utils/map-tiles';
 import { useAuth } from '../context/AuthContext';
 
-function HomePicker({
-  position,
-  onPick,
-}: {
-  position: [number, number];
-  onPick: (lat: number, lng: number) => void;
-}) {
+function MapDragPicker({ onPick }: { onPick: (lat: number, lng: number) => void }) {
+  const map = useMap();
   useMapEvents({
-    click(event) {
-      onPick(event.latlng.lat, event.latlng.lng);
+    moveend() {
+      const c = map.getCenter();
+      onPick(c.lat, c.lng);
     },
   });
-
-  return (
-    <>
-      <CircleMarker
-        center={position}
-        radius={8}
-        pathOptions={{ color: '#1a5f4a', fillColor: '#22c55e', fillOpacity: 1 }}
-      />
-      <Circle
-        center={position}
-        radius={500}
-        pathOptions={{ color: '#f59e0b', fillColor: '#fbbf24', fillOpacity: 0.2 }}
-      />
-    </>
-  );
+  return null;
 }
 
 export default function OnboardingPage() {
   const { user, refreshProfile } = useAuth();
   const navigate = useNavigate();
+  const isEdit = user?.homeLat != null && user?.homeLng != null;
   const [position, setPosition] = useState<[number, number]>(() => {
     if (user?.homeLat != null && user?.homeLng != null) {
       return [user.homeLat, user.homeLng];
@@ -55,42 +39,72 @@ export default function OnboardingPage() {
         body: JSON.stringify({ homeLat: position[0], homeLng: position[1] }),
       });
       await refreshProfile();
-      navigate('/profile');
+      navigate(isEdit ? '/profile' : '/');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось сохранить домашнюю базу');
+      setError(err instanceof Error ? err.message : 'Не удалось сохранить базу');
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card wide game-auth-card">
-        <div className="auth-hero-copy">
-          <p className="eyebrow">
-            {user?.homeLat != null ? 'Домашняя база' : 'Шаг 2 из 2'}
-          </p>
-          <h1>{user?.homeLat != null ? 'Новая база' : 'Выберите базу'}</h1>
-          <p>
-            Нажмите на карту, чтобы указать дом. В радиусе 500 м действует бонус к влиянию.
-          </p>
+    <div className="tr-onboarding tr-app">
+      <div className="tr-onboarding__map">
+        <MapContainer center={position} zoom={15} className="leaflet-map">
+          <TileLayer attribution={MAP_TILE.attribution} url={MAP_TILE.url} />
+          <MapDragPicker onPick={(lat, lng) => setPosition([lat, lng])} />
+          <Circle
+            center={position}
+            radius={500}
+            pathOptions={{
+              color: '#3ecfb8',
+              fillColor: '#3ecfb8',
+              fillOpacity: 0.06,
+              weight: 2,
+              dashArray: '8 6',
+            }}
+          />
+        </MapContainer>
+      </div>
+
+      <div className="tr-onboarding__overlay">
+        <header className="tr-onboarding__header">
+          <h1>{isEdit ? 'Новая база' : 'Выбор базы'}</h1>
+          <div className="tr-onboarding__steps" aria-label="Прогресс онбординга">
+            <span className="tr-onboarding__step tr-onboarding__step--done" />
+            <span className="tr-onboarding__step tr-onboarding__step--done" />
+            <span className={`tr-onboarding__step${isEdit ? ' tr-onboarding__step--done' : ''}`} />
+          </div>
+        </header>
+
+        <section className="tr-onboarding__hint tr-glass">
+          <strong>Перетащите пин на дом или старт бега</strong>
+          <span>Клетки в радиусе 500 м дают бонус ×1.5 влияния</span>
+        </section>
+
+        <div className="tr-onboarding__pin-wrap" aria-hidden="true">
+          <div className="tr-onboarding__pin" />
         </div>
 
-        <div className="map-frame onboarding-map">
-          <MapContainer center={position} zoom={14} className="leaflet-map">
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            <HomePicker position={position} onPick={(lat, lng) => setPosition([lat, lng])} />
-          </MapContainer>
-        </div>
-
-        <p className="muted small">
-          После сохранения подключите Strava в профиле — это ключевой шаг, чтобы начать захватывать территории.
-        </p>
-
-        {error && <p className="error-banner">{error}</p>}
-        <button type="button" className="primary-btn" onClick={saveHome} disabled={loading}>
-          {loading ? 'Сохранение...' : user?.homeLat != null ? 'Сохранить новую базу' : 'Сохранить и перейти в профиль'}
-        </button>
+        <footer className="tr-onboarding__footer">
+          <div className="tr-onboarding__coords">
+            <span>
+              <span className="tr-onboarding__coords-dot" /> {position[0].toFixed(4)}° N,{' '}
+              {position[1].toFixed(4)}° E
+            </span>
+            <span>GPS</span>
+          </div>
+          {error && <p className="error-banner">{error}</p>}
+          <button
+            type="button"
+            className="tr-btn tr-btn-primary"
+            style={{ width: '100%' }}
+            onClick={() => void saveHome()}
+            disabled={loading}
+          >
+            {loading ? 'Сохранение…' : 'Подтвердить базу'}
+          </button>
+        </footer>
       </div>
     </div>
   );

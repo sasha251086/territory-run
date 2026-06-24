@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Territory Run — Mockup Screens</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+  :root {
+    --bg0:#080d18;--bg1:#111827;--bg2:#1a2336;--bg3:#2a3045;
+    --tp:#eef2ff;--ts:#8899bb;--tm:#3d4f6a;
+    --cy:#3ecfb8;--cylo:rgba(62,207,184,0.13);--cymid:rgba(62,207,184,0.27);
+    --gr:#3dff8a;--or:#ff9f43;--rd:#ff5a4a;--pk:#ff6b9d;--yl:#f5c842;--pu:#9b6dff;
+    --glass:rgba(17,24,54,0.84);--gb:rgba(62,207,184,0.22);
+    --fd:'Rajdhani','Exo 2',sans-serif;--fb:'Inter',system-ui,sans-serif;--fm:'JetBrains Mono','Fira Code',monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0e1a; display: flex; flex-wrap: wrap; gap: 32px; padding: 32px; }
+  .phone { width: 265px; height: 560px; border: 2px solid var(--bg3); border-radius: 28px; overflow: hidden; background: var(--bg0); display: flex; flex-direction: column; flex-shrink: 0; position: relative; font-family: var(--fb); }
+  .statusbar { height: 24px; flex-shrink: 0; background: var(--bg0); border-bottom: 1px solid var(--bg2); display: flex; align-items: center; justify-content: space-between; padding: 0 14px; }
+  .statusbar span { font-size: 10px; color: var(--ts); font-family: var(--fb); }
+  .statusbar .time { color: var(--cy); font-weight: 600; }
+  .screen-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .navbar { height: 50px; flex-shrink: 0; background: var(--bg1); border-top: 1px solid var(--bg3); display: flex; }
+  .navitem { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-bottom: 2px solid transparent; }
+  .navitem.active { border-bottom-color: var(--cy); background: var(--cylo); }
+  .navitem .ni { font-size: 14px; color: var(--tm); }
+  .navitem .nl { font-size: 8px; color: var(--tm); font-family: var(--fb); }
+  .navitem.active .ni, .navitem.active .nl { color: var(--cy); font-weight: 700; }
+  .glass { background: var(--glass); border: 1px solid var(--gb); border-radius: 10px; padding: 10px 12px; }
+  .btn-primary { background: var(--cy); color: var(--bg0); font-family: var(--fd); font-size: 13px; font-weight: 700; letter-spacing: .08em; border-radius: 8px; height: 44px; display: flex; align-items: center; justify-content: center; width: 100%; }
+  .btn-secondary { background: var(--bg1); color: var(--cy); font-family: var(--fb); font-size: 13px; font-weight: 600; border: 1.5px solid var(--cy); border-radius: 8px; height: 42px; display: flex; align-items: center; justify-content: center; width: 100%; }
+  .btn-ghost { color: var(--ts); font-size: 12px; height: 34px; display: flex; align-items: center; justify-content: center; width: 100%; }
+  .field { height: 42px; border-radius: 8px; background: var(--bg2); border: 1px solid var(--bg3); display: flex; align-items: center; padding: 0 13px; }
+  .field span { font-size: 12px; color: var(--tm); }
+  .field-focus { height: 42px; border-radius: 8px; background: var(--bg2); border: 1.5px solid var(--cy); display: flex; align-items: center; padding: 0 13px; }
+  .field-focus span { font-size: 12px; color: var(--tp); }
+  .label-muted { font-size: 9px; color: var(--tm); }
+  .h1 { font-family: var(--fd); font-size: 16px; font-weight: 700; color: var(--tp); }
+  .h2 { font-family: var(--fd); font-size: 13px; font-weight: 700; color: var(--tp); }
+  .badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 999px; font-size: 9px; font-weight: 600; }
+  .badge-ok { background: rgba(61,255,138,.15); color: var(--gr); border: 1px solid rgba(61,255,138,.3); }
+  .badge-err { background: rgba(255,90,74,.15); color: var(--rd); border: 1px solid rgba(255,90,74,.3); }
+  .badge-cy { background: var(--cylo); color: var(--cy); border: 1px solid rgba(62,207,184,.3); }
+  .badge-or { background: rgba(255,159,67,.15); color: var(--or); border: 1px solid rgba(255,159,67,.3); }
+  .stat-tile { flex: 1; padding: 9px 6px; text-align: center; background: var(--bg2); border: 1px solid var(--bg3); border-radius: 8px; }
+  .stat-tile .val { font-family: var(--fd); font-size: 18px; font-weight: 700; color: var(--tp); line-height: 1; }
+  .stat-tile .val.cy { color: var(--cy); }
+  .stat-tile .lbl { font-size: 9px; color: var(--ts); margin-top: 2px; }
+  .progress { height: 5px; border-radius: 3px; background: var(--bg3); overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 3px; background: var(--cy); }
+  .section-label { font-size: 10px; font-weight: 600; color: var(--ts); margin-bottom: 5px; }
+  .tab-switcher { display: flex; background: var(--bg2); border-radius: 8px; padding: 3px; }
+  .tab-item { flex: 1; padding: 7px 0; border-radius: 6px; text-align: center; font-family: var(--fd); font-size: 12px; font-weight: 700; color: var(--ts); }
+  .tab-item.active { background: var(--cy); color: var(--bg0); }
+  .tab-item.small { font-size: 9px; }
+  .map-area { flex: 1; position: relative; overflow: hidden; background: #0f1830; }
+  .map-area-dark { flex: 1; position: relative; overflow: hidden; background: #070c14; }
+  .hud { background: var(--glass); border-bottom: 1px solid var(--gb); padding: 7px 12px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 34px; height: 34px; border-radius: 17px; border: 2px solid var(--cy); background: var(--bg2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .bottom-bar { background: var(--glass); border-top: 1px solid var(--gb); padding: 7px 12px; flex-shrink: 0; display: flex; gap: 6px; align-items: center; }
+  .card { background: var(--bg1); border: 1px solid var(--bg3); border-radius: 8px; padding: 8px 10px; }
+  .card-cyan { background: var(--bg1); border: 1px solid rgba(62,207,184,.2); border-radius: 8px; padding: 8px 10px; }
+  .card-orange { background: var(--bg1); border: 1.5px solid rgba(255,159,67,.27); border-radius: 10px; }
+  .card-green { background: var(--bg1); border: 1.5px solid rgba(61,255,138,.33); border-radius: 14px; padding: 12px 13px 11px; }
+  .rival-chip { display: flex; align-items: center; gap: 5px; padding: 4px 9px; background: var(--bg2); border: 1px solid var(--bg3); border-radius: 8px; }
+  .podium-bar { display: flex; flex-direction: column; align-items: center; flex: 1; }
+</style>
+</head>
+<body>
+
+<div class="phone" id="screen-1a-login">
+  <div class="statusbar"><span class="time">9:41</span><span>●●● ▮▮</span></div>
+  <div class="screen-content" style="padding:0 20px 18px;display:flex;flex-direction:column;background:var(--bg0)">
+    <div style="padding-top:22px;padding-bottom:18px;display:flex;flex-direction:column;align-items:center;gap:8px">
+      <svg width="60" height="66"><polygon id="hp1" fill="rgba(62,207,184,.13)" stroke="#3ecfb8" stroke-width="2"/><text x="30" y="37" text-anchor="middle" font-size="20" fill="#3ecfb8">▶</text></svg>
+      <script>(function(){var R=28,cx=30,cy=32,pts=[];for(var i=0;i<6;i++){var a=(60*i-30)*Math.PI/180;pts.push((cx+R*Math.cos(a)).toFixed(1)+","+(cy+R*Math.sin(a)).toFixed(1));}document.getElementById('hp1').setAttribute('points',pts.join(' '));})();</script>
+      <div style="text-align:center"><div style="font-family:var(--fd);font-size:20px;font-weight:800;color:var(--cy);letter-spacing:.14em;line-height:1">TERRITORY</div><div style="font-family:var(--fd);font-size:20px;font-weight:800;color:var(--tp);letter-spacing:.14em;line-height:1">RUN</div><div style="font-size:9px;color:var(--ts);margin-top:5px;letter-spacing:.06em">Беги. Захватывай. Владей.</div></div>
+    </div>
+    <div class="tab-switcher" style="margin-bottom:18px"><div class="tab-item active">Вход</div><div class="tab-item">Регистрация</div></div>
+    <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:14px">
+      <div class="field-focus"><span>runner@example.com</span><div style="width:1.5px;height:14px;background:var(--cy);margin-left:1px"></div></div>
+      <div class="field"><span>Пароль ••••••</span></div>
+    </div>
+    <div class="btn-primary">ВОЙТИ</div>
+    <div style="height:9px"></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px"><div style="flex:1;height:1px;background:var(--bg3)"></div><span style="font-size:9px;color:var(--tm)">ИЛИ</span><div style="flex:1;height:1px;background:var(--bg3)"></div></div>
+    <div class="btn-secondary">Продолжить через Strava</div>
+    <div style="margin-top:auto;text-align:center"><span style="font-size:10px;color:var(--tm)">Нет аккаунта? </span><span style="font-size:10px;font-weight:600;color:var(--cy)">Зарегистрироваться</span></div>
+  </div>
+</div>
+
+<div class="phone" id="screen-1b-register">
+  <div class="statusbar"><span class="time">9:41</span><span>●●● ▮▮</span></div>
+  <div class="screen-content" style="padding:0 20px 18px;display:flex;flex-direction:column;background:var(--bg0)">
+    <div style="padding-top:18px;padding-bottom:14px;display:flex;flex-direction:column;align-items:center;gap:6px">
+      <svg width="46" height="50"><polygon id="hp2" fill="rgba(62,207,184,.13)" stroke="#3ecfb8" stroke-width="1.5"/><text x="23" y="28" text-anchor="middle" font-size="15" fill="#3ecfb8">▶</text></svg>
+      <script>(function(){var R=21,cx=23,cy=24,pts=[];for(var i=0;i<6;i++){var a=(60*i-30)*Math.PI/180;pts.push((cx+R*Math.cos(a)).toFixed(1)+","+(cy+R*Math.sin(a)).toFixed(1));}document.getElementById('hp2').setAttribute('points',pts.join(' '));})();</script>
+      <div class="h1" style="letter-spacing:.08em">Создать аккаунт</div>
+    </div>
+    <div class="tab-switcher" style="margin-bottom:14px"><div class="tab-item">Вход</div><div class="tab-item active">Регистрация</div></div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
+      <div class="field-focus"><span>runner@example.com</span><div style="width:1.5px;height:14px;background:var(--cy);margin-left:1px"></div></div>
+      <div class="field"><span>Никнейм в игре</span></div><div class="field"><span>Пароль ••••••</span></div><div class="field"><span>Подтвердить пароль</span></div>
+      <div><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="label-muted">Надёжность</span><span style="font-size:9px;color:var(--cy);font-weight:600">Хороший</span></div><div style="height:3px;border-radius:2px;background:var(--bg3);display:flex;gap:2px"><div style="flex:1;height:100%;border-radius:2px;background:var(--rd)"></div><div style="flex:1;height:100%;border-radius:2px;background:var(--or)"></div><div style="flex:1;height:100%;border-radius:2px;background:var(--cy)"></div><div style="flex:1;height:100%;border-radius:2px;background:var(--bg3)"></div></div></div>
+    </div>
+    <div class="btn-primary" style="font-size:11px">ЗАРЕГИСТРИРОВАТЬСЯ</div>
+    <div style="margin-top:10px;text-align:center"><span class="label-muted">Нажимая, вы принимаете </span><span style="font-size:9px;color:var(--cy)">условия</span></div>
+    <div class="btn-ghost">Уже есть аккаунт? Войти</div>
+  </div>
+</div>
+
+<div class="phone" id="screen-1v-onboarding">
+  <div class="statusbar"><span class="time">9:41</span><span>●●● ▮▮</span></div>
+  <div class="screen-content" style="display:flex;flex-direction:column">
+    <div style="background:var(--bg1);border-bottom:1px solid var(--bg3);padding:8px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+      <span class="h2">Выбор базы</span>
+      <div style="display:flex;gap:4px;align-items:center"><div style="width:6px;height:6px;border-radius:3px;background:var(--cy)"></div><div style="width:18px;height:6px;border-radius:3px;background:var(--cy)"></div><div style="width:6px;height:6px;border-radius:3px;background:var(--bg3)"></div></div>
+    </div>
+    <div class="map-area" style="flex:1">
+      <svg style="position:absolute;inset:0" width="265" height="400">
+        <rect x="0" y="0" width="265" height="400" fill="#0f1830"/>
+        <rect x="4" y="66" width="58" height="76" fill="#0c1e12" rx="2"/>
+        <polygon points="0,310 0,330 90,420 90,400" fill="#070e20" opacity="0.9"/>
+        <rect x="0" y="57" width="265" height="8" fill="#243a62"/><rect x="0" y="150" width="265" height="7" fill="#1f3258"/><rect x="0" y="256" width="265" height="6" fill="#1f3258"/>
+        <rect x="66" y="0" width="7" height="400" fill="#243a62"/><rect x="170" y="0" width="6" height="400" fill="#1f3258"/>
+        <rect x="0" y="22" width="265" height="2.5" fill="#182848"/><rect x="0" y="104" width="265" height="2.5" fill="#182848"/><rect x="0" y="198" width="265" height="2.5" fill="#182848"/>
+        <rect x="24" y="0" width="2.5" height="400" fill="#182848"/><rect x="118" y="0" width="2" height="400" fill="#162440"/><rect x="220" y="0" width="2.5" height="400" fill="#182848"/>
+        <rect x="0" y="40" width="265" height="1" fill="#14203a"/><rect x="0" y="80" width="265" height="1" fill="#14203a"/><rect x="0" y="130" width="265" height="1" fill="#14203a"/><rect x="0" y="175" width="265" height="1" fill="#14203a"/>
+        <rect x="46" y="0" width="1" height="400" fill="#14203a"/><rect x="92" y="0" width="1" height="400" fill="#14203a"/><rect x="144" y="0" width="1" height="400" fill="#14203a"/><rect x="196" y="0" width="1" height="400" fill="#14203a"/>
+        <text x="78" y="55" font-size="6" fill="#3a5275" opacity="0.9">ул. Бривибас</text><text x="78" y="147" font-size="6" fill="#3a5275" opacity="0.8">ул. Стацияс</text><text x="78" y="253" font-size="6" fill="#3a5275" opacity="0.8">Кр. Барона</text>
+        <text x="8" y="110" font-size="6" fill="#1d6030" opacity="0.85">Верманский парк</text>
+      </svg>
+      <svg id="hex-onboard" style="position:absolute;inset:0" width="265" height="400"></svg>
+      <svg style="position:absolute;inset:0" width="265" height="400">
+        <circle cx="132" cy="148" r="54" fill="rgba(62,207,184,.08)" stroke="#3ecfb8" stroke-width="1.5" stroke-dasharray="5 3"/>
+        <line x1="136" y1="128" x2="188" y2="128" stroke="#3ecfb8" stroke-width="0.8" stroke-dasharray="3 2" opacity="0.55"/>
+        <text x="190" y="132" font-size="7" fill="#3ecfb8" opacity="0.85">500 м</text>
+        <line x1="132" y1="116" x2="132" y2="148" stroke="#3ecfb8" stroke-width="1.5"/>
+        <circle cx="132" cy="108" r="11" fill="#111827" stroke="#3ecfb8" stroke-width="2"/>
+        <circle cx="132" cy="108" r="5" fill="#3ecfb8" opacity="0.9"/>
+        <circle cx="132" cy="148" r="3" fill="#3ecfb8"/>
+      </svg>
+      <script>(function(){var svg=document.getElementById('hex-onboard'),ns='http://www.w3.org/2000/svg';var R=22,rows=11,cols=7;for(var row=0;row<rows;row++){for(var col=0;col<cols;col++){var x=col*R*1.75+(row%2?R*0.875:0)+R,y=row*R*1.5+R,pts=[];for(var i=0;i<6;i++){var a=(60*i-30)*Math.PI/180;pts.push((x+R*Math.cos(a)).toFixed(1)+","+(y+R*Math.sin(a)).toFixed(1));}var p=document.createElementNS(ns,'polygon');p.setAttribute('points',pts.join(' '));p.setAttribute('fill','rgba(62,207,184,0.04)');p.setAttribute('stroke','rgba(62,207,184,0.22)');p.setAttribute('stroke-width','0.8');svg.appendChild(p);}}})();</script>
+      <div class="glass" style="position:absolute;top:10px;left:10px;right:10px"><div class="h2" style="margin-bottom:3px">Перетащите пин на дом или старт бега</div><div class="label-muted">Клетки в радиусе 500 м дают бонус ×1.5 влияния</div></div>
+    </div>
+    <div style="background:var(--bg1);border-top:1px solid var(--bg3);padding:11px 16px;flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px"><div style="width:7px;height:7px;border-radius:4px;background:var(--cy)"></div><span style="font-family:var(--fm);font-size:9px;color:var(--tm)">56.9496° N, 24.1052° E</span><span style="font-size:9px;color:var(--cy);margin-left:auto">GPS</span></div>
+      <div class="btn-primary">ПОДТВЕРДИТЬ БАЗУ</div>
+    </div>
+  </div>
+</div>
+
+<div class="phone" id="screen-2-map">
+  <div class="statusbar"><span class="time">9:41</span><span>●●● ▮▮</span></div>
+  <div class="screen-content">
+    <div class="hud">
+      <div class="avatar"><span style="font-size:15px;color:var(--cy)">◎</span></div>
+      <div style="flex:1"><div style="font-family:var(--fd);font-size:13px;font-weight:700;color:var(--tp)">RunnerX</div><div style="display:flex;gap:6px"><span style="font-size:9px;color:var(--cy)">Ур.5</span><span style="font-size:9px;color:var(--or)">▲ стрик 7 дн</span></div></div>
+      <div style="background:var(--cylo);border:1px solid rgba(62,207,184,.33);border-radius:6px;padding:4px 8px;text-align:center"><div style="font-family:var(--fd);font-size:16px;font-weight:700;color:var(--cy)">142</div><div style="font-size:8px;color:var(--ts)">клетки</div></div>
+    </div>
+    <div class="map-area-dark" style="flex:1">
+      <svg style="position:absolute;inset:0" width="265" height="380">
+        <line x1="0" y1="40" x2="265" y2="40" stroke="#1a2336" stroke-width="1" opacity="0.4"/><line x1="0" y1="90" x2="265" y2="90" stroke="#1a2336" stroke-width="1" opacity="0.4"/><line x1="0" y1="140" x2="265" y2="140" stroke="#1a2336" stroke-width="1" opacity="0.4"/><line x1="0" y1="190" x2="265" y2="190" stroke="#1a2336" stroke-width="1" opacity="0.4"/>
+        <line x1="40" y1="0" x2="40" y2="380" stroke="#1a2336" stroke-width="1" opacity="0.4"/><line x1="90" y1="0" x2="90" y2="380" stroke="#1a2336" stroke-width="1" opacity="0.4"/><line x1="140" y1="0" x2="140" y2="380" stroke="#1a2336" stroke-width="1" opacity="0.4"/><line x1="190" y1="0" x2="190" y2="380" stroke="#1a2336" stroke-width="1" opacity="0.4"/>
+        <text x="44" y="38" font-size="7" fill="#3d4f6a" opacity="0.5">ул. Бривибас</text><text x="92" y="88" font-size="7" fill="#3d4f6a" opacity="0.5">Стацияс</text>
+      </svg>
+      <svg id="hex-map" style="position:absolute;inset:0" width="265" height="380"></svg>
+      <script>(function(){var ns='http://www.w3.org/2000/svg';var layout=[['empty','empty','rival','other','empty'],['empty','own','own','rival','empty'],['empty','own','decay','own','target'],['other','own','own','crit','empty'],['empty','empty','own','own','empty'],['empty','target','empty','empty','empty'],['empty','empty','empty','empty','empty']];var fills={own:'rgba(62,207,184,.33)',decay:'rgba(255,159,67,.33)',crit:'rgba(255,90,74,.33)',rival:'rgba(255,107,157,.27)',target:'rgba(245,200,66,.33)',other:'rgba(155,109,255,.27)',empty:'rgba(42,48,69,.53)'};var strokes={own:'#3ecfb8',decay:'#ff9f43',crit:'#ff5a4a',rival:'#ff6b9d',target:'#f5c842',other:'#9b6dff',empty:'#2a3045'};var svg=document.getElementById('hex-map'),R=22;layout.forEach(function(row,ri){row.forEach(function(kind,ci){var x=ci*R*1.75+(ri%2?R*0.875:0)+R,y=ri*R*1.5+R,pts=[];for(var i=0;i<6;i++){var a=(60*i-30)*Math.PI/180;pts.push((x+R*Math.cos(a)).toFixed(1)+","+(y+R*Math.sin(a)).toFixed(1));}var p=document.createElementNS(ns,'polygon');p.setAttribute('points',pts.join(' '));p.setAttribute('fill',fills[kind]);p.setAttribute('stroke',strokes[kind]);p.setAttribute('stroke-width',kind==='empty'?'0.5':'1.5');p.setAttribute('opacity',kind==='empty'?'0.3':'1');svg.appendChild(p);});});var c=document.createElementNS(ns,'circle');c.setAttribute('cx','107');c.setAttribute('cy','126');c.setAttribute('r','36');c.setAttribute('fill','none');c.setAttribute('stroke','#3ecfb8');c.setAttribute('stroke-width','1.5');c.setAttribute('stroke-dasharray','4 3');c.setAttribute('opacity','0.35');svg.appendChild(c);var t=document.createElementNS(ns,'text');t.setAttribute('x','107');t.setAttribute('y','102');t.setAttribute('text-anchor','middle');t.setAttribute('font-size','8');t.setAttribute('fill','#3ecfb8');t.setAttribute('opacity','0.7');t.textContent='База ×1.5';svg.appendChild(t);})();</script>
+      <div style="position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:3px">
+        <div class="glass" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;padding:0"><span style="font-size:13px;color:var(--tp)">+</span></div>
+        <div class="glass" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;padding:0"><span style="font-size:13px;color:var(--tp)">−</span></div>
+        <div class="glass" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;padding:0"><span style="font-size:11px;color:var(--tp)">⊙</span></div>
+      </div>
+      <div class="glass" style="position:absolute;left:10px;bottom:10px;min-width:138px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px"><span style="font-family:var(--fm);font-size:9px;color:var(--tm)">клетка #4A2F</span><span style="font-size:9px;color:var(--or)">⚠ decay</span></div>
+        <div class="h2">rival1</div>
+        <div style="font-size:9px;color:var(--ts);margin-bottom:5px">влияние 68 · вы #2 (23)</div>
+        <div style="background:var(--cy);border-radius:6px;padding:4px 10px;text-align:center"><span style="font-family:var(--fd);font-size:10px;font-weight:700;color:var(--bg0)">Детали →</span></div>
+      </div>
+    </div>
+    <div class="bottom-bar">
+      <div class="badge badge-cy">142 кл.</div><div class="badge badge-or">⚠ 3 decay</div>
+      <div style="flex:1"></div>
+      <div style="background:var(--bg2);border:1px solid rgba(62,207,184,.27);border-radius:6px;padding:4px 8px;font-size:10px;color:var(--ts)">Мои зоны</div>
+      <div class="btn-primary" style="width:74px;height:28px;font-size:11px">Цели</div>
+    </div>
+  </div>
+  <nav class="navbar">
+    <div class="navitem active"><span class="ni">◈</span><span class="nl">Карта</span></div><div class="navitem"><span class="ni">↑</span><span class="nl">Бег</span></div><div class="navitem"><span class="ni">◉</span><span class="nl">Рейтинг</span></div>
+    <div class="navitem" style="position:relative"><span class="ni">◆</span><span class="nl">Лента</span><div style="position:absolute;top:6px;right:13px;width:11px;height:11px;border-radius:6px;background:var(--rd);border:1.5px solid var(--bg1);display:flex;align-items:center;justify-content:center"><span style="font-size:6px;color:var(--tp);font-weight:700">2</span></div></div>
+    <div class="navitem"><span class="ni">◎</span><span class="nl">Профиль</span></div>
+  </nav>
+</div>
+
+<div class="phone" id="screen-2a-postrun">
+  <div class="statusbar"><span class="time">9:41</span><span>●●● ▮▮</span></div>
+  <div class="screen-content">
+    <div class="hud" style="opacity:0.4"><div style="width:30px;height:30px;border-radius:15px;border:2px solid var(--cy);background:var(--bg2);flex-shrink:0"></div><span style="font-family:var(--fd);font-size:13px;color:var(--tp)">RunnerX</span><div style="flex:1"></div><div style="background:var(--cylo);border-radius:6px;padding:3px 8px"><span style="font-family:var(--fd);font-size:16px;font-weight:700;color:var(--cy)">156</span></div></div>
+    <div style="flex:1;position:relative;overflow:hidden;background:#060b12">
+      <svg id="hex-postrun" style="position:absolute;inset:0" width="265" height="380"></svg>
+      <script>(function(){var ns='http://www.w3.org/2000/svg';var layout=[['empty','empty','other','empty','empty'],['empty','capture','capture','rival','empty'],['empty','capture','own','capture','empty'],['other','own','own','capture','empty'],['empty','empty','own','capture','empty'],['empty','target','empty','empty','empty']];var fills={own:'rgba(62,207,184,.33)',capture:'rgba(61,255,138,.4)',rival:'rgba(255,107,157,.27)',other:'rgba(155,109,255,.27)',target:'rgba(245,200,66,.33)',empty:'rgba(42,48,69,.53)'};var strokes={own:'#3ecfb8',capture:'#3dff8a',rival:'#ff6b9d',other:'#9b6dff',target:'#f5c842',empty:'#2a3045'};var svg=document.getElementById('hex-postrun'),R=22;layout.forEach(function(row,ri){row.forEach(function(kind,ci){var x=ci*R*1.75+(ri%2?R*0.875:0)+R,y=ri*R*1.5+R,pts=[];for(var i=0;i<6;i++){var a=(60*i-30)*Math.PI/180;pts.push((x+R*Math.cos(a)).toFixed(1)+","+(y+R*Math.sin(a)).toFixed(1));}var p=document.createElementNS(ns,'polygon');p.setAttribute('points',pts.join(' '));p.setAttribute('fill',fills[kind]);p.setAttribute('stroke',strokes[kind]);p.setAttribute('stroke-width',kind==='empty'?'0.5':'1.5');p.setAttribute('opacity',kind==='empty'?'0.3':'1');svg.appendChild(p);});});var c=document.createElementNS(ns,'circle');c.setAttribute('cx','128');c.setAttribute('cy','126');c.setAttribute('r','48');c.setAttribute('fill','none');c.setAttribute('stroke','#3dff8a');c.setAttribute('stroke-width','1');c.setAttribute('stroke-dasharray','3 5');c.setAttribute('opacity','0.3');svg.appendChild(c);})();</script>
+      <div style="position:absolute;inset:0;background:rgba(8,13,24,.72)"></div>
+      <div class="card-green" style="position:absolute;bottom:8px;left:8px;right:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><div><div style="font-family:var(--fd);font-size:16px;font-weight:800;color:var(--gr);letter-spacing:.04em">Первый захват!</div><div style="font-size:9px;color:var(--ts)">Пробежка обработана успешно</div></div><div style="width:22px;height:22px;border-radius:11px;background:var(--bg2);border:1px solid var(--bg3);display:flex;align-items:center;justify-content:center"><span style="font-size:9px;color:var(--ts)">✕</span></div></div>
+        <div style="display:flex;gap:5px;margin-bottom:10px">
+          <div class="stat-tile" style="padding:7px 4px"><div class="val" style="font-size:16px;color:var(--gr)">8.3 км</div><div class="lbl">Дистанция</div></div>
+          <div class="stat-tile" style="padding:7px 4px"><div class="val" style="font-size:16px;color:var(--gr)">14</div><div class="lbl">Клеток</div></div>
+          <div class="stat-tile" style="padding:7px 4px"><div class="val" style="font-size:16px;color:var(--gr)">+42</div><div class="lbl">Влияние</div></div>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:5px"><svg width="12" height="12"><polygon id="leg1" fill="rgba(61,255,138,.33)" stroke="#3dff8a" stroke-width="1.5"/></svg><script>(function(){var R=5,pts=[];for(var i=0;i<6;i++){var a=(60*i-30)*Math.PI/180;pts.push((6+R*Math.cos(a)).toFixed(1)+","+(6+R*Math.sin(a)).toFixed(1));}document.getElementById('leg1').setAttribute('points',pts.join(' '));})();</script><span style="font-size:9px;color:var(--ts)">Новые клетки</span></div>
+          <div style="display:flex;align-items:center;gap:5px"><svg width="12" height="12"><polygon id="leg2" fill="rgba(62,207,184,.33)" stroke="#3ecfb8" stroke-width="1.5"/></svg><script>(function(){var R=5,pts=[];for(var i=0;i<6;i++){var a=(60*i-30)*Math.PI/180;pts.push((6+R*Math.cos(a)).toFixed(1)+","+(6+R*Math.sin(a)).toFixed(1));}document.getElementById('leg2').setAttribute('points',pts.join(' '));})();</script><span style="font-size:9px;color:var(--ts)">Территория</span></div>
+        </div>
+        <div style="display:flex;gap:7px"><div class="btn-primary" style="flex:.62;height:38px">На карту!</div><div class="btn-secondary" style="flex:.38;height:38px">Поделиться</div></div>
+      </div>
+    </div>
+  </div>
+  <nav class="navbar"><div class="navitem active"><span class="ni">◈</span><span class="nl">Карта</span></div><div class="navitem"><span class="ni">↑</span><span class="nl">Бег</span></div><div class="navitem"><span class="ni">◉</span><span class="nl">Рейтинг</span></div><div class="navitem"><span class="ni">◆</span><span class="nl">Лента</span></div><div class="navitem"><span class="ni">◎</span><span class="nl">Профиль</span></div></nav>
+</div>
+
+<div class="phone" id="screen-2b-cell">
+  <div class="statusbar"><span class="time">9:41</span><span>●●● ▮▮</span></div>
+  <div class="screen-content">
+    <div style="height:96px;flex-shrink:0;position:relative;overflow:hidden;background:#070c14;opacity:0.65">
+      <svg id="hex-cell" style="position:absolute;inset:0" width="265" height="96"></svg>
+      <script>(function(){var ns='http://www.w3.org/2000/svg';var layout=[['empty','other','own','empty'],['own','own','own','rival'],['empty','own','decay','empty']];var fills={own:'rgba(62,207,184,.33)',decay:'rgba(255,159,67,.33)',rival:'rgba(255,107,157,.27)',other:'rgba(155,109,255,.27)',empty:'rgba(42,48,69,.53)'};var strokes={own:'#3ecfb8',decay:'#ff9f43',rival:'#ff6b9d',other:'#9b6dff',empty:'#2a3045'};var svg=document.getElementById('hex-cell'),R=22;layout.forEach(function(row,ri){row.forEach(function(kind,ci){var x=ci*R*1.75+(ri%2?R*0.875:0)+R,y=ri*R*1.5+R,pts=[];for(var i=0;i<6;i++){var a=(60*i-30)*Math.PI/180;pts.push((x+R*Math.cos(a)).toFixed(1)+","+(y+R*Math.sin(a)).toFixed(1));}var p=document.createElementNS(ns,'polygon');p.setAttribute('points',pts.join(' '));p.setAttribute('fill',fills[kind]);p.setAttribute('stroke',strokes[kind]);p.setAttribute('stroke-width',kind==='empty'?'0.5':'1.5');p.setAttribute('opacity',kind==='empty'?'0.3':'1');svg.appendChild(p);});});var col=2,row=1,R2=22;var x=col*R2*1.75+(row%2?R2*0.875:0)+R2,y=row*R2*1.5+R2,pts2=[];for(var i=0;i<6;i++){var a=(60*i-30)*Math.PI/180;pts2.push((x+R2*Math.cos(a)).toFixed(1)+","+(y+R2*Math.sin(a)).toFixed(1));}var p2=document.createElementNS(ns,'polygon');p2.setAttribute('points',pts2.join(' '));p2.setAttribute('fill','rgba(62,207,184,.27)');p2.setAttribute('stroke','#3ecfb8');p2.setAttribute('stroke-width','3');svg.appendChild(p2);})();</script>
+      <div style="position:absolute;bottom:5px;left:50%;transform:translateX(-50%);width:34px;height:4px;border-radius:2px;background:var(--bg3)"></div>
+    </div>
+    <div style="flex:1;background:var(--bg1);display:flex;flex-direction:column;padding:11px 13px;gap:9px;overflow:hidden">
+      <div style="display:flex;align-items:flex-start;gap:8px;flex-shrink:0"><div style="flex:1"><div style="font-family:var(--fm);font-size:9px;color:var(--tm)">клетка #8927034 · ~174 м²</div><div class="h1" style="margin-top:2px">Владелец: rival1</div></div><div style="width:24px;height:24px;border-radius:12px;background:var(--bg2);border:1px solid var(--bg3);display:flex;align-items:center;justify-content:center;flex-shrink:0"><span style="font-size:9px;color:var(--ts)">✕</span></div></div>
+      <div class="card-cyan" style="flex-shrink:0"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;font-weight:600;color:var(--tp)">Ваше место: #2</span><span style="font-size:10px;color:var(--ts)">23 / 68</span></div><div class="progress"><div class="progress-fill" style="width:34%"></div></div><div style="font-size:9px;color:var(--tm);margin-top:3px">До захвата ~45 пробежек (gap 45)</div></div>
+      <div style="flex-shrink:0">
+        <div class="section-label">Топ игроков</div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 7px;border:1px solid var(--bg3);border-radius:6px"><span style="font-size:9px;color:var(--tm);width:9px">1</span><div style="width:18px;height:18px;border-radius:9px;border:1.5px solid var(--yl);background:var(--bg2);display:flex;align-items:center;justify-content:center"><span style="font-size:7px;color:var(--yl)">♛</span></div><span style="flex:1;font-size:10px;color:var(--tp)">rival1</span><div style="width:44px;height:3px;border-radius:2px;background:var(--bg3)"><div style="width:100%;height:100%;border-radius:2px;background:var(--yl)"></div></div><span style="font-family:var(--fm);font-size:9px;color:var(--ts);width:18px;text-align:right">68</span></div>
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 7px;background:var(--cylo);border:1px solid rgba(62,207,184,.27);border-radius:6px"><span style="font-size:9px;color:var(--tm);width:9px">2</span><div style="width:18px;height:18px;border-radius:9px;border:1.5px solid var(--bg3);background:var(--bg2);display:flex;align-items:center;justify-content:center"><span style="font-size:7px;color:var(--ts)">◎</span></div><span style="flex:1;font-size:10px;font-weight:700;color:var(--cy)">вы</span><div style="width:44px;height:3px;border-radius:2px;background:var(--bg3)"><div style="width:34%;height:100%;border-radius:2px;background:var(--cy)"></div></div><span style="font-family:var(--fm);font-size:9px;color:var(--ts);width:18px;text-align:right">23</span></div>
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 7px;border:1px solid var(--bg3);border-radius:6px"><span style="font-size:9px;color:var(--tm);width:9px">3</span><div style="width:18px;height:18px;border-radius:9px;border:1.5px solid var(--bg3);background:var(--bg2);display:flex;align-items:center;justify-content:center"><span style="font-size:7px;color:var(--ts)">◎</span></div><span style="flex:1;font-size:10px;color:var(--tp)">runner3</span><div style="width:44px;height:3px;border-radius:2px;background:var(--bg3)"><div style="width:16%;height:100%;border-radius:2px;background:var(--tm)"></div></div><span style="font-family:var(--fm);font-size:9px;color:var(--ts);width:18px;text-align:right">11</span></div>
+        </div>
+      </div>
+      <div style="margin-top:auto;flex-shrink:0"><div class="btn-secondary" style="font-size:11px;height:36px">Проложить маршрут через клетку →</div></div>
+    </div>
+  </div>
+  <nav class="navbar"><div class="navitem active"><span class="ni">◈</span><span class="nl">Карта</span></div><div class="navitem"><span class="ni">↑</span><span class="nl">Бег</span></div><div class="navitem"><span class="ni">◉</span><span class="nl">Рейтинг</span></div><div class="navitem"><span class="ni">◆</span><span class="nl">Лента</span></div><div class="navitem"><span class="ni">◎</span><span class="nl">Профиль</span></div></nav>
+</div>
+
+<div class="phone" id="screen-3-activities">
+  <div class="statusbar"><span class="time">9:41</span><span>●●● ▮▮</span></div>
+  <div class="screen-content" style="background:var(--bg0)">
+    <div style="background:var(--bg1);border-bottom:1px solid var(--bg3);padding:10px 14px;flex-shrink:0">
+      <div class="h1" style="margin-bottom:8px">Пробежки</div>
+      <div style="display:flex;gap:6px">
+        <div style="flex:1;padding:5px 4px;border-radius:7px;background:rgba(255,159,67,.13);border:1px solid rgba(255,159,67,.27);text-align:center"><span style="font-size:9px;font-weight:600;color:var(--or)">Strava</span></div>
+        <div style="flex:1;padding:5px 4px;border-radius:7px;background:var(--cylo);border:1px solid rgba(62,207,184,.27);text-align:center"><span style="font-size:9px;font-weight:600;color:var(--cy)">GPX файл</span></div>
+        <div style="flex:1;padding:5px 4px;border-radius:7px;background:rgba(61,255,138,.13);border:1px solid rgba(61,255,138,.27);text-align:center"><span style="font-size:9px;font-weight:600;color:var(--gr)">Здоровье</span></div>
+      </div>
+    </div>
+    <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;padding:8px 12px;gap:5px">
+      <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="font-family:var(--fm);font-size:9px;color:var(--tm);flex:1">Сег, 08:12</span><div class="badge badge-ok"><div style="width:4px;height:4px;border-radius:2px;background:var(--gr)"></div>OK</div></div><div style="display:flex;align-items:center;gap:10px"><span class="h2">6.2 км</span><span style="font-size:10px;color:var(--cy)">+3 кл</span><span style="font-size:10px;color:var(--ts);margin-left:auto">38 мин</span></div></div>
+      <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="font-family:var(--fm);font-size:9px;color:var(--tm);flex:1">Вч, 07:44</span><div class="badge badge-ok"><div style="width:4px;height:4px;border-radius:2px;background:var(--gr)"></div>OK</div></div><div style="display:flex;align-items:center;gap:10px"><span class="h2">9.0 км</span><span style="font-size:10px;color:var(--cy)">+8 кл</span><span style="font-size:10px;color:var(--ts);margin-left:auto">54 мин</span></div></div>
+      <div style="background:var(--bg1);border:1px solid rgba(255,90,74,.33);border-radius:8px;padding:8px 10px"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="font-family:var(--fm);font-size:9px;color:var(--tm);flex:1">Пн, 06:51</span><div class="badge badge-err"><div style="width:4px;height:4px;border-radius:2px;background:var(--rd)"></div>Ошибка</div></div><div style="display:flex;align-items:center;gap:10px"><span class="h2">4.1 км</span><span style="font-size:10px;color:var(--ts)">—</span><span style="font-size:10px;color:var(--ts);margin-left:auto">25 мин</span><div style="background:rgba(255,90,74,.13);border:1px solid rgba(255,90,74,.33);border-radius:6px;padding:2px 7px"><span style="font-size:9px;color:var(--rd)">Пересчёт</span></div></div></div>
+      <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="font-family:var(--fm);font-size:9px;color:var(--tm);flex:1">Вс, 09:20</span><div class="badge badge-ok"><div style="width:4px;height:4px;border-radius:2px;background:var(--gr)"></div>OK</div></div><div style="display:flex;align-items:center;gap:10px"><span class="h2">11.5 км</span><span style="font-size:10px;color:var(--cy)">+14 кл</span><span style="font-size:10px;color:var(--ts);margin-left:auto">68 мин</span></div></div>
+      <div class="card"><div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="font-family:var(--fm);font-size:9px;color:var(--tm);flex:1">Сб, 07:30</span><div class="badge badge-ok"><div style="width:4px;height:4px;border-radius:2px;background:var(--gr)"></div>OK</div></div><div style="display:flex;align-items:center;gap:10px"><span class="h2">7.8 км</span><span style="font-size:10px;color:var(--cy)">+5 кл</span><span style="font-size:10px;color:var(--ts);margin-left:auto">46 мин</span></div></div>
+    </div>
+  </div>
+  <nav class="navbar"><div class="navitem"><span class="ni">◈</span><span class="nl">Карта</span></div><div class="navitem active"><span class="ni">↑</span><span class="nl">Бег</span></div><div class="navitem"><span class="ni">◉</span><span class="nl">Рейтинг</span></div><div class="navitem"><span class="ni">◆</span><span class="nl">Лента</span></div><div class="navitem"><span class="ni">◎</span><span class="nl">Профиль</span></div></nav>
+</div>
+
+<div class="phone" id="screen-4-leaderboard">
+  <div class="statusbar"><span class="time">9:41</span><span>●●● ▮▮</span></div>
+  <div class="screen-content" style="background:var(--bg0)">
+    <div style="background:var(--bg1);border-bottom:1px solid var(--bg3);padding:8px 12px;flex-shrink:0"><div class="tab-switcher"><div class="tab-item small active">Город</div><div class="tab-item small">Я+соперники</div><div class="tab-item small">Всего</div></div></div>
+    <div style="background:var(--bg1);border-bottom:1px solid var(--bg3);padding:10px 14px;flex-shrink:0">
+      <div style="display:flex;align-items:flex-end;justify-content:center;gap:6px">
+        <div class="podium-bar"><span style="font-family:var(--fd);font-size:9px;font-weight:700;color:var(--ts);margin-bottom:3px">rival1</span><span style="font-size:9px;color:var(--ts);margin-bottom:3px">271</span><div style="width:100%;height:40px;border-radius:6px 6px 0 0;background:rgba(136,153,187,.2);border:1.5px solid rgba(136,153,187,.4);display:flex;align-items:center;justify-content:center"><span style="font-family:var(--fd);font-size:13px;font-weight:800;color:var(--ts)">#2</span></div></div>
+        <div class="podium-bar"><span style="font-family:var(--fd);font-size:9px;font-weight:700;color:var(--yl);margin-bottom:3px">RunAlpha</span><span style="font-size:9px;color:var(--ts);margin-bottom:3px">387</span><div style="width:100%;height:54px;border-radius:6px 6px 0 0;background:rgba(245,200,66,.2);border:1.5px solid rgba(245,200,66,.4);display:flex;align-items:center;justify-content:center"><span style="font-family:var(--fd);font-size:13px;font-weight:800;color:var(--yl)">#1</span></div></div>
+        <div class="podium-bar"><span style="font-family:var(--fd);font-size:9px;font-weight:700;color:var(--or);margin-bottom:3px">CityGhost</span><span style="font-size:9px;color:var(--ts);margin-bottom:3px">198</span><div style="width:100%;height:32px;border-radius:6px 6px 0 0;background:rgba(255,159,67,.2);border:1.5px solid rgba(255,159,67,.4);display:flex;align-items:center;justify-content:center"><span style="font-family:var(--fd);font-size:13px;font-weight:800;color:var(--or)">#3</span></div></div>
+      </div>
+    </div>
+    <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;padding:6px 12px;gap:4px">
+      <div class="card" style="display:flex;align-items:center;gap:8px"><span style="font-family:var(--fm);font-size:10px;color:var(--tm);width:16px">#4</span><div style="width:26px;height:26px;border-radius:13px;background:var(--bg2);border:1.5px solid var(--bg3);display:flex;align-items:center;justify-content:center"><span style="font-size:11px;color:var(--ts)">◎</span></div><span style="flex:1;font-size:12px;color:var(--tp)">runner_k</span><span style="font-family:var(--fd);font-size:13px;font-weight:700;color:var(--ts)">176</span><div style="background:var(--bg2);border:1px solid var(--bg3);border-radius:6px;padding:3px 7px"><span style="font-size:9px;color:var(--ts)">Следить</span></div></div>
+      <div style="background:var(--cylo);border:1px solid rgba(62,207,184,.33);border-radius:8px;padding:6px 9px;display:flex;align-items:center;gap:8px"><span style="font-family:var(--fm);font-size:10px;color:var(--tm);width:16px">#5</span><div style="width:26px;height:26px;border-radius:13px;background:var(--bg2);border:1.5px solid var(--cy);display:flex;align-items:center;justify-content:center"><span style="font-size:11px;color:var(--cy)">◎</span></div><span style="flex:1;font-size:12px;font-weight:700;color:var(--cy)">вы</span><span style="font-family:var(--fd);font-size:13px;font-weight:700;color:var(--cy)">142</span><span style="font-size:9px;color:var(--cy)">вы</span></div>
+      <div class="card" style="display:flex;align-items:center;gap:8px"><span style="font-family:var(--fm);font-size:10px;color:var(--tm);width:16px">#6</span><div style="width:26px;height:26px;border-radius:13px;background:var(--bg2);border:1.5px solid var(--bg3);display:flex;align-items:center;justify-content:center"><span style="font-size:11px;color:var(--ts)">◎</span></div><span style="flex:1;font-size:12px;color:var(--tp)">SilentPace</span><span style="font-family:var(--fd);font-size:13px;font-weight:700;color:var(--ts)">128</span><div style="background:var(--bg2);border:1px solid var(--bg3);border-radius:6px;padding:3px 7px"><span style="font-size:9px;color:var(--ts)">Следить</span></div></div>
+      <div class="card" style="display:flex;align-items:center;gap:8px"><span style="font-family:var(--fm);font-size:10px;color:var(--tm);width:16px">#7</span><div style="width:26px;height:26px;border-radius:13px;background:var(--bg2);border:1.5px solid var(--bg3);display:flex;align-items:center;justify-content:center"><span style="font-size:11px;color:var(--ts)">◎</span></div><span style="flex:1;font-size:12px;color:var(--tp)">rival2</span><span style="font-family:var(--fd);font-size:13px;font-weight:700;color:var(--ts)">99</span><div style="background:var(--bg2);border:1px solid var(--bg3);border-radius:6px;padding:3px 7px"><span style="font-size:9px;color:var(--ts)">Следить</span></div></div>
+    </div>
+  </div>
+  <nav class="navbar"><div class="navitem"><span class="ni">◈</span><span class="nl">Карта</span></div><div class="navitem"><span class="ni">↑</span><span class="nl">Бег</span></div><div class="navitem active"><span class="ni">◉</span><span class="nl">Рейтинг</span></div><div class="navitem"><span class="ni">◆</span><span class="nl">Лента</span></div><div class="navitem"><span class="ni">◎</span><span class="nl">Профиль</span></div></nav>
+</div>
+
+<div class="phone" id="screen-5-feed">
+  <div class="statusbar"><span class="time">9:41</span><span>●●● ▮▮</span></div>
+  <div class="screen-content" style="background:var(--bg0)">
+    <div style="background:var(--bg1);border-bottom:1px solid var(--bg3);padding:10px 13px;flex-shrink:0"><div class="h1" style="margin-bottom:8px">Лента</div><div class="tab-switcher"><div class="tab-item active">Все события</div><div class="tab-item">Соперники</div></div></div>
+    <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;padding:8px 12px;gap:5px">
+      <div style="background:var(--bg1);border:1px solid rgba(255,90,74,.33);border-radius:9px;padding:9px 10px"><div style="display:flex;align-items:center;gap:7px;margin-bottom:3px"><div style="width:22px;height:22px;border-radius:11px;background:rgba(255,90,74,.13);border:1.5px solid rgba(255,90,74,.33);display:flex;align-items:center;justify-content:center;flex-shrink:0"><span style="font-size:9px;color:var(--rd)">↓</span></div><span style="font-size:12px;font-weight:600;color:var(--rd)">rival1</span><span style="font-size:9px;color:var(--tm);margin-left:auto">12 мин</span></div><div style="font-size:10px;color:var(--tp);padding-left:29px">захватил вашу клетку #A5 на Бривибас</div><div style="padding-left:29px;margin-top:6px"><div style="display:inline-block;background:rgba(255,90,74,.13);border:1px solid rgba(255,90,74,.27);border-radius:6px;padding:2px 8px"><span style="font-size:9px;color:var(--rd)">Отвоевать →</span></div></div></div>
+      <div class="card"><div style="display:flex;align-items:center;gap:7px;margin-bottom:3px"><div style="width:22px;height:22px;border-radius:11px;background:var(--cylo);border:1.5px solid rgba(62,207,184,.33);display:flex;align-items:center;justify-content:center;flex-shrink:0"><span style="font-size:9px;color:var(--cy)">↑</span></div><span style="font-size:12px;font-weight:600;color:var(--cy)">вы</span><span style="font-size:9px;color:var(--tm);margin-left:auto">1 ч</span></div><div style="font-size:10px;color:var(--ts);padding-left:29px">пробежали 8.3 км, +3 клетки</div><div style="padding-left:29px;margin-top:6px"><div style="display:inline-block;background:var(--cylo);border:1px solid rgba(62,207,184,.27);border-radius:6px;padding:2px 8px"><span style="font-size:9px;color:var(--cy)">Поделиться</span></div></div></div>
+      <div class="card"><div style="display:flex;align-items:center;gap:7px;margin-bottom:3px"><div style="width:22px;height:22px;border-radius:11px;background:rgba(255,159,67,.13);border:1.5px solid rgba(255,159,67,.33);display:flex;align-items:center;justify-content:center;flex-shrink:0"><span style="font-size:9px;color:var(--or)">◈</span></div><span style="font-size:12px;font-weight:600;color:var(--or)">RunAlpha</span><span style="font-size:9px;color:var(--tm);margin-left:auto">3 ч</span></div><div style="font-size:10px;color:var(--ts);padding-left:29px">захватил 5 новых клеток, теперь #1</div></div>
+      <div style="background:var(--bg1);border:1px solid rgba(255,159,67,.33);border-radius:9px;padding:9px 10px"><div style="display:flex;align-items:center;gap:7px;margin-bottom:3px"><div style="width:22px;height:22px;border-radius:11px;background:rgba(255,159,67,.13);border:1.5px solid rgba(255,159,67,.33);display:flex;align-items:center;justify-content:center;flex-shrink:0"><span style="font-size:9px;color:var(--or)">⚠</span></div><span style="font-size:12px;font-weight:600;color:var(--or)">система</span><span style="font-size:9px;color:var(--tm);margin-left:auto">1 дн</span></div><div style="font-size:10px;color:var(--tp);padding-left:29px">2 ваши клетки в зоне decay</div></div>
+    </div>
+  </div>
+  <nav class="navbar"><div class="navitem"><span class="ni">◈</span><span class="nl">Карта</span></div><div class="navitem"><span class="ni">↑</span><span class="nl">Бег</span></div><div class="navitem"><span class="ni">◉</span><span class="nl">Рейтинг</span></div><div class="navitem active" style="position:relative"><span class="ni">◆</span><span class="nl">Лента</span><div style="position:absolute;top:6px;right:13px;width:11px;height:11px;border-radius:6px;background:var(--rd);border:1.5px solid var(--bg1);display:flex;align-items:center;justify-content:center"><span style="font-size:6px;color:var(--tp);font-weight:700">2</span></div></div><div class="navitem"><span class="ni">◎</span><span class="nl">Профиль</span></div></nav>
+</div>
+
+<div class="phone" id="screen-6-profile">
+  <div class="statusbar"><span class="time">9:41</span><span>●●● ▮▮</span></div>
+  <div class="screen-content" style="background:var(--bg0);padding:12px 13px 0;display:flex;flex-direction:column;gap:9px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:11px;flex-shrink:0"><div style="width:50px;height:50px;border-radius:25px;border:2.5px solid var(--cy);background:var(--bg2);display:flex;align-items:center;justify-content:center;flex-shrink:0"><span style="font-size:22px;color:var(--cy)">◎</span></div><div style="flex:1"><div class="h1">RunnerX</div><div style="font-size:10px;color:var(--ts)">Уровень 5 · Рига</div></div><div style="background:var(--bg2);border:1px solid var(--bg3);border-radius:6px;padding:4px 9px"><span style="font-size:10px;color:var(--ts)">Изменить</span></div></div>
+    <div class="card-orange" style="padding:9px 13px;display:flex;align-items:center;gap:11px;flex-shrink:0"><div style="text-align:center"><div style="font-family:var(--fd);font-size:22px;font-weight:800;color:var(--or);line-height:1">7</div><div style="font-size:9px;color:var(--ts)">дней</div></div><div style="width:1px;height:36px;background:var(--bg3)"></div><div style="flex:1"><div class="h2">Стрик · Бонус ×1.1</div><div style="font-size:9px;color:var(--ts)">До ×1.2 — завтра (+7 дней)</div><div class="progress" style="margin-top:4px"><div class="progress-fill" style="width:50%;background:var(--or)"></div></div></div></div>
+    <div style="display:flex;gap:5px;flex-shrink:0"><div class="stat-tile"><div class="val cy">142</div><div class="lbl">Клетки</div></div><div class="stat-tile"><div class="val">8 240</div><div class="lbl">Влияние</div></div><div class="stat-tile"><div class="val">234 км</div><div class="lbl">Дистанция</div></div><div class="stat-tile"><div class="val">47</div><div class="lbl">Пробежек</div></div></div>
+    <div class="card" style="flex-shrink:0"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px"><span class="h2">Цель недели</span><span style="font-family:var(--fd);font-size:13px;font-weight:700;color:var(--cy)">12 / 15</span></div><div class="progress"><div class="progress-fill" style="width:80%"></div></div><div style="font-size:9px;color:var(--tm);margin-top:3px">Осталось 3 клетки до воскресенья</div></div>
+    <div class="btn-secondary" style="height:34px;font-size:12px;flex-shrink:0">Сменить базу</div>
+    <div style="flex-shrink:0"><div class="section-label">Соперники (2 / 3)</div><div style="display:flex;gap:7px"><div class="rival-chip"><div style="width:20px;height:20px;border-radius:10px;border:1.5px solid var(--pk);background:var(--bg1);display:flex;align-items:center;justify-content:center"><span style="font-size:9px;color:var(--pk)">◎</span></div><span style="font-size:10px;color:var(--tp)">rival1</span><span style="font-size:10px;color:var(--tm)">✕</span></div><div class="rival-chip"><div style="width:20px;height:20px;border-radius:10px;border:1.5px solid var(--pu);background:var(--bg1);display:flex;align-items:center;justify-content:center"><span style="font-size:9px;color:var(--pu)">◎</span></div><span style="font-size:10px;color:var(--tp)">rival2</span><span style="font-size:10px;color:var(--tm)">✕</span></div><div style="width:34px;height:32px;border:1px dashed var(--bg3);border-radius:8px;display:flex;align-items:center;justify-content:center"><span style="font-size:15px;color:var(--tm)">+</span></div></div></div>
+  </div>
+  <nav class="navbar"><div class="navitem"><span class="ni">◈</span><span class="nl">Карта</span></div><div class="navitem"><span class="ni">↑</span><span class="nl">Бег</span></div><div class="navitem"><span class="ni">◉</span><span class="nl">Рейтинг</span></div><div class="navitem"><span class="ni">◆</span><span class="nl">Лента</span></div><div class="navitem active"><span class="ni">◎</span><span class="nl">Профиль</span></div></nav>
+</div>
+
+</body>
+</html>

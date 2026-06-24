@@ -15,7 +15,8 @@ export const KING_LOSS_THRESHOLD = 0.5;
 export const DECAY_RATE_PER_DAY = 0.98;
 export const DECAY_DELETE_AFTER_DAYS = 14;
 export const DECAY_WARNING_DAYS = 7;
-export const DECAY_THREAT_DAYS = 10;
+export const DECAY_CRITICAL_DAYS = 11;
+export const DECAY_THREAT_DAYS = 11;
 
 /** Capture target hints: gap to leader within this range = easy capture. */
 export const CAPTURE_TARGET_MAX_GAP = 15;

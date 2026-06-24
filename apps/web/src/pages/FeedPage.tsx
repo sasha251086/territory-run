@@ -1,11 +1,21 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiRequest } from '../api/client';
 import type { FeedEvent } from '../api/types';
-import { formatFeedEvent } from '../utils/feed-format';
+import { useAuth } from '../context/AuthContext';
+import {
+  feedEventAction,
+  feedEventIcon,
+  feedEventVariant,
+  formatFeedEvent,
+  formatRelativeTime,
+} from '../utils/feed-ui';
 
 type FeedTab = 'all' | 'rivals';
 
 export default function FeedPage() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [items, setItems] = useState<FeedEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<FeedTab>('all');
@@ -18,13 +28,9 @@ export default function FeedPage() {
       try {
         const query = tab === 'rivals' ? '?limit=30&rivals=true' : '?limit=30';
         const data = await apiRequest<{ items: FeedEvent[] }>(`/feed${query}`);
-        if (!cancelled) {
-          setItems(data.items);
-        }
+        if (!cancelled) setItems(data.items);
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -35,56 +41,70 @@ export default function FeedPage() {
   }, [tab]);
 
   return (
-    <div className="stack game-screen">
-      <section className="screen-hero">
-        <p className="eyebrow">City Log</p>
-        <h1>Лента событий</h1>
-        <p>Следите, кто расширяет территорию, возвращает районы и набирает влияние.</p>
-      </section>
+    <div className="tr-screen">
+      <h1 className="tr-screen__title">Лента</h1>
 
-      <section className="card compact-card">
-        <div className="tabs">
-          <button
-            type="button"
-            className={tab === 'all' ? 'tab active' : 'tab'}
-            onClick={() => setTab('all')}
-          >
-            Все
-          </button>
-          <button
-            type="button"
-            className={tab === 'rivals' ? 'tab active' : 'tab'}
-            onClick={() => setTab('rivals')}
-          >
-            Соперники
-          </button>
-        </div>
-      </section>
+      <div className="tr-segmented">
+        <button
+          type="button"
+          className={`tr-segmented__btn${tab === 'all' ? ' tr-segmented__btn--active' : ''}`}
+          onClick={() => setTab('all')}
+        >
+          Все события
+        </button>
+        <button
+          type="button"
+          className={`tr-segmented__btn${tab === 'rivals' ? ' tr-segmented__btn--active' : ''}`}
+          onClick={() => setTab('rivals')}
+        >
+          Соперники
+        </button>
+      </div>
 
-      <section className="card">
-        <h2>{tab === 'rivals' ? 'Соперники' : 'Лента событий'}</h2>
-        {loading ? (
-          <p className="muted">Загрузка...</p>
-        ) : items.length === 0 ? (
-          <p className="muted">
-            {tab === 'rivals'
-              ? 'Добавьте соперников в рейтинге или профиле, чтобы видеть их события.'
-              : 'Событий пока нет.'}
-          </p>
-        ) : (
-          <ul className="feed-list">
-            {items.map((event) => (
-              <li key={event.id} className="feed-card">
-                <strong>{event.user.nickname}</strong>
-                <p>{formatFeedEvent(event)}</p>
-                <time dateTime={event.createdAt}>
-                  {new Date(event.createdAt).toLocaleString('ru-RU')}
-                </time>
+      {loading ? (
+        <p className="muted">Загрузка…</p>
+      ) : items.length === 0 ? (
+        <p className="muted">
+          {tab === 'rivals'
+            ? 'Добавьте соперников в рейтинге, чтобы видеть их события.'
+            : 'Событий пока нет.'}
+        </p>
+      ) : (
+        <ul style={{ display: 'grid', gap: 10, margin: 0, padding: 0 }}>
+          {items.map((event) => {
+            const variant = feedEventVariant(event, user?.id);
+            const action = feedEventAction(event, variant, user?.id);
+            const displayName = event.userId === user?.id ? 'вы' : event.user.nickname;
+
+            return (
+              <li key={event.id} className={`tr-feed-card tr-feed-card--${variant}`}>
+                <div className="tr-feed-card__head">
+                  <span className="tr-feed-card__icon">{feedEventIcon(variant, event)}</span>
+                  <span className="tr-feed-card__user">{displayName}</span>
+                  <time className="tr-feed-card__time" dateTime={event.createdAt}>
+                    {formatRelativeTime(event.createdAt)}
+                  </time>
+                </div>
+                <p className="tr-feed-card__text">{formatFeedEvent(event)}</p>
+                {action && (
+                  <button
+                    type="button"
+                    className={`tr-feed-card__action tr-feed-card__action--${action.type}`}
+                    onClick={() => {
+                      if (action.label.includes('Отвоевать')) navigate('/');
+                      else if (navigator.share) {
+                        void navigator.share({ text: formatFeedEvent(event), title: 'Territory Run' });
+                      }
+                    }}
+                  >
+                    {action.label}
+                  </button>
+                )}
               </li>
-            ))}
-          </ul>
-        )}
-      </section>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

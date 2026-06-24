@@ -14,6 +14,12 @@ const mockQueueService = {
   addActivityProcessingJob: jest.fn(),
 };
 
+const mockRedisService = {
+  get: jest.fn(),
+  set: jest.fn(),
+  del: jest.fn(),
+};
+
 describe('ActivitiesService GPX import deduplication', () => {
   let service: ActivitiesService;
 
@@ -36,6 +42,7 @@ describe('ActivitiesService GPX import deduplication', () => {
     service = new ActivitiesService(
       mockPrisma as never,
       mockQueueService as never,
+      mockRedisService as never,
       new GpxParserService(),
       new SamsungHealthParserService(),
     );
