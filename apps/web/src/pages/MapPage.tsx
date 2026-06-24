@@ -8,7 +8,6 @@ import {
   CircleMarker,
   useMap,
   useMapEvents,
-  Popup,
 } from 'react-leaflet';
 import { cellToBoundary } from 'h3-js';
 import type { LatLngBounds, LatLngExpression } from 'leaflet';
@@ -21,9 +20,21 @@ import type {
   MapSummary,
   RivalCell,
 } from '../api/types';
-import CellPopupContent from '../components/CellPopup';
+import { CellPreviewCard } from '../components/CellPopup';
+import CellBottomSheet from '../components/CellBottomSheet';
+import RunCelebrationOverlay from '../components/RunCelebrationOverlay';
+import { cellColor as designCellColors } from '../design/Header';
+import { MAP_TILE, computeInfluenceRange, ownedCellAppearance } from '../utils/map-tiles';
+import {
+  countDecayCells,
+  findNearestDecayCell,
+  shouldShowDecayToast,
+} from '../utils/decay';
 import { useAuth } from '../context/AuthContext';
-import { formatAreaM2, formatCellsArea } from '../utils/territory';
+
+const DECAY_WARNING_COLOR = '#f59e0b';
+const DECAY_CRITICAL_COLOR = '#ef4444';
+const HIGHLIGHT_DURATION_MS = 5000;
 
 const RUN_PREVIEW_KEY = 'territory-run-run-preview';
 
@@ -67,8 +78,71 @@ function MapControlBridge({ onMap }: { onMap: (map: L.Map) => void }) {
   return null;
 }
 
+function MapResizeHandler() {
+  const map = useMap();
+
+  useEffect(() => {
+    const refresh = () => map.invalidateSize();
+    const timer = window.setTimeout(refresh, 0);
+    window.addEventListener('resize', refresh);
+
+    const frame = map.getContainer().closest('.game-map-frame');
+    const observer =
+      frame && typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(refresh)
+        : null;
+    if (frame && observer) {
+      observer.observe(frame);
+    }
+
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener('resize', refresh);
+      observer?.disconnect();
+    };
+  }, [map]);
+
+  return null;
+}
+
 function cellBoundary(h3Index: string): [number, number][] {
   return cellToBoundary(h3Index).map(([lat, lng]) => [lat, lng] as [number, number]);
+}
+
+function cellAppearance(
+  cell: MapCell,
+  currentUserId: string | undefined,
+  rivalH3: Set<string>,
+  targetH3: Set<string>,
+  previewFlash: boolean,
+  influenceRange: { min: number; max: number },
+): { fillColor: string; strokeColor: string; fillOpacity: number } {
+  const isMine = cell.ownerId === currentUserId;
+
+  if (isMine && !previewFlash) {
+    if (cell.decayRisk === 'critical') {
+      return {
+        fillColor: DECAY_CRITICAL_COLOR,
+        strokeColor: DECAY_CRITICAL_COLOR,
+        fillOpacity: 0.78,
+      };
+    }
+    if (cell.decayRisk === 'warning') {
+      return {
+        fillColor: DECAY_WARNING_COLOR,
+        strokeColor: DECAY_WARNING_COLOR,
+        fillOpacity: 0.72,
+      };
+    }
+    return ownedCellAppearance(cell, influenceRange);
+  }
+
+  let fillColor = cellColor(cell, currentUserId, rivalH3, targetH3, previewFlash);
+  return {
+    fillColor,
+    strokeColor: fillColor,
+    fillOpacity: isMine ? 0.78 : targetH3.has(cell.h3Index) ? 0.68 : 0.58,
+  };
 }
 
 function cellColor(
@@ -79,19 +153,19 @@ function cellColor(
   previewFlash: boolean,
 ) {
   if (targetH3.has(cell.h3Index)) {
-    return '#f5c842';
+    return designCellColors.target;
   }
   if (rivalH3.has(cell.h3Index) && cell.ownerId !== currentUserId) {
-    return '#ff6b9d';
+    return designCellColors.rival;
   }
   if (cell.ownerId === currentUserId) {
-    if (previewFlash) return '#3dff8a';
-    if (cell.decayRisk === 'critical') return '#ff5a4a';
-    if (cell.decayRisk === 'warning') return '#ff9f43';
-    return '#45c8e7';
+    if (previewFlash) return designCellColors.capture;
+    if (cell.decayRisk === 'critical') return designCellColors.crit;
+    if (cell.decayRisk === 'warning') return designCellColors.decay;
+    return designCellColors.own;
   }
-  if (!cell.ownerId) return '#c6d3df';
-  return '#9b6dff';
+  if (!cell.ownerId) return designCellColors.empty;
+  return designCellColors.other;
 }
 
 function cellClassName(
@@ -150,8 +224,17 @@ export default function MapPage() {
   const [findingTargets, setFindingTargets] = useState(false);
   const [rivalCells, setRivalCells] = useState<RivalCell[]>([]);
   const [previewFlash, setPreviewFlash] = useState(false);
-  const [previewMessage, setPreviewMessage] = useState<string | null>(null);
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
+  const [selectedCell, setSelectedCell] = useState<MapCell | null>(null);
+  const [sheetCell, setSheetCell] = useState<MapCell | null>(null);
+  const [celebration, setCelebration] = useState<{
+    distanceKm?: number;
+    cellsGained?: number;
+    influenceGained?: number;
+    title?: string;
+  } | null>(null);
+  const [highlightH3, setHighlightH3] = useState<Set<string>>(new Set());
+  const [decayToast, setDecayToast] = useState<string | null>(null);
 
   const defaultCenter = useMemo<[number, number]>(() => {
     if (user?.homeLat != null && user.homeLng != null) {
@@ -217,17 +300,66 @@ export default function MapPage() {
     sessionStorage.removeItem(RUN_PREVIEW_KEY);
     setSearchParams({}, { replace: true });
     setPreviewFlash(true);
-    setPreviewMessage('Пробежка обработана! Ваши клетки подсвечены на карте.');
     setFlyTrigger((value) => value + 1);
+
+    try {
+      const parsed = JSON.parse(raw) as {
+        distanceKm?: number;
+        cellsGained?: number;
+        influenceGained?: number;
+        firstCapture?: boolean;
+      };
+      setCelebration({
+        distanceKm: parsed.distanceKm,
+        cellsGained: parsed.cellsGained,
+        influenceGained: parsed.influenceGained,
+        title: parsed.firstCapture ? 'Первый захват!' : 'Территория расширена!',
+      });
+    } catch {
+      setCelebration({ title: 'Пробежка обработана!' });
+    }
 
     const timer = window.setTimeout(() => setPreviewFlash(false), 4000);
     return () => window.clearTimeout(timer);
   }, [searchParams, setSearchParams]);
 
+  useEffect(() => {
+    const raw = searchParams.get('highlight');
+    if (!raw) return;
+
+    const indices = raw.split(',').filter(Boolean);
+    if (indices.length === 0) return;
+
+    setHighlightH3(new Set(indices));
+    setPreviewFlash(true);
+    setFlyTrigger((v) => v + 1);
+    setSearchParams({}, { replace: true });
+
+    const timer = window.setTimeout(() => {
+      setHighlightH3(new Set());
+      setPreviewFlash(false);
+    }, HIGHLIGHT_DURATION_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (myCells.length === 0) return;
+    const { danger } = countDecayCells(myCells);
+    if (shouldShowDecayToast(danger)) {
+      setDecayToast(
+        `У вас ${danger} клеток исчезнут в ближайшие дни. Пробегитесь по старым маршрутам!`,
+      );
+    }
+  }, [myCells]);
+
   const displayCells = useMemo(
     () => mergeCells(myCells, nearbyCells),
     [myCells, nearbyCells],
   );
+
+  const myInfluenceRange = useMemo(() => computeInfluenceRange(myCells), [myCells]);
+  const decayCounts = useMemo(() => countDecayCells(myCells), [myCells]);
 
   const rivalH3 = useMemo(() => new Set(rivalCells.map((c) => c.h3Index)), [rivalCells]);
   const targetH3 = useMemo(() => new Set(targets.map((t) => t.h3Index)), [targets]);
@@ -276,74 +408,24 @@ export default function MapPage() {
     }
   }
 
-  const cellsFarFromHome =
-    user?.homeLat != null &&
-    user.homeLng != null &&
-    myCells.length > 0 &&
-    myCells.every((cell) => {
-      if (cell.lat == null || cell.lng == null) {
-        return true;
-      }
-      const dLat = Math.abs(cell.lat - user.homeLat!);
-      const dLng = Math.abs(cell.lng - user.homeLng!);
-      return dLat > 0.05 || dLng > 0.05;
-    });
+  function handleFlyToDecayCell() {
+    const target = findNearestDecayCell(myCells);
+    if (!target?.lat || !target.lng) {
+      setFlyTrigger((v) => v + 1);
+      return;
+    }
+    setFlyTrigger((v) => v + 1);
+    mapInstance?.flyTo([target.lat, target.lng], 15, { duration: 0.8 });
+  }
 
-  const totalInfluence = Math.round(user?.stats?.totalInfluence ?? 0);
   const cellsOwned = user?.stats?.cellsOwned ?? 0;
-  const totalRuns = user?.stats?.totalRuns ?? 0;
   const currentStreak = user?.stats?.currentStreak ?? 0;
   const level = Math.max(1, Math.floor(cellsOwned / 12) + 1);
   const streakBonus = streakLabel(currentStreak);
-  const territoryArea =
-    summary?.territoryAreaM2 != null
-      ? formatAreaM2(summary.territoryAreaM2)
-      : formatCellsArea(cellsOwned);
   const atRisk = summary?.cellsAtRisk ?? 0;
 
   return (
     <div className="map-page game-map-page">
-      <section className="map-profile-card">
-        <div className="map-brand-row">
-          <p className="eyebrow">Territory Run</p>
-          <div className="level-hex" aria-label={`Уровень ${level}`}>
-            <span>{level}</span>
-          </div>
-        </div>
-
-        <div className="map-user-row">
-          <div className="runner-avatar" aria-hidden="true">●</div>
-          <div className="map-user-copy">
-            <h1>{user?.nickname || 'runner'}</h1>
-            <p className="map-territory-area">{territoryArea}</p>
-          </div>
-          {currentStreak > 0 && (
-            <span className="streak-badge" title="Стрик активности">
-              🔥 {currentStreak}
-              {streakBonus ? ` ${streakBonus}` : ''}
-            </span>
-          )}
-        </div>
-
-        <div className="map-stat-cards">
-          <div className="map-stat-card stat-cells">
-            <span className="stat-icon" aria-hidden="true">⬡</span>
-            <span>Клетки</span>
-            <strong>{cellsOwned}</strong>
-          </div>
-          <div className="map-stat-card stat-influence">
-            <span className="stat-icon" aria-hidden="true">⚡</span>
-            <span>Влияние</span>
-            <strong>{totalInfluence}</strong>
-          </div>
-          <div className="map-stat-card stat-runs">
-            <span className="stat-icon" aria-hidden="true">👟</span>
-            <span>Пробежки</span>
-            <strong>{totalRuns}</strong>
-          </div>
-        </div>
-      </section>
-
       <div className="map-frame game-map-frame">
         <MapContainer
           key={`${defaultCenter[0]}-${defaultCenter[1]}`}
@@ -352,11 +434,9 @@ export default function MapPage() {
           className="leaflet-map"
           style={{ width: '100%', height: '100%' }}
         >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          />
+          <TileLayer attribution={MAP_TILE.attribution} url={MAP_TILE.url} />
           <MapControlBridge onMap={setMapInstance} />
+          <MapResizeHandler />
           <MapEvents onMove={loadNearbyCells} />
           <FlyToCells targets={flyTargets} trigger={flyTrigger} />
 
@@ -365,12 +445,23 @@ export default function MapPage() {
               <Circle
                 center={[user.homeLat, user.homeLng]}
                 radius={500}
-                pathOptions={{ color: '#3dff8a', fillColor: '#3dff8a', fillOpacity: 0.08, weight: 2 }}
+                pathOptions={{
+                  color: designCellColors.capture,
+                  fillColor: designCellColors.capture,
+                  fillOpacity: 0.08,
+                  weight: 2,
+                  dashArray: '6 4',
+                }}
               />
               <CircleMarker
                 center={[user.homeLat, user.homeLng]}
                 radius={9}
-                pathOptions={{ color: '#ffffff', fillColor: '#45c8e7', fillOpacity: 1, weight: 3 }}
+                pathOptions={{
+                  color: '#ffffff',
+                  fillColor: designCellColors.own,
+                  fillOpacity: 1,
+                  weight: 3,
+                }}
               />
             </>
           )}
@@ -378,26 +469,36 @@ export default function MapPage() {
           {displayCells.map((cell) => {
             try {
               const boundary = cellBoundary(cell.h3Index);
-              const color = cellColor(cell, user?.id, rivalH3, targetH3, previewFlash);
-              const isMine = cell.ownerId === user?.id;
+              const isSelected = selectedCell?.h3Index === cell.h3Index;
+              const appearance = cellAppearance(
+                cell,
+                user?.id,
+                rivalH3,
+                targetH3,
+                previewFlash,
+                myInfluenceRange,
+              );
+              const isHighlighted = highlightH3.has(cell.h3Index);
               return (
                 <Polygon
                   key={cell.h3Index}
                   positions={boundary}
                   pathOptions={{
-                    color,
-                    fillColor: color,
-                    fillOpacity: isMine ? 0.78 : targetH3.has(cell.h3Index) ? 0.68 : 0.58,
+                    color: isHighlighted || isSelected ? '#ffffff' : appearance.strokeColor,
+                    fillColor: appearance.fillColor,
+                    fillOpacity: appearance.fillOpacity,
                     opacity: 1,
-                    weight: targetH3.has(cell.h3Index) ? 2 : 0,
+                    weight: isHighlighted ? 3 : isSelected ? 2 : targetH3.has(cell.h3Index) ? 2 : 0,
                     lineJoin: 'round',
                     className: cellClassName(cell, user?.id, rivalH3, targetH3, previewFlash),
                   }}
-                >
-                  <Popup minWidth={240}>
-                    <CellPopupContent cell={cell} />
-                  </Popup>
-                </Polygon>
+                  eventHandlers={{
+                    click: () => {
+                      setSelectedCell(cell);
+                      setSheetCell(null);
+                    },
+                  }}
+                />
               );
             } catch {
               return null;
@@ -405,84 +506,124 @@ export default function MapPage() {
           })}
         </MapContainer>
 
-        <div className="map-zoom-controls" aria-label="Масштаб карты">
+        <div className="tr-map-overlay-hud">
+          <section className="tr-map-profile tr-glass">
+            <div className="tr-map-profile__avatar" aria-hidden="true" />
+            <div>
+              <h1 className="tr-map-profile__name">{user?.nickname || 'runner'}</h1>
+              <p className="tr-map-profile__sub">
+                Ур.{level}
+                {currentStreak > 0 && (
+                  <>
+                    {' '}
+                    · <span className="streak">▲ стрик {currentStreak} дн</span>
+                    {streakBonus ? ` ${streakBonus}` : ''}
+                  </>
+                )}
+              </p>
+            </div>
+          </section>
+          <section className="tr-map-cells-badge tr-glass">
+            <strong>{cellsOwned}</strong>
+            <span>клетки</span>
+          </section>
+        </div>
+
+        {(decayCounts.danger > 0 || decayCounts.warning > 0) && (
           <button
             type="button"
-            aria-label="Увеличить"
-            onClick={() => mapInstance?.zoomIn()}
-            disabled={!mapInstance}
+            className={`tr-badge tr-glass${decayCounts.danger > 0 ? ' tr-badge--red' : ' tr-badge--orange'}`}
+            style={{
+              position: 'absolute',
+              top: 'calc(56px + env(safe-area-inset-top))',
+              left: 12,
+              zIndex: 650,
+              cursor: 'pointer',
+              border: 'none',
+              padding: '8px 12px',
+            }}
+            onClick={handleFlyToDecayCell}
           >
-            +
+            {decayCounts.danger > 0
+              ? `⚠ ${decayCounts.danger} клеток исчезнут через ${decayCounts.minDaysToDelete ?? '?'} дн.`
+              : `⚠ ${decayCounts.warning} клеток угасают`}
           </button>
-          <button
-            type="button"
-            aria-label="Уменьшить"
-            onClick={() => mapInstance?.zoomOut()}
-            disabled={!mapInstance}
+        )}
+
+        {decayToast && (
+          <div
+            className="tr-glass"
+            style={{
+              position: 'absolute',
+              top: 'calc(96px + env(safe-area-inset-top))',
+              left: 12,
+              right: 12,
+              zIndex: 650,
+              padding: 12,
+            }}
           >
-            −
+            <p style={{ margin: 0, fontSize: 12 }}>{decayToast}</p>
+            <button type="button" className="tr-btn tr-btn-ghost" onClick={() => setDecayToast(null)}>
+              Закрыть
+            </button>
+          </div>
+        )}
+
+        <div className="tr-map-controls" aria-label="Масштаб карты">
+          <button type="button" className="tr-btn" aria-label="Увеличить" onClick={() => mapInstance?.zoomIn()} disabled={!mapInstance}>+</button>
+          <button type="button" className="tr-btn" aria-label="Уменьшить" onClick={() => mapInstance?.zoomOut()} disabled={!mapInstance}>−</button>
+          <button type="button" className="tr-btn" aria-label="К моей территории" onClick={() => setFlyTrigger((v) => v + 1)} disabled={myCells.length === 0}>⌖</button>
+        </div>
+
+        {selectedCell && !sheetCell && (
+          <CellPreviewCard cell={selectedCell} onDetails={() => setSheetCell(selectedCell)} />
+        )}
+
+        <div className="tr-map-quick-bar">
+          <button type="button" className="tr-map-quick-btn tr-map-quick-btn--accent" onClick={() => setFlyTrigger((v) => v + 1)}>
+            <strong>{cellsOwned}</strong>
+            кл.
           </button>
-          <button
-            type="button"
-            aria-label="К моей территории"
-            onClick={() => setFlyTrigger((value) => value + 1)}
-            disabled={myCells.length === 0}
-          >
-            ⌖
+          <button type="button" className="tr-map-quick-btn tr-map-quick-btn--warn" onClick={() => atRisk > 0 && setFlyTrigger((v) => v + 1)}>
+            <strong>{atRisk || '—'}</strong>
+            {atRisk > 0 ? 'decay' : 'decay'}
+          </button>
+          <button type="button" className="tr-map-quick-btn" onClick={() => setFlyTrigger((v) => v + 1)} disabled={myCells.length === 0}>
+            Мои зоны
+          </button>
+          <button type="button" className="tr-map-quick-btn tr-map-quick-btn--primary" onClick={() => void handleFindTargets()} disabled={findingTargets}>
+            {findingTargets ? '…' : 'Цели'}
           </button>
         </div>
 
-        <button
-          type="button"
-          className="map-tool-btn map-tool-right"
-          onClick={() => setFlyTrigger((value) => value + 1)}
-          disabled={myCells.length === 0}
-        >
-          Мои зоны
-        </button>
+        {targetsMessage && (
+          <p className="map-targets-msg" style={{ position: 'absolute', bottom: 72, left: 12, right: 12, zIndex: 600 }}>
+            {targetsMessage}
+          </p>
+        )}
 
         <div className="map-vignette" aria-hidden="true" />
-
-        <section className="map-hud map-capture-card">
-          {atRisk > 0 ? (
-            <>
-              <strong>⚠ {atRisk} под угрозой</strong>
-              <span>Забегите снова, чтобы удержать территорию</span>
-            </>
-          ) : previewMessage ? (
-            <>
-              <strong>Готово!</strong>
-              <span>{previewMessage}</span>
-            </>
-          ) : (
-            <>
-              <strong>{cellsOwned}</strong>
-              <span>
-                {territoryArea} · {totalInfluence} влияния
-              </span>
-            </>
-          )}
-
-          {targetsMessage && <p className="map-targets-msg">{targetsMessage}</p>}
-          {!targetsMessage && atRisk === 0 && (
-            <button
-              type="button"
-              className="map-find-targets-btn"
-              onClick={() => void handleFindTargets()}
-              disabled={findingTargets}
-            >
-              {findingTargets ? 'Поиск целей…' : 'Найти цели'}
-            </button>
-          )}
-
-          {cellsFarFromHome && (
-            <p className="map-capture-footnote">Клетки далеко от базы. Нажмите «Мои зоны».</p>
-          )}
-          {error && <p className="map-inline-error">{error}</p>}
-        </section>
-
-        {loading && <div className="map-overlay">Обновление карты...</div>}
+        {loading && <div className="map-overlay">Обновление карты…</div>}
+        {error && <p className="map-inline-error" style={{ position: 'absolute', top: 80, left: 12, zIndex: 600 }}>{error}</p>}
       </div>
+
+      <CellBottomSheet cell={sheetCell} onClose={() => { setSheetCell(null); setSelectedCell(null); }} />
+
+      {celebration && (
+        <RunCelebrationOverlay
+          title={celebration.title}
+          distanceKm={celebration.distanceKm}
+          cellsGained={celebration.cellsGained}
+          influenceGained={celebration.influenceGained}
+          onDismiss={() => setCelebration(null)}
+          onShare={() => {
+            const text = `Territory Run: +${celebration.cellsGained ?? 0} клеток!`;
+            if (navigator.share) {
+              void navigator.share({ text, title: 'Territory Run' });
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

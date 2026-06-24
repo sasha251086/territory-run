@@ -1,14 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { apiRequest } from '../api/client';
 import type { LeaderboardEntry, RivalFollow } from '../api/types';
-import { formatCellsArea } from '../utils/territory';
 import { useAuth } from '../context/AuthContext';
 
-type Tab = 'cells' | 'influence' | 'distance';
+type Tab = 'city' | 'rivals' | 'total';
+
+const PODIUM_ORDER = [1, 0, 2] as const;
 
 export default function LeaderboardPage() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<Tab>('cells');
+  const [tab, setTab] = useState<Tab>('city');
   const [items, setItems] = useState<LeaderboardEntry[]>([]);
   const [rivals, setRivals] = useState<RivalFollow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,8 +22,9 @@ export default function LeaderboardPage() {
     async function load() {
       setLoading(true);
       try {
+        const apiTab = tab === 'total' ? 'influence' : 'cells';
         const [leaderboard, followed] = await Promise.all([
-          apiRequest<LeaderboardEntry[]>(`/leaderboard/${tab}?limit=50`),
+          apiRequest<LeaderboardEntry[]>(`/leaderboard/${apiTab}?limit=50`),
           apiRequest<RivalFollow[]>('/rivals'),
         ]);
         if (!cancelled) {
@@ -30,9 +32,7 @@ export default function LeaderboardPage() {
           setRivals(followed);
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -42,12 +42,16 @@ export default function LeaderboardPage() {
     };
   }, [tab]);
 
-  const followedIds = new Set(rivals.map((r) => r.userId));
+  const followedIds = useMemo(() => new Set(rivals.map((r) => r.userId)), [rivals]);
+
+  const displayItems = useMemo(() => {
+    if (tab !== 'rivals' || !user) return items;
+    const ids = new Set([user.id, ...rivals.map((r) => r.userId)]);
+    return items.filter((item) => ids.has(item.userId));
+  }, [items, tab, user, rivals]);
 
   async function toggleFollow(entry: LeaderboardEntry) {
-    if (entry.userId === user?.id) {
-      return;
-    }
+    if (entry.userId === user?.id) return;
 
     setFollowLoading(entry.userId);
     setMessage(null);
@@ -59,11 +63,7 @@ export default function LeaderboardPage() {
         await apiRequest(`/rivals/${entry.userId}`, { method: 'POST' });
         setRivals((prev) => [
           ...prev,
-          {
-            userId: entry.userId,
-            nickname: entry.nickname,
-            followedAt: new Date().toISOString(),
-          },
+          { userId: entry.userId, nickname: entry.nickname, followedAt: new Date().toISOString() },
         ]);
       }
     } catch (err) {
@@ -74,77 +74,91 @@ export default function LeaderboardPage() {
   }
 
   function valueLabel(value: number) {
-    if (tab === 'cells') return formatCellsArea(value);
-    if (tab === 'influence') return `${Math.round(value)} влияния`;
-    return `${(value / 1000).toFixed(1)} км`;
+    if (tab === 'total') return `${Math.round(value)}`;
+    return `${Math.round(value)} кл`;
   }
 
-  const restItems = items;
+  const top3 = displayItems.slice(0, 3);
+  const rest = displayItems.slice(3);
 
   return (
-    <div className="stack game-screen">
-      <section className="screen-hero">
-        <p className="eyebrow">Urban Conquest</p>
-        <h1>Рейтинг районов</h1>
-        <p>Сравните контроль зон, влияние и дистанцию с другими бегунами города.</p>
-      </section>
-
-      <section className="card compact-card">
-        <h2>Рейтинг</h2>
-        <div className="tabs">
-          <button type="button" className={tab === 'cells' ? 'tab active' : 'tab'} onClick={() => setTab('cells')}>
-            Клетки
+    <div className="tr-screen">
+      <div className="tr-segmented" role="tablist">
+        {(
+          [
+            ['city', 'Город'],
+            ['rivals', 'Я+соперники'],
+            ['total', 'Всего'],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            className={`tr-segmented__btn${tab === key ? ' tr-segmented__btn--active' : ''}`}
+            onClick={() => setTab(key)}
+          >
+            {label}
           </button>
-          <button type="button" className={tab === 'influence' ? 'tab active' : 'tab'} onClick={() => setTab('influence')}>
-            Влияние
-          </button>
-          <button type="button" className={tab === 'distance' ? 'tab active' : 'tab'} onClick={() => setTab('distance')}>
-            Дистанция
-          </button>
-        </div>
-      </section>
+        ))}
+      </div>
 
-      {message && (
-        <section className="card">
-          <p className="info-box">{message}</p>
-        </section>
-      )}
+      {message && <p className="info-box">{message}</p>}
 
-      <section className="card leaderboard-card">
-        {loading ? (
-          <p className="muted">Загрузка...</p>
-        ) : items.length === 0 ? (
-          <p className="muted">Пока нет данных.</p>
-        ) : (
-          <ol className="leaderboard">
-            {restItems.map((item, index) => {
+      {loading ? (
+        <p className="muted">Загрузка…</p>
+      ) : displayItems.length === 0 ? (
+        <p className="muted">Пока нет данных.</p>
+      ) : (
+        <>
+          {top3.length > 0 && (
+            <div className="tr-leaderboard-podium" aria-label="Топ-3">
+              {PODIUM_ORDER.map((slot) => {
+                const entry = top3[slot];
+                const rank = slot + 1;
+                if (!entry) {
+                  return <div key={`empty-${slot}`} className="tr-podium-block" />;
+                }
+                return (
+                  <div key={entry.userId} className={`tr-podium-block tr-podium-block--${rank}`}>
+                    <span className="tr-podium-block__rank">#{rank}</span>
+                    <span className="tr-podium-block__name">{entry.nickname}</span>
+                    <span className="tr-podium-block__value">{valueLabel(entry.value)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <ol style={{ display: 'grid', gap: 8, margin: 0, padding: 0 }}>
+            {rest.map((item, index) => {
               const isMe = item.userId === user?.id;
               const isFollowed = followedIds.has(item.userId);
               return (
-                <li key={item.userId} className={isMe ? 'is-you' : undefined}>
-                  <span className="rank">{index + 1}</span>
-                  <span className="name">{item.nickname}{isMe ? ' (вы)' : ''}</span>
-                  <span className="value">{valueLabel(Math.round(item.value))}</span>
+                <li key={item.userId} className={`tr-leaderboard-row${isMe ? ' is-you' : ''}`}>
+                  <span className="tr-leaderboard-row__rank">#{index + 4}</span>
+                  <span className="tr-leaderboard-row__avatar" aria-hidden="true" />
+                  <span className="tr-leaderboard-row__name">
+                    {item.nickname}
+                    {isMe ? ' · вы' : ''}
+                  </span>
+                  <span className="tr-leaderboard-row__value">{valueLabel(item.value)}</span>
                   {!isMe && (
                     <button
                       type="button"
-                      className={`ghost-btn small-btn follow-btn ${isFollowed ? 'is-followed' : ''}`}
+                      className={`tr-btn-follow${isFollowed ? ' is-followed' : ''}`}
                       onClick={() => void toggleFollow(item)}
                       disabled={followLoading === item.userId}
                     >
-                      {followLoading === item.userId
-                        ? '...'
-                        : isFollowed
-                          ? 'Следите'
-                          : 'Следить'}
+                      {followLoading === item.userId ? '…' : isFollowed ? 'Следите' : 'Следить'}
                     </button>
                   )}
                 </li>
               );
             })}
           </ol>
-        )}
-      </section>
+        </>
+      )}
     </div>
   );
 }

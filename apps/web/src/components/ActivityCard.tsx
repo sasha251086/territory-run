@@ -1,8 +1,8 @@
 import type { ActivityItem } from '../api/types';
-import { formatAnticheatMessage, canReprocess } from '../utils/anticheat-messages';
+import { canReprocess, getAnticheatMessage } from '../utils/anticheat-messages';
 
 function formatDistance(meters: number) {
-  return `${(meters / 1000).toFixed(2)} км`;
+  return `${(meters / 1000).toFixed(1)} км`;
 }
 
 function formatDuration(seconds: number) {
@@ -10,77 +10,79 @@ function formatDuration(seconds: number) {
   return `${mins} мин`;
 }
 
-function sourceLabel(source: string) {
-  if (source === 'strava') return 'Strava';
-  if (source === 'gpx_import') return 'GPX';
-  if (source === 'samsung_health_zip') return 'Samsung ZIP';
-  if (source === 'samsung_health') return 'Samsung Health';
-  if (source === 'apple_health') return 'Apple Health';
-  if (source === 'health_connect') return 'Health Connect';
-  return source;
-}
+function formatRelativeDate(iso: string) {
+  const date = new Date(iso);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((startOfToday.getTime() - startOfDate.getTime()) / 86400000);
 
-function RouteThumbnail({ distanceMeters }: { distanceMeters: number }) {
-  const complexity = Math.min(6, Math.max(3, Math.round(distanceMeters / 1500)));
-  const points = Array.from({ length: complexity }, (_, index) => {
-    const x = 8 + (index / (complexity - 1)) * 84;
-    const y = 22 + Math.sin(index * 1.4) * 14 + (index % 2) * 6;
-    return `${x},${y}`;
-  }).join(' ');
-
-  return (
-    <svg viewBox="0 0 100 56" className="activity-route-thumb" aria-hidden="true">
-      <defs>
-        <linearGradient id="routeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#3dff8a" />
-          <stop offset="100%" stopColor="#45c8e7" />
-        </linearGradient>
-      </defs>
-      <polyline points={points} fill="none" stroke="url(#routeGrad)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+  const time = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  if (diffDays === 0) return `Сегодня, ${time}`;
+  if (diffDays === 1) return `Вчера, ${time}`;
+  const weekday = date.toLocaleDateString('ru-RU', { weekday: 'short' });
+  return `${weekday}, ${time}`;
 }
 
 export default function ActivityCard({
   item,
   onReprocess,
   reprocessing,
+  reprocessError,
 }: {
   item: ActivityItem;
-  onReprocess?: () => void;
+  onReprocess?: (activityId: string) => void;
   reprocessing?: boolean;
+  reprocessError?: string | null;
 }) {
+  const isFailed = item.status === 'failed';
+  const isOk = item.status === 'completed';
+  const isProcessing = item.status === 'processing';
+  const anticheat = isFailed ? getAnticheatMessage(item.failureReason) : null;
+
   return (
-    <li className="activity-card">
-      <div className="activity-card-thumb">
-        <RouteThumbnail distanceMeters={item.distanceMeters} />
+    <li className={`tr-activity-card${isFailed ? ' tr-activity-card--error' : ''}`}>
+      <div className="tr-activity-card__head">
+        <span className="tr-activity-card__date">{formatRelativeDate(item.startedAt)}</span>
+        <span
+          className={`tr-status-pill${
+            isOk ? ' tr-status-pill--ok' : isFailed ? ' tr-status-pill--error' : ' tr-status-pill--pending'
+          }`}
+        >
+          {isOk ? '• OK' : isFailed ? '• Ошибка' : isProcessing && reprocessing ? '• …' : '• …'}
+        </span>
       </div>
-      <div className="activity-card-body">
-        <div className="activity-card-head">
-          <strong>{sourceLabel(item.source)}</strong>
-          <span className={`status ${item.status}`}>
-            {item.status === 'failed' ? 'отклонена' : item.status === 'completed' ? 'готово' : 'обработка'}
-          </span>
+      <div className="tr-activity-card__body">
+        <div>
+          <div className="tr-activity-card__distance">{formatDistance(item.distanceMeters)}</div>
+          {isOk && <div className="tr-activity-card__gain">+— кл</div>}
+          {isFailed && <div className="tr-activity-card__gain">—</div>}
         </div>
-        <p className="activity-card-date">{new Date(item.startedAt).toLocaleString('ru-RU')}</p>
-        <div className="activity-card-metrics">
-          <span>{formatDistance(item.distanceMeters)}</span>
-          <span>{formatDuration(item.durationSeconds)}</span>
-        </div>
-        {item.status === 'failed' && (
-          <p className="anticheat-msg">{formatAnticheatMessage(item.failureReason)}</p>
-        )}
-        {item.status === 'failed' && canReprocess(item.failureReason) && onReprocess && (
-          <button
-            type="button"
-            className="ghost-btn small-btn"
-            onClick={onReprocess}
-            disabled={reprocessing}
-          >
-            Пересчитать
-          </button>
-        )}
+        <span className="tr-activity-card__duration">{formatDuration(item.durationSeconds)}</span>
       </div>
+      {isProcessing && reprocessing && (
+        <p className="anticheat-msg">Повторная проверка…</p>
+      )}
+      {isFailed && anticheat && (
+        <>
+          <p className="anticheat-msg">
+            <strong>{anticheat.title}</strong>
+            <br />
+            {anticheat.description}
+          </p>
+          {canReprocess(item.failureReason) && onReprocess && (
+            <button
+              type="button"
+              className="tr-btn-reprocess"
+              onClick={() => onReprocess(item.id)}
+              disabled={reprocessing}
+            >
+              {reprocessing ? 'Повторная проверка…' : 'Пересчитать'}
+            </button>
+          )}
+          {reprocessError && <p className="error-banner">{reprocessError}</p>}
+        </>
+      )}
     </li>
   );
 }

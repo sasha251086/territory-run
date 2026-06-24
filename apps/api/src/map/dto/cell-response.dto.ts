@@ -45,6 +45,9 @@ export class CellResponseDto {
 
   @ApiPropertyOptional({ example: 2 })
   myRank?: number | null;
+
+  @ApiPropertyOptional({ example: 4 })
+  totalPlayers?: number;
 }
 
 export class MapCellsResponseDto {
@@ -70,6 +73,7 @@ export class CellPlayersResponseDto {
   runsToCapture!: number;
   isOwner!: boolean;
   leadOverNext!: number | null;
+  totalPlayers!: number;
   history!: Array<{
     fromNickname: string | null;
     toNickname: string;

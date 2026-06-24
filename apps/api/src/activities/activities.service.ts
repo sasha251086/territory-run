@@ -4,6 +4,7 @@ import { unlink } from 'fs/promises';
 import { ActivityStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
+import { RedisService } from '../redis/redis.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { ImportNativeActivityDto } from './dto/import-native-activity.dto';
 import { ApiException } from '../common/api.exception';
@@ -27,6 +28,7 @@ export class ActivitiesService {
   constructor(
     private prisma: PrismaService,
     private queueService: QueueService,
+    private redisService: RedisService,
     private gpxParserService: GpxParserService,
     private samsungHealthParserService: SamsungHealthParserService,
   ) {}
@@ -485,5 +487,95 @@ export class ActivitiesService {
     }
 
     return { requeued };
+  }
+
+  async reprocessActivity(userId: string, activityId: string) {
+    const activity = await this.prisma.activity.findFirst({
+      where: {
+        id: activityId,
+        userId,
+        status: ActivityStatus.failed,
+        failureReason: { in: ['SPEED_EXCEEDED', 'GPS_ANOMALY'] },
+      },
+      include: { track: true },
+    });
+
+    if (!activity) {
+      throw new ApiException(
+        ErrorCodes.NOT_FOUND,
+        'Failed activity not found or cannot be reprocessed',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const route = activity.track?.route as
+      | { lat: number; lng: number; timestamp?: string }[]
+      | undefined;
+    if (!route?.length) {
+      throw new ApiException(
+        ErrorCodes.INVALID_FILE,
+        'Activity has no GPS track',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const sanitized = sanitizeTrackPoints(route);
+    if (sanitized.length < 2) {
+      throw new ApiException(
+        ErrorCodes.INVALID_FILE,
+        'GPS track is too short after cleanup',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.activityTrack.update({
+        where: { activityId: activity.id },
+        data: { route: sanitized as unknown as Prisma.InputJsonValue },
+      }),
+      this.prisma.activity.update({
+        where: { id: activity.id },
+        data: {
+          status: ActivityStatus.processing,
+          failureReason: null,
+          processedAt: null,
+        },
+      }),
+    ]);
+
+    await this.enqueueActivity(activity.id);
+    return { activityId: activity.id, status: ActivityStatus.processing };
+  }
+
+  async getActivityResult(userId: string, activityId: string) {
+    const activity = await this.prisma.activity.findFirst({
+      where: { id: activityId, userId },
+      select: { id: true },
+    });
+
+    if (!activity) {
+      throw new ApiException(
+        ErrorCodes.NOT_FOUND,
+        'Activity not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const raw = await this.redisService.get(`activity_result:${activityId}`);
+    if (!raw) {
+      throw new ApiException(
+        ErrorCodes.NOT_FOUND,
+        'Activity result not found or expired',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return JSON.parse(raw) as {
+      newCellsCount: number;
+      capturedCellsCount: number;
+      influenceGained: number;
+      affectedH3Indices: string[];
+      distanceMeters?: number;
+    };
   }
 }

@@ -151,6 +151,7 @@ export class MapService {
       isOwner,
       leadOverNext:
         isOwner && second ? Math.max(0, myInfluence - second.influence) : null,
+      totalPlayers: ownerships.length,
       history: historyRows.map((row) => ({
         fromNickname: row.fromUserId ? nickById.get(row.fromUserId) ?? null : null,
         toNickname: nickById.get(row.toUserId) ?? 'Игрок',
@@ -344,6 +345,7 @@ export class MapService {
       gapToLeader,
       runsToCapture: runsNeeded,
       myRank,
+      totalPlayers: ownerships.length,
     };
   }
 }

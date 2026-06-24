@@ -1,6 +1,7 @@
 import {
   BASE_INFLUENCE,
-  DECAY_THREAT_DAYS,
+  DECAY_CRITICAL_DAYS,
+  DECAY_DELETE_AFTER_DAYS,
   DECAY_WARNING_DAYS,
 } from './constants';
 
@@ -14,8 +15,8 @@ export function daysSinceActivity(lastActivityAt: Date | null | undefined): numb
 export function decayRiskFor(lastActivityAt: Date | null | undefined): DecayRisk {
   const days = daysSinceActivity(lastActivityAt);
   if (days == null) return 'none';
-  if (days >= DECAY_THREAT_DAYS) return 'critical';
-  if (days >= DECAY_WARNING_DAYS) return 'warning';
+  if (days >= DECAY_CRITICAL_DAYS && days < DECAY_DELETE_AFTER_DAYS) return 'critical';
+  if (days >= DECAY_WARNING_DAYS && days < DECAY_CRITICAL_DAYS) return 'warning';
   return 'none';
 }
 
