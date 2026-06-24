@@ -1,15 +1,27 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { apiRequest } from '../api/client';
-import type { LeaderboardEntry, RivalFollow } from '../api/types';
+import type {
+  LeaderboardEntry,
+  RegionalLeaderboardEntry,
+  RegionalLeaderboardResponse,
+  RivalFollow,
+  SeasonHistoryEntry,
+  SeasonLeaderboardEntry,
+  SeasonLeaderboardResponse,
+} from '../api/types';
 import { formatCellsArea } from '../utils/territory';
 import { useAuth } from '../context/AuthContext';
 
-type Tab = 'cells' | 'influence' | 'distance';
+type Tab = 'cells' | 'influence' | 'distance' | 'nearby' | 'season';
 
 export default function LeaderboardPage() {
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>('cells');
   const [items, setItems] = useState<LeaderboardEntry[]>([]);
+  const [regional, setRegional] = useState<RegionalLeaderboardResponse | null>(null);
+  const [season, setSeason] = useState<SeasonLeaderboardResponse | null>(null);
+  const [seasonHistory, setSeasonHistory] = useState<SeasonHistoryEntry[]>([]);
   const [rivals, setRivals] = useState<RivalFollow[]>([]);
   const [loading, setLoading] = useState(true);
   const [followLoading, setFollowLoading] = useState<string | null>(null);
@@ -21,13 +33,39 @@ export default function LeaderboardPage() {
     async function load() {
       setLoading(true);
       try {
-        const [leaderboard, followed] = await Promise.all([
-          apiRequest<LeaderboardEntry[]>(`/leaderboard/${tab}?limit=50`),
-          apiRequest<RivalFollow[]>('/rivals'),
-        ]);
-        if (!cancelled) {
-          setItems(leaderboard);
-          setRivals(followed);
+        const rivalsData = await apiRequest<RivalFollow[]>('/rivals');
+        if (cancelled) return;
+        setRivals(rivalsData);
+
+        if (tab === 'nearby') {
+          const regionalData = await apiRequest<RegionalLeaderboardResponse>(
+            '/leaderboard/regional',
+          );
+          if (!cancelled) {
+            setRegional(regionalData);
+            setSeason(null);
+            setItems([]);
+          }
+        } else if (tab === 'season') {
+          const [seasonData, historyData] = await Promise.all([
+            apiRequest<SeasonLeaderboardResponse>('/leaderboard/season?limit=50'),
+            apiRequest<SeasonHistoryEntry[]>('/leaderboard/season/history'),
+          ]);
+          if (!cancelled) {
+            setSeason(seasonData);
+            setSeasonHistory(historyData);
+            setRegional(null);
+            setItems([]);
+          }
+        } else {
+          const leaderboard = await apiRequest<LeaderboardEntry[]>(
+            `/leaderboard/${tab}?limit=50`,
+          );
+          if (!cancelled) {
+            setItems(leaderboard);
+            setRegional(null);
+            setSeason(null);
+          }
         }
       } finally {
         if (!cancelled) {
@@ -43,6 +81,12 @@ export default function LeaderboardPage() {
   }, [tab]);
 
   const followedIds = new Set(rivals.map((r) => r.userId));
+  const displayItems: Array<LeaderboardEntry | RegionalLeaderboardEntry | SeasonLeaderboardEntry> =
+    tab === 'nearby'
+      ? (regional?.items ?? [])
+      : tab === 'season'
+        ? (season?.items ?? [])
+        : items;
 
   async function toggleFollow(entry: LeaderboardEntry) {
     if (entry.userId === user?.id) {
@@ -74,19 +118,26 @@ export default function LeaderboardPage() {
   }
 
   function valueLabel(value: number) {
-    if (tab === 'cells') return formatCellsArea(value);
+    if (tab === 'cells' || tab === 'nearby' || tab === 'season') {
+      return tab === 'season' ? `${value} захватов` : formatCellsArea(value);
+    }
     if (tab === 'influence') return `${Math.round(value)} влияния`;
     return `${(value / 1000).toFixed(1)} км`;
   }
 
-  const restItems = items;
+  const heroText =
+    tab === 'nearby'
+      ? 'Игроки в радиусе 5 км от вашей домашней базы — сравните контроль территории с соседями.'
+      : tab === 'season'
+        ? 'Сезонный рейтинг: новые захваты и влияние за текущий 45-дневный цикл. Территория на карте не сбрасывается.'
+        : 'Сравните контроль зон, влияние и дистанцию с другими бегунами города.';
 
   return (
     <div className="stack game-screen">
       <section className="screen-hero">
         <p className="eyebrow">Urban Conquest</p>
         <h1>Рейтинг районов</h1>
-        <p>Сравните контроль зон, влияние и дистанцию с другими бегунами города.</p>
+        <p>{heroText}</p>
       </section>
 
       <section className="card compact-card">
@@ -101,6 +152,12 @@ export default function LeaderboardPage() {
           <button type="button" className={tab === 'distance' ? 'tab active' : 'tab'} onClick={() => setTab('distance')}>
             Дистанция
           </button>
+          <button type="button" className={tab === 'nearby' ? 'tab active' : 'tab'} onClick={() => setTab('nearby')}>
+            Рядом со мной
+          </button>
+          <button type="button" className={tab === 'season' ? 'tab active' : 'tab'} onClick={() => setTab('season')}>
+            Сезон
+          </button>
         </div>
       </section>
 
@@ -110,22 +167,72 @@ export default function LeaderboardPage() {
         </section>
       )}
 
+      {tab === 'season' && season?.season && (
+        <section className="card highlight-card">
+          <p className="info-box">
+            Сезон {season.season.number} · осталось {season.season.daysLeft}{' '}
+            {season.season.daysLeft === 1 ? 'день' : season.season.daysLeft < 5 ? 'дня' : 'дней'}
+          </p>
+        </section>
+      )}
+
+      {tab === 'nearby' && regional?.noHomeBase && (
+        <section className="card highlight-card">
+          <p className="info-box">
+            Установите домашнюю базу в{' '}
+            <Link to="/profile">профиле</Link>, чтобы видеть соседей в радиусе 5 км.
+          </p>
+          <Link to="/onboarding" className="primary-btn" style={{ display: 'inline-block', marginTop: 8 }}>
+            Выбрать базу на карте
+          </Link>
+        </section>
+      )}
+
+      {tab === 'nearby' && regional && !regional.noHomeBase && regional.items.length < 3 && (
+        <section className="card">
+          <p className="muted">Пока мало игроков рядом. Зовите друзей!</p>
+        </section>
+      )}
+
       <section className="card leaderboard-card">
         {loading ? (
           <p className="muted">Загрузка...</p>
-        ) : items.length === 0 ? (
-          <p className="muted">Пока нет данных.</p>
+        ) : tab === 'nearby' && regional?.noHomeBase ? (
+          <p className="muted">Нужна домашняя база для регионального рейтинга.</p>
+        ) : displayItems.length === 0 ? (
+          <p className="muted">{tab === 'season' ? 'В этом сезоне захватов пока нет.' : 'Пока нет данных.'}</p>
         ) : (
           <ol className="leaderboard">
-            {restItems.map((item, index) => {
+            {displayItems.map((item, index) => {
               const isMe = item.userId === user?.id;
               const isFollowed = followedIds.has(item.userId);
+              const rank = item.rank ?? index + 1;
+              const distanceKm =
+                tab === 'nearby' ? (item as RegionalLeaderboardEntry).distanceKm : null;
+              const seasonInfluence =
+                tab === 'season' ? (item as SeasonLeaderboardEntry).seasonInfluence : null;
+
               return (
                 <li key={item.userId} className={isMe ? 'is-you' : undefined}>
-                  <span className="rank">{index + 1}</span>
-                  <span className="name">{item.nickname}{isMe ? ' (вы)' : ''}</span>
-                  <span className="value">{valueLabel(Math.round(item.value))}</span>
-                  {!isMe && (
+                  <span className="rank">{rank}</span>
+                  <span className="name">
+                    {item.nickname}
+                    {isMe ? ' (вы)' : ''}
+                  </span>
+                  <span className="value">
+                    {valueLabel(Math.round(item.value))}
+                    {distanceKm != null && (
+                      <span className="muted small" style={{ display: 'block' }}>
+                        {distanceKm.toFixed(1)} км
+                      </span>
+                    )}
+                    {seasonInfluence != null && (
+                      <span className="muted small" style={{ display: 'block' }}>
+                        +{seasonInfluence} влияния
+                      </span>
+                    )}
+                  </span>
+                  {!isMe && tab !== 'season' && (
                     <button
                       type="button"
                       className={`ghost-btn small-btn follow-btn ${isFollowed ? 'is-followed' : ''}`}
@@ -145,6 +252,22 @@ export default function LeaderboardPage() {
           </ol>
         )}
       </section>
+
+      {tab === 'season' && seasonHistory.length > 0 && (
+        <section className="card">
+          <h2>Ваши прошлые сезоны</h2>
+          <ul className="list">
+            {seasonHistory.map((entry) => (
+              <li key={`${entry.seasonNumber}-${entry.rank}`} className="list-item">
+                <strong>Сезон {entry.seasonNumber}</strong>
+                <span>
+                  #{entry.rank} · {entry.cellsOwned} захватов · {Math.round(entry.totalInfluence)} влияния
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

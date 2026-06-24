@@ -1,5 +1,7 @@
 ﻿import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { SIEGE_EVENT_COOLDOWN_MS } from '../common/constants';
 
 @Injectable()
 export class FeedService {
@@ -49,7 +51,7 @@ export class FeedService {
     };
   }
 
-  async createEvent(type: string, userId: string, payload: any) {
+  async createEvent(type: string, userId: string, payload: Prisma.InputJsonValue) {
     return this.prisma.event.create({
       data: {
         type,
@@ -57,5 +59,26 @@ export class FeedService {
         payload,
       },
     });
+  }
+
+  async hasRecentSiegeEvent(
+    ownerId: string,
+    challengerUserId: string,
+    h3Index: string,
+  ): Promise<boolean> {
+    const since = new Date(Date.now() - SIEGE_EVENT_COOLDOWN_MS);
+    const existing = await this.prisma.event.findFirst({
+      where: {
+        type: 'cell_siege',
+        userId: ownerId,
+        createdAt: { gte: since },
+        AND: [
+          { payload: { path: ['h3Index'], equals: h3Index } },
+          { payload: { path: ['challengerUserId'], equals: challengerUserId } },
+        ],
+      },
+      select: { id: true },
+    });
+    return existing != null;
   }
 }

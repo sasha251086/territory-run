@@ -1,6 +1,6 @@
 import type { FeedEvent } from '../api/types';
 
-export function formatFeedEvent(event: FeedEvent): string {
+export function formatFeedEvent(event: FeedEvent, viewerUserId?: string): string {
   const payload = event.payload;
 
   switch (event.type) {
@@ -22,6 +22,14 @@ export function formatFeedEvent(event: FeedEvent): string {
     case 'district_captured': {
       const name = (payload.districtName as string) || 'район';
       return `стал королём района «${name}»`;
+    }
+    case 'cell_siege': {
+      const challenger = (payload.challengerNickname as string) || 'Соперник';
+      const gap = Number(payload.gapPercent ?? 0);
+      if (viewerUserId && event.userId === viewerUserId) {
+        return `${challenger} атакует твою клетку — ${gap}% до захвата`;
+      }
+      return `${challenger} атакует клетку ${event.user.nickname} — ${gap}% до захвата`;
     }
     default:
       return event.type.replace(/_/g, ' ');

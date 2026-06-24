@@ -16,6 +16,9 @@ export interface UserProfile {
   avatarUrl: string | null;
   homeLat: number | null;
   homeLng: number | null;
+  freezeActive: boolean;
+  freezeActivatedAt: string | null;
+  freezeLastUsedAt: string | null;
   createdAt: string;
   stats: UserStats | null;
 }
@@ -151,9 +154,48 @@ export interface FeedEvent {
 }
 
 export interface LeaderboardEntry {
+  rank?: number;
   userId: string;
   nickname: string;
+  avatarUrl?: string | null;
   value: number;
+}
+
+export interface RegionalLeaderboardEntry extends LeaderboardEntry {
+  rank: number;
+  distanceKm: number;
+}
+
+export interface RegionalLeaderboardResponse {
+  noHomeBase: boolean;
+  items: RegionalLeaderboardEntry[];
+}
+
+export interface SeasonLeaderboardEntry {
+  rank: number;
+  userId: string;
+  nickname: string;
+  avatarUrl: string | null;
+  value: number;
+  seasonInfluence: number;
+}
+
+export interface SeasonLeaderboardResponse {
+  season: {
+    number: number;
+    startDate: string;
+    endDate: string;
+    daysLeft: number;
+  } | null;
+  items: SeasonLeaderboardEntry[];
+}
+
+export interface SeasonHistoryEntry {
+  seasonNumber: number;
+  rank: number;
+  cellsOwned: number;
+  totalInfluence: number;
+  endedAt: string;
 }
 
 export interface IntegrationInfo {

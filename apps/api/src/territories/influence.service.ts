@@ -8,8 +8,15 @@ import {
   MAX_INFLUENCE_PER_CELL,
   NEW_PLAYER_BONUS_MULTIPLIER,
   NEW_PLAYER_PERIOD_MS,
+  SOFT_CAP_CELLS,
+  SOFT_CAP_INFLUENCE_MULTIPLIER,
   streakMultiplier,
 } from '../common/constants';
+
+export type ProcessTrackResult = {
+  h3Indices: string[];
+  influenceAdded: number;
+};
 
 @Injectable()
 export class InfluenceService {
@@ -46,6 +53,11 @@ export class InfluenceService {
 
     const streak = user.stats?.currentStreak ?? 0;
     const streakMult = streakMultiplier(streak);
+    const cellsOwned = user.stats?.cellsOwned ?? 0;
+    const softCapMult =
+      cellsOwned >= SOFT_CAP_CELLS ? SOFT_CAP_INFLUENCE_MULTIPLIER : 1;
+
+    let influenceAdded = 0;
 
     for (const h3Index of h3Indices) {
       const centerCoords = h3.cellToLatLng(h3Index);
@@ -74,34 +86,41 @@ export class InfluenceService {
         },
       });
 
-      const influence = this.calculateInfluence(user, center, existing) * streakMult;
+      const influence =
+        this.calculateInfluence(user, center, existing) * streakMult * softCapMult;
 
       if (existing) {
+        const nextInfluence = Math.min(
+          existing.influence + influence,
+          MAX_INFLUENCE_PER_CELL,
+        );
+        influenceAdded += nextInfluence - existing.influence;
+
         await this.prisma.cellOwnership.update({
           where: {
             h3Index_userId: { h3Index, userId },
           },
           data: {
-            influence: Math.min(
-              existing.influence + influence,
-              MAX_INFLUENCE_PER_CELL,
-            ),
+            influence: nextInfluence,
             lastActivityAt: new Date(),
           },
         });
       } else {
+        const nextInfluence = Math.min(influence, MAX_INFLUENCE_PER_CELL);
+        influenceAdded += nextInfluence;
+
         await this.prisma.cellOwnership.create({
           data: {
             h3Index,
             userId,
-            influence: Math.min(influence, MAX_INFLUENCE_PER_CELL),
+            influence: nextInfluence,
             lastActivityAt: new Date(),
           },
         });
       }
     }
 
-    return h3Indices;
+    return { h3Indices, influenceAdded };
   }
 
   private calculateInfluence(

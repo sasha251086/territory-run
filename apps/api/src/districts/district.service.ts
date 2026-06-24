@@ -211,10 +211,68 @@ export class DistrictService {
       districtId: district.id,
       districtName: district.name,
       myControlPercent: controlPercent,
-      kingThresholdPercent: 60,
+      kingThresholdPercent: Math.round(KING_CLAIM_THRESHOLD * 100),
       isKing: district.king?.userId === userId,
       king: district.king,
     };
+  }
+
+  async listUserDistrictOverview(userId: string, minPercent = 15) {
+    const districts = await this.prisma.district.findMany({
+      include: {
+        cells: true,
+        kingUser: { select: { id: true, nickname: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const results = [];
+
+    for (const district of districts) {
+      if (district.cells.length === 0) {
+        continue;
+      }
+
+      const totalCells = district.cells.length;
+      const ownerCounts = new Map<string, number>();
+
+      for (const districtCell of district.cells) {
+        const owner = await this.ownershipService.getCurrentOwner(districtCell.h3Index);
+        if (!owner) {
+          continue;
+        }
+        ownerCounts.set(owner.userId, (ownerCounts.get(owner.userId) || 0) + 1);
+      }
+
+      const myCells = ownerCounts.get(userId) || 0;
+      const controlPercent = Math.round((myCells / totalCells) * 1000) / 10;
+      if (controlPercent < minPercent) {
+        continue;
+      }
+
+      const kingCells = district.kingUserId
+        ? ownerCounts.get(district.kingUserId) || 0
+        : 0;
+
+      results.push({
+        districtId: district.id,
+        districtName: district.name,
+        myControlPercent: controlPercent,
+        kingThresholdPercent: Math.round(KING_CLAIM_THRESHOLD * 100),
+        isKing: district.kingUserId === userId,
+        king: district.kingUser
+          ? {
+              userId: district.kingUser.id,
+              nickname: district.kingUser.nickname,
+              controlPercent: district.kingUserId
+                ? Math.round((kingCells / totalCells) * 1000) / 10
+                : null,
+            }
+          : null,
+      });
+    }
+
+    return results.sort((a, b) => b.myControlPercent - a.myControlPercent);
   }
 
   async getDistrictCells(id: string) {

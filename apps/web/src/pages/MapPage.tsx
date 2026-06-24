@@ -17,13 +17,17 @@ import 'leaflet/dist/leaflet.css';
 import { apiRequest } from '../api/client';
 import type {
   CaptureTarget,
+  DistrictListItem,
+  DistrictProgress,
   MapCell,
   MapSummary,
   RivalCell,
 } from '../api/types';
 import CellPopupContent from '../components/CellPopup';
+import DistrictMapPopup from '../components/DistrictMapPopup';
 import { useAuth } from '../context/AuthContext';
 import { formatAreaM2, formatCellsArea } from '../utils/territory';
+import { districtHudClass, districtPolygonsForMap } from '../utils/district-geo';
 
 const RUN_PREVIEW_KEY = 'territory-run-run-preview';
 
@@ -64,6 +68,20 @@ function MapControlBridge({ onMap }: { onMap: (map: L.Map) => void }) {
   useEffect(() => {
     onMap(map);
   }, [map, onMap]);
+  return null;
+}
+
+function DistrictPane() {
+  const map = useMap();
+  useEffect(() => {
+    if (!map.getPane('districtPane')) {
+      map.createPane('districtPane');
+      const pane = map.getPane('districtPane');
+      if (pane) {
+        pane.style.zIndex = '350';
+      }
+    }
+  }, [map]);
   return null;
 }
 
@@ -152,6 +170,9 @@ export default function MapPage() {
   const [previewFlash, setPreviewFlash] = useState(false);
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
   const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
+  const [districts, setDistricts] = useState<DistrictListItem[]>([]);
+  const [districtOverview, setDistrictOverview] = useState<DistrictProgress[]>([]);
+  const [selectedDistrict, setSelectedDistrict] = useState<DistrictProgress | null>(null);
 
   const defaultCenter = useMemo<[number, number]>(() => {
     if (user?.homeLat != null && user.homeLng != null) {
@@ -192,6 +213,24 @@ export default function MapPage() {
     void loadSummary();
     void loadRivalCells();
   }, [loadMyCells, loadSummary, loadRivalCells, user?.stats?.cellsOwned]);
+
+  const loadDistricts = useCallback(async () => {
+    try {
+      const [allDistricts, overview] = await Promise.all([
+        apiRequest<DistrictListItem[]>('/districts'),
+        apiRequest<{ districts: DistrictProgress[] }>('/districts/my/overview'),
+      ]);
+      setDistricts(allDistricts);
+      setDistrictOverview(overview.districts);
+    } catch {
+      setDistricts([]);
+      setDistrictOverview([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDistricts();
+  }, [loadDistricts, user?.stats?.cellsOwned]);
 
   const loadNearbyCells = useCallback(async (bounds: LatLngBounds) => {
     setLoading(true);
@@ -276,6 +315,15 @@ export default function MapPage() {
     }
   }
 
+  async function openDistrictProgress(districtId: string) {
+    try {
+      const progress = await apiRequest<DistrictProgress>(`/districts/${districtId}/progress`);
+      setSelectedDistrict(progress);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось загрузить район');
+    }
+  }
+
   const cellsFarFromHome =
     user?.homeLat != null &&
     user.homeLng != null &&
@@ -357,8 +405,43 @@ export default function MapPage() {
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
           />
           <MapControlBridge onMap={setMapInstance} />
+          <DistrictPane />
           <MapEvents onMove={loadNearbyCells} />
           <FlyToCells targets={flyTargets} trigger={flyTrigger} />
+
+          {districts.flatMap((district) =>
+            districtPolygonsForMap(district.polygon).map((rings, partIndex) => (
+              <Polygon
+                key={`${district.id}-${partIndex}`}
+                positions={rings}
+                pane="districtPane"
+                pathOptions={{
+                  color: '#ffffff',
+                  weight: 1,
+                  opacity: 0.25,
+                  fillOpacity: 0,
+                  className: 'map-district-polygon',
+                }}
+                eventHandlers={{
+                  click: () => void openDistrictProgress(district.id),
+                }}
+              >
+                <Popup minWidth={220}>
+                  <div className="map-district-popup map-district-popup--inline">
+                    <h3>Район: {district.name}</h3>
+                    <p>Король: {district.king?.nickname ?? 'Нет короля'}</p>
+                    <button
+                      type="button"
+                      className="ghost-btn small-btn"
+                      onClick={() => void openDistrictProgress(district.id)}
+                    >
+                      Подробнее
+                    </button>
+                  </div>
+                </Popup>
+              </Polygon>
+            )),
+          )}
 
           {user?.homeLat != null && user.homeLng != null && (
             <>
@@ -442,6 +525,30 @@ export default function MapPage() {
         </button>
 
         <div className="map-vignette" aria-hidden="true" />
+
+        {districtOverview.length > 0 && (
+          <section className="map-district-hud" aria-label="Контроль районов">
+            {districtOverview.map((entry) => (
+              <button
+                key={entry.districtId}
+                type="button"
+                className={`map-district-hud__item ${districtHudClass(entry.myControlPercent, entry.isKing)}`.trim()}
+                onClick={() => void openDistrictProgress(entry.districtId)}
+              >
+                Район {entry.districtName}: {entry.myControlPercent}%
+              </button>
+            ))}
+          </section>
+        )}
+
+        {selectedDistrict && (
+          <div className="map-district-popup-wrap">
+            <DistrictMapPopup
+              progress={selectedDistrict}
+              onClose={() => setSelectedDistrict(null)}
+            />
+          </div>
+        )}
 
         <section className="map-hud map-capture-card">
           {atRisk > 0 ? (

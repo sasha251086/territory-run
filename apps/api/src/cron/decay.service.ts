@@ -1,6 +1,10 @@
 ﻿import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { DECAY_DELETE_AFTER_DAYS, DECAY_RATE_PER_DAY } from '../common/constants';
+import {
+  DECAY_DELETE_AFTER_DAYS,
+  DECAY_RATE_PER_DAY,
+  FREEZE_DURATION_DAYS,
+} from '../common/constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { OwnershipService } from '../territories/ownership.service';
 
@@ -20,11 +24,15 @@ export class DecayService {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - DECAY_DELETE_AFTER_DAYS);
 
-    // 1. Удаляем записи старше 14 дней (заброшенные территории)
+    // 1. Удаляем записи старше DECAY_DELETE_AFTER_DAYS (заброшенные территории).
+    // Пользователи с активной заморозкой не теряют клетки.
     const deleted = await this.prisma.cellOwnership.deleteMany({
       where: {
         lastActivityAt: {
           lt: cutoffDate,
+        },
+        user: {
+          freezeActive: false,
         },
       },
     });
@@ -70,6 +78,23 @@ export class DecayService {
     if (h3Indices.length > 0) {
       await this.ownershipService.recalculateOwners(h3Indices);
       this.logger.log(`Recalculated owners for ${h3Indices.length} cells`);
+    }
+
+    const freezeExpiry = new Date();
+    freezeExpiry.setDate(freezeExpiry.getDate() - FREEZE_DURATION_DAYS);
+    const expiredFreezes = await this.prisma.user.updateMany({
+      where: {
+        freezeActive: true,
+        freezeActivatedAt: {
+          lt: freezeExpiry,
+        },
+      },
+      data: {
+        freezeActive: false,
+      },
+    });
+    if (expiredFreezes.count > 0) {
+      this.logger.log(`Expired ${expiredFreezes.count} territory freezes`);
     }
 
     this.logger.log('Daily decay completed');
