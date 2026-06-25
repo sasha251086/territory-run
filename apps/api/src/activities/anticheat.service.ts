@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { MAX_RUN_SPEED_MS } from '../common/constants';
+import { MAX_RUN_SPEED_MS, MIN_ACTIVITY_DISTANCE_M } from '../common/constants';
 import { MIN_SPEED_CHECK_INTERVAL_SECONDS } from '../common/track.util';
 import { haversineDistance } from '../common/geo.util';
 
@@ -13,7 +13,8 @@ export type AnticheatFailureReason =
   | 'INSUFFICIENT_POINTS'
   | 'SPEED_EXCEEDED'
   | 'GPS_ANOMALY'
-  | 'DISTANCE_MISMATCH';
+  | 'DISTANCE_MISMATCH'
+  | 'DISTANCE_TOO_SHORT';
 
 export type AnticheatResult =
   | { valid: true }
@@ -62,6 +63,17 @@ export class AnticheatService {
       }
     }
 
+    return { valid: true };
+  }
+
+  validateMinimumDistance(
+    trackDistanceMeters: number,
+    claimedDistanceMeters: number,
+  ): AnticheatResult {
+    const effectiveDistance = Math.max(trackDistanceMeters, claimedDistanceMeters);
+    if (effectiveDistance < MIN_ACTIVITY_DISTANCE_M) {
+      return { valid: false, reason: 'DISTANCE_TOO_SHORT' };
+    }
     return { valid: true };
   }
 

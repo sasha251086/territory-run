@@ -1,13 +1,19 @@
 ﻿import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import * as h3 from 'h3-js';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { DistrictService } from '../districts/district.service';
 import { haversineDistance } from '../common/geo.util';
+import {
+  distanceMetersByH3Cell,
+  influenceDistanceWeight,
+} from '../common/track-distance.util';
 import {
   BASE_INFLUENCE,
   HOME_ZONE_BONUS_MULTIPLIER,
   HOME_ZONE_RADIUS_M,
   MAX_INFLUENCE_PER_CELL,
+  MIN_CELL_DISTANCE_M,
   NEW_PLAYER_BONUS_MULTIPLIER,
   NEW_PLAYER_PERIOD_MS,
   SOFT_CAP_CELLS,
@@ -31,12 +37,9 @@ export class InfluenceService {
   ) {}
 
   async processTrack(userId: string, track: { lat: number; lng: number }[]) {
-    const cellSet = new Set<string>();
-    for (const point of track) {
-      cellSet.add(h3.latLngToCell(point.lat, point.lng, 9));
-    }
+    const distanceByH3 = distanceMetersByH3Cell(track);
+    const h3Indices = [...distanceByH3.keys()];
 
-    const h3Indices = Array.from(cellSet);
     this.logger.log({
       msg: 'Processing track influence',
       userId,
@@ -87,6 +90,12 @@ export class InfluenceService {
     const newCellDistricts: Array<{ h3Index: string; lat: number; lng: number }> = [];
 
     for (const h3Index of h3Indices) {
+      const metersInCell = distanceByH3.get(h3Index) ?? 0;
+      const distanceWeight = influenceDistanceWeight(metersInCell, MIN_CELL_DISTANCE_M);
+      if (distanceWeight <= 0) {
+        continue;
+      }
+
       const centerCoords = h3.cellToLatLng(h3Index);
       const center = { lat: centerCoords[0], lng: centerCoords[1] };
 
@@ -101,8 +110,13 @@ export class InfluenceService {
       }
 
       const existing = ownershipMap.get(h3Index) ?? null;
-      const influence =
+      const baseInfluence =
         this.calculateInfluence(user, center, existing) * streakMult * softCapMult;
+      const influence = baseInfluence * distanceWeight;
+
+      if (influence <= 0) {
+        continue;
+      }
 
       if (existing) {
         const nextInfluence = Math.min(
@@ -123,21 +137,18 @@ export class InfluenceService {
       }
     }
 
+    const affectedIndices = [
+      ...ownershipUpdates.map((row) => row.h3Index),
+      ...ownershipCreates.map((row) => row.h3Index),
+    ];
+
     await this.prisma.$transaction(async (tx) => {
       if (cellsToCreate.length > 0) {
         await tx.cell.createMany({ data: cellsToCreate, skipDuplicates: true });
       }
 
-      for (const update of ownershipUpdates) {
-        await tx.cellOwnership.update({
-          where: {
-            h3Index_userId: { h3Index: update.h3Index, userId },
-          },
-          data: {
-            influence: update.influence,
-            lastActivityAt: now,
-          },
-        });
+      if (ownershipUpdates.length > 0) {
+        await this.batchUpdateOwnershipInfluence(tx, userId, ownershipUpdates, now);
       }
 
       if (ownershipCreates.length > 0) {
@@ -145,11 +156,37 @@ export class InfluenceService {
       }
     });
 
-    for (const cell of newCellDistricts) {
-      await this.districtService.assignCellToDistrict(cell.h3Index, cell.lat, cell.lng);
+    if (newCellDistricts.length > 0) {
+      await this.districtService.assignCellsToDistricts(newCellDistricts);
     }
 
-    return { h3Indices, influenceAdded };
+    return { h3Indices: affectedIndices, influenceAdded };
+  }
+
+  private async batchUpdateOwnershipInfluence(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    updates: Array<{ h3Index: string; influence: number }>,
+    lastActivityAt: Date,
+  ) {
+    const h3Indices = updates.map((row) => row.h3Index);
+    const influences = updates.map((row) => row.influence);
+
+    await tx.$executeRaw`
+      UPDATE "CellOwnership" AS co
+      SET
+        influence = batch.influence,
+        "lastActivityAt" = ${lastActivityAt}
+      FROM (
+        SELECT *
+        FROM UNNEST(
+          ${h3Indices}::text[],
+          ${influences}::double precision[]
+        ) AS t("h3Index", influence)
+      ) AS batch
+      WHERE co."h3Index" = batch."h3Index"
+        AND co."userId" = ${userId}
+    `;
   }
 
   private calculateInfluence(

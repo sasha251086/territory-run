@@ -27,6 +27,11 @@ import CellBottomSheet from '../components/CellBottomSheet';
 import DistrictMapPopup from '../components/DistrictMapPopup';
 import { useAuth } from '../context/AuthContext';
 import { districtPolygonsForMap } from '../utils/district-geo';
+import {
+  HOME_ZONE_RADIUS_M,
+  softCapLabel,
+  streakBonusLabel,
+} from '../constants/game';
 
 const RUN_PREVIEW_KEY = 'territory-run-run-preview';
 
@@ -156,6 +161,20 @@ function HighlightPane() {
 
 const TARGET_FILL = '#F0E090';
 const TARGET_STROKE = '#C9A030';
+const TARGET_FINISH_FILL = '#F0C890';
+const TARGET_FINISH_STROKE = '#D09030';
+const TARGET_DEFEND_FILL = '#E8A8A8';
+const TARGET_DEFEND_STROKE = '#C06060';
+
+function targetPaint(category: CaptureTarget['category']) {
+  if (category === 'defend') {
+    return { fill: TARGET_DEFEND_FILL, stroke: TARGET_DEFEND_STROKE };
+  }
+  if (category === 'finish') {
+    return { fill: TARGET_FINISH_FILL, stroke: TARGET_FINISH_STROKE };
+  }
+  return { fill: TARGET_FILL, stroke: TARGET_STROKE };
+}
 const CONTESTED_FILL = '#F0D890';
 const CONTESTED_STROKE = '#C9A844';
 
@@ -565,6 +584,70 @@ export default function MapPage() {
   }, [searchParams, setSearchParams, queueFly]);
 
   useEffect(() => {
+    const h3Index = searchParams.get('highlight');
+    if (!h3Index) {
+      return;
+    }
+
+    setSearchParams({}, { replace: true });
+    try {
+      const [lat, lng] = cellToLatLng(h3Index);
+      setSelectedCell({
+        h3Index,
+        lat,
+        lng,
+        ownerId: null,
+        ownerNickname: null,
+        influence: 0,
+        lastActivityAt: null,
+      });
+      setFlyRequest({
+        mode: 'targets',
+        trigger: ++flyTriggerRef.current,
+        points: [[lat, lng]],
+      });
+    } catch {
+      // invalid h3 index in URL
+    }
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const activityId = searchParams.get('activity');
+    if (!activityId) {
+      return;
+    }
+
+    let cancelled = false;
+    void apiRequest<{
+      bounds: { north: number; south: number; east: number; west: number } | null;
+    }>(`/activities/${activityId}`)
+      .then((activity) => {
+        if (cancelled || !activity.bounds) {
+          return;
+        }
+        const { north, south, east, west } = activity.bounds;
+        setFlyRequest({
+          mode: 'targets',
+          trigger: ++flyTriggerRef.current,
+          points: [
+            [north, west],
+            [south, east],
+          ],
+        });
+        setSearchParams({}, { replace: true });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSearchParams({}, { replace: true });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
     if (!previewMessage) {
       return;
     }
@@ -663,7 +746,6 @@ export default function MapPage() {
 
   const cellsOwned = user?.stats?.cellsOwned ?? 0;
   const currentStreak = user?.stats?.currentStreak ?? 0;
-  const level = Math.max(1, Math.floor(cellsOwned / 12) + 1);
   const atRisk = summary?.cellsAtRisk ?? 0;
 
   const legendItems = [
@@ -674,7 +756,11 @@ export default function MapPage() {
     { fill: '#C99090', stroke: '#A86B6B', label: 'Критично' },
     { fill: CONTESTED_FILL, stroke: CONTESTED_STROKE, label: 'Спор' },
     ...(targetsHighlight
-      ? [{ fill: TARGET_FILL, stroke: TARGET_STROKE, label: 'Цель' }]
+      ? [
+          { fill: TARGET_DEFEND_FILL, stroke: TARGET_DEFEND_STROKE, label: 'Защита' },
+          { fill: TARGET_FINISH_FILL, stroke: TARGET_FINISH_STROKE, label: 'Добить' },
+          { fill: TARGET_FILL, stroke: TARGET_STROKE, label: 'Захват' },
+        ]
       : []),
   ];
 
@@ -685,8 +771,10 @@ export default function MapPage() {
         <div>
           <strong>{user?.nickname || 'runner'}</strong>
           <p>
-            Ур. {level} · {cellsOwned} клеток
-            {currentStreak > 0 ? ` · стрик ${currentStreak} дн` : ''}
+            {softCapLabel(cellsOwned)}
+            {currentStreak > 0
+              ? ` · стрик ${currentStreak} дн · влияние ${streakBonusLabel(currentStreak)}`
+              : ''}
           </p>
         </div>
       </header>
@@ -721,6 +809,7 @@ export default function MapPage() {
 
           {targetsHighlight &&
             targets.map((target) => {
+              const paint = targetPaint(target.category);
               try {
                 const boundary = cellBoundary(target.h3Index);
                 return (
@@ -729,8 +818,8 @@ export default function MapPage() {
                     positions={boundary}
                     pane="highlightPane"
                     pathOptions={{
-                      color: TARGET_STROKE,
-                      fillColor: TARGET_FILL,
+                      color: paint.stroke,
+                      fillColor: paint.fill,
                       fillOpacity: 0.92,
                       opacity: 1,
                       weight: 3.5,
@@ -747,8 +836,8 @@ export default function MapPage() {
                     radius={95}
                     pane="highlightPane"
                     pathOptions={{
-                      color: TARGET_STROKE,
-                      fillColor: TARGET_FILL,
+                      color: paint.stroke,
+                      fillColor: paint.fill,
                       fillOpacity: 0.5,
                       weight: 3,
                       className: 'capture-target-cell capture-target-emphasis',
@@ -796,7 +885,7 @@ export default function MapPage() {
             <>
               <Circle
                 center={[user.homeLat, user.homeLng]}
-                radius={500}
+                radius={HOME_ZONE_RADIUS_M}
                 pathOptions={{
                   color: '#8A8A8A',
                   fillColor: '#E5E5E5',

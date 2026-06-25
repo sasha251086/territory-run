@@ -73,6 +73,19 @@ export class UsersService {
     return { firstCaptureShownAt: new Date() };
   }
 
+  async markGameTutorialShown(userId: string) {
+    await this.prisma.userStats.upsert({
+      where: { userId },
+      update: { gameTutorialShownAt: new Date() },
+      create: {
+        userId,
+        gameTutorialShownAt: new Date(),
+      },
+    });
+
+    return { gameTutorialShownAt: new Date() };
+  }
+
   async activateFreeze(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

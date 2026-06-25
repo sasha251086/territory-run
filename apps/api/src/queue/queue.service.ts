@@ -106,6 +106,15 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     }
 
     const trackDistance = this.calculateTrackDistance(track);
+    const minDistanceCheck = this.anticheatService.validateMinimumDistance(
+      trackDistance,
+      activity.distanceMeters,
+    );
+    if (minDistanceCheck.valid === false) {
+      await this.failActivity(activityId, activity, minDistanceCheck.reason);
+      return;
+    }
+
     const distanceCheck = this.anticheatService.validateClaimedDistance(
       trackDistance,
       activity.distanceMeters,
@@ -126,13 +135,26 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     const ownerResults = await this.ownershipService.recalculateOwners(
       affectedCells.h3Indices,
       previousOwners,
+      { suppressCaptureFeed: true },
     );
 
-    const seasonNewCaptures = ownerResults.filter(
+    const cellsCaptured = ownerResults.filter(
       (result) =>
         result.ownerId === activity.userId &&
         previousOwners.get(result.h3Index) !== activity.userId,
     ).length;
+
+    const pvpCaptures = ownerResults.filter((result) => {
+      if (result.ownerId !== activity.userId) {
+        return false;
+      }
+      const previousOwnerId = previousOwners.get(result.h3Index) ?? null;
+      return previousOwnerId != null && previousOwnerId !== activity.userId;
+    }).length;
+
+    const newCellsCaptured = cellsCaptured - pvpCaptures;
+
+    const seasonNewCaptures = cellsCaptured;
 
     const existingStats = await this.prisma.userStats.findUnique({
       where: { userId: activity.userId },
@@ -183,6 +205,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       distance: activity.distanceMeters,
       duration: activity.durationSeconds,
       cellsAffected: affectedCells.h3Indices.length,
+      cellsCaptured,
+      newCellsCaptured,
+      pvpCaptures,
+      influenceAdded: Math.round(affectedCells.influenceAdded * 10) / 10,
     });
 
     await this.prisma.activity.update({
@@ -190,6 +216,11 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       data: {
         status: ActivityStatus.completed,
         processedAt: new Date(),
+        cellsCaptured,
+        cellsTouched: affectedCells.h3Indices.length,
+        newCellsCaptured,
+        pvpCaptures,
+        influenceAdded: affectedCells.influenceAdded,
       },
     });
 
@@ -197,7 +228,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       msg: 'Activity processed successfully',
       activityId,
       userId: activity.userId,
-      cellsAffected: affectedCells.h3Indices.length,
+      cellsTouched: affectedCells.h3Indices.length,
+      cellsCaptured,
+      pvpCaptures,
+      newCellsCaptured,
     });
   }
 
@@ -233,6 +267,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       distance: activity.distanceMeters,
       duration: activity.durationSeconds,
       cellsAffected: 0,
+      cellsCaptured: 0,
       flagged: true,
       reason,
     });

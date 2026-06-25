@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Circle, CircleMarker, useMapEvents } from 'rea
 import 'leaflet/dist/leaflet.css';
 import { apiRequest } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { HOME_ZONE_RADIUS_M, HOME_ZONE_BONUS_MULTIPLIER } from '../constants/game';
 
 function HomePicker({
   position,
@@ -27,7 +28,7 @@ function HomePicker({
       />
       <Circle
         center={position}
-        radius={500}
+        radius={HOME_ZONE_RADIUS_M}
         pathOptions={{ color: '#8A8A8A', fillColor: '#E5E5E5', fillOpacity: 0.35, dashArray: '6 4' }}
       />
     </>
@@ -68,7 +69,8 @@ export default function OnboardingPage() {
       <div className="auth-card" style={{ width: 'min(100%, 440px)' }}>
         <h1>{user?.homeLat != null ? 'Новая база' : 'Выберите базу'}</h1>
         <p className="auth-subtitle">
-          Нажмите на карту — в радиусе 500 м действует бонус к влиянию.
+          Нажмите на карту — в радиусе {HOME_ZONE_RADIUS_M} м действует бонус ×
+          {HOME_ZONE_BONUS_MULTIPLIER} к влиянию.
         </p>
 
         <div className="onboarding-map">

@@ -8,9 +8,17 @@ export function formatFeedEvent(event: FeedEvent, viewerUserId?: string): string
       if (payload.flagged) {
         return 'пробежка отклонена проверкой GPS';
       }
-      const cells = Number(payload.cellsAffected ?? 0);
+      const cellsCaptured = Number(payload.cellsCaptured ?? payload.cellsAffected ?? 0);
       const km = Number(payload.distance ?? 0) / 1000;
-      return `пробежал ${km.toFixed(1)} км · затронуто ${cells} клеток`;
+      if (km <= 0) {
+        return `затронуто ${cellsCaptured} клеток`;
+      }
+      const pvp = Number(payload.pvpCaptures ?? 0);
+      const base = `пробежал ${km.toFixed(1)} км · захвачено ${cellsCaptured} клеток`;
+      if (pvp > 0) {
+        return `${base} (${pvp} у соперников)`;
+      }
+      return base;
     }
     case 'cell_captured': {
       const prev = payload.previousOwnerNickname as string | null;
@@ -27,7 +35,7 @@ export function formatFeedEvent(event: FeedEvent, viewerUserId?: string): string
       const challenger = (payload.challengerNickname as string) || 'Соперник';
       const gap = Number(payload.gapPercent ?? 0);
       if (viewerUserId && event.userId === viewerUserId) {
-        return `${challenger} атакует твою клетку — ${gap}% до захвата`;
+        return `${challenger} атакует вашу клетку — ${gap}% до захвата`;
       }
       return `${challenger} атакует клетку ${event.user.nickname} — ${gap}% до захвата`;
     }
@@ -42,8 +50,8 @@ export function formatFeedBadge(event: FeedEvent): string | null {
   switch (event.type) {
     case 'activity_completed': {
       if (payload.flagged) return 'ERR';
-      const cells = Number(payload.cellsAffected ?? 0);
-      return cells > 0 ? `+${cells} клеток` : null;
+      const cellsCaptured = Number(payload.cellsCaptured ?? 0);
+      return cellsCaptured > 0 ? `+${cellsCaptured} клеток` : null;
     }
     case 'cell_captured':
       return '+1 клетка';

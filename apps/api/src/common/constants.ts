@@ -23,7 +23,14 @@ export const FREEZE_COOLDOWN_DAYS = 90;
 
 /** Capture target hints: gap to leader within this range = easy capture. */
 export const CAPTURE_TARGET_MAX_GAP = 15;
+export const CAPTURE_TARGET_FINISH_GAP = 5;
 export const CAPTURE_TARGET_RADIUS_M = 2000;
+
+/** Minimum valid activity distance (meters). */
+export const MIN_ACTIVITY_DISTANCE_M = 100;
+
+/** Minimum track distance inside a cell for full +1 influence. */
+export const MIN_CELL_DISTANCE_M = 50;
 
 export const MAX_RIVAL_FOLLOWS = 3;
 

@@ -232,4 +232,14 @@ export class ActivitiesController {
   ) {
     return this.activitiesService.getStatus(req.user.id, activityId);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id')
+  @ApiOperation({ summary: 'Get activity details with route bounds' })
+  async getById(
+    @Request() req: { user: { id: string } },
+    @Param('id') activityId: string,
+  ) {
+    return this.activitiesService.getById(req.user.id, activityId);
+  }
 }

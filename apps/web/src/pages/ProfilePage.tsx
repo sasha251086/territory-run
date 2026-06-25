@@ -9,12 +9,10 @@ import {
   daysUntilFreezeEnds,
 } from '../utils/freeze';
 
-function streakBonusLabel(streak: number) {
-  if (streak >= 14) return '×1.3 к влиянию';
-  if (streak >= 7) return '×1.2 к влиянию';
-  if (streak >= 4) return '×1.1 к влиянию';
-  return null;
-}
+import {
+  softCapLabel,
+  streakBonusLabel,
+} from '../constants/game';
 
 export default function ProfilePage() {
   const { user, refreshProfile, logout } = useAuth();
@@ -130,7 +128,7 @@ export default function ProfilePage() {
           <h1>{user?.nickname}</h1>
           <p>{user?.email}</p>
         </div>
-        <span className="wire-chip">Ур. {Math.max(1, Math.floor((user?.stats?.cellsOwned ?? 0) / 12) + 1)}</span>
+        <span className="wire-chip">{softCapLabel(user?.stats?.cellsOwned ?? 0)}</span>
       </header>
 
       <div className="stats-grid">
@@ -148,7 +146,9 @@ export default function ProfilePage() {
         </div>
         <div>
           <span>Стрик</span>
-          <strong>{currentStreak > 0 ? `${currentStreak} дн` : '—'}</strong>
+          <strong>
+            {currentStreak > 0 ? `${currentStreak} дн · ${streakBonusLabel(currentStreak)}` : '—'}
+          </strong>
         </div>
       </div>
 

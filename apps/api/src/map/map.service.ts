@@ -11,9 +11,11 @@ import {
 } from './dto/cell-response.dto';
 import { haversineDistance, roundCoord } from '../common/geo.util';
 import {
+  CAPTURE_TARGET_FINISH_GAP,
   CAPTURE_TARGET_MAX_GAP,
   CAPTURE_TARGET_RADIUS_M,
   DECAY_THREAT_DAYS,
+  SIEGE_THRESHOLD,
 } from '../common/constants';
 import {
   daysSinceActivity,
@@ -185,6 +187,15 @@ export class MapService {
     });
 
     const targets: CaptureTargetDto[] = [];
+    const seen = new Set<string>();
+
+    const pushTarget = (target: CaptureTargetDto) => {
+      if (seen.has(target.h3Index)) {
+        return;
+      }
+      seen.add(target.h3Index);
+      targets.push(target);
+    };
 
     for (const mine of myOwnerships) {
       const center = mine.cell.center as { lat: number; lng: number } | null;
@@ -193,30 +204,84 @@ export class MapService {
       const distance = haversineDistance(lat, lng, center.lat, center.lng);
       if (distance > CAPTURE_TARGET_RADIUS_M) continue;
 
-      const leader = mine.cell.ownerships[0];
-      if (!leader || leader.userId === userId) continue;
+      const ranked = rankCellOwnerships(mine.cell.ownerships);
+      const leader = ranked[0];
+      const challenger = ranked[1];
+      if (!leader) continue;
 
-      const gap = leader.influence - mine.influence;
-      if (gap <= 0 || gap > CAPTURE_TARGET_MAX_GAP) continue;
+      const isOwner = leader.userId === userId;
 
-      targets.push({
-        h3Index: mine.h3Index,
-        lat: center.lat,
-        lng: center.lng,
-        myInfluence: mine.influence,
-        leaderInfluence: leader.influence,
-        gap,
-        runsNeeded: runsToCapture(gap),
-        ownerNickname: leader.user.nickname,
-      });
+      if (isOwner && challenger) {
+        const contest = getCellContestState(leader.influence, challenger.influence);
+        const underSiege = challenger.influence >= leader.influence * SIEGE_THRESHOLD;
+        if (contest.contested || underSiege) {
+          pushTarget({
+            h3Index: mine.h3Index,
+            lat: center.lat,
+            lng: center.lng,
+            myInfluence: leader.influence,
+            leaderInfluence: challenger.influence,
+            gap: Math.max(0, leader.influence - challenger.influence),
+            runsNeeded: runsToCapture(
+              Math.max(0, challenger.influence - leader.influence + 1),
+            ),
+            ownerNickname: challenger.user.nickname,
+            category: 'defend',
+          });
+        }
+        continue;
+      }
+
+      if (!isOwner) {
+        const gap = leader.influence - mine.influence;
+        if (gap <= 0 || gap > CAPTURE_TARGET_MAX_GAP) {
+          continue;
+        }
+
+        const category: CaptureTargetDto['category'] =
+          gap <= CAPTURE_TARGET_FINISH_GAP ? 'finish' : 'capture';
+
+        pushTarget({
+          h3Index: mine.h3Index,
+          lat: center.lat,
+          lng: center.lng,
+          myInfluence: mine.influence,
+          leaderInfluence: leader.influence,
+          gap,
+          runsNeeded: runsToCapture(gap),
+          ownerNickname: leader.user.nickname,
+          category,
+        });
+      }
     }
 
-    targets.sort((a, b) => a.gap - b.gap);
+    const categoryOrder = { defend: 0, finish: 1, capture: 2 };
+    targets.sort((a, b) => {
+      const orderDiff = categoryOrder[a.category] - categoryOrder[b.category];
+      if (orderDiff !== 0) {
+        return orderDiff;
+      }
+      return a.gap - b.gap;
+    });
 
-    const message =
-      targets.length === 0
-        ? 'Рядом нет клеток, которые можно захватить за 1–3 пробежки.'
-        : `${targets.length} клеток рядом — нужна ${targets[0].runsNeeded <= 1 ? '1 пробежка' : `~${targets[0].runsNeeded} пробежки`}.`;
+    const defendCount = targets.filter((target) => target.category === 'defend').length;
+    const finishCount = targets.filter((target) => target.category === 'finish').length;
+    const captureCount = targets.filter((target) => target.category === 'capture').length;
+
+    let message = 'Рядом нет клеток для захвата — пробегитесь по новому маршруту.';
+    if (targets.length > 0) {
+      const parts: string[] = [];
+      if (defendCount > 0) {
+        parts.push(`${defendCount} защитить`);
+      }
+      if (finishCount > 0) {
+        parts.push(`${finishCount} добить`);
+      }
+      if (captureCount > 0) {
+        parts.push(`${captureCount} захватить`);
+      }
+      message = `Рядом: ${parts.join(', ')}.`;
+    }
 
     return { targets, message };
   }
@@ -247,13 +312,15 @@ export class MapService {
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
 
-    const cellsGainedThisWeek = await this.prisma.event.count({
+    const cellsGainedAgg = await this.prisma.activity.aggregate({
       where: {
         userId,
-        type: 'cell_captured',
-        createdAt: { gte: weekAgo },
+        status: 'completed',
+        processedAt: { gte: weekAgo },
       },
+      _sum: { cellsCaptured: true },
     });
+    const cellsGainedThisWeek = cellsGainedAgg._sum.cellsCaptured ?? 0;
 
     const cellsOwned = user?.stats?.cellsOwned ?? 0;
     const territoryAreaM2 = cellsOwned * cellAreaM2;

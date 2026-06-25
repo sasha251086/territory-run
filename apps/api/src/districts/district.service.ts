@@ -22,26 +22,42 @@ export class DistrictService {
   ) {}
 
   async assignCellToDistrict(h3Index: string, lat: number, lng: number): Promise<void> {
-    const existing = await this.prisma.districtCell.findFirst({
-      where: { h3Index },
+    await this.assignCellsToDistricts([{ h3Index, lat, lng }]);
+  }
+
+  async assignCellsToDistricts(
+    cells: Array<{ h3Index: string; lat: number; lng: number }>,
+  ): Promise<void> {
+    if (cells.length === 0) {
+      return;
+    }
+
+    const h3Indices = cells.map((cell) => cell.h3Index);
+    const existing = await this.prisma.districtCell.findMany({
+      where: { h3Index: { in: h3Indices } },
+      select: { h3Index: true },
     });
-    if (existing) {
+    const assigned = new Set(existing.map((row) => row.h3Index));
+    const pending = cells.filter((cell) => !assigned.has(cell.h3Index));
+    if (pending.length === 0) {
       return;
     }
 
     const districts = await this.getDistrictPolygons();
-    for (const district of districts) {
-      if (!isPointInPolygon(lat, lng, district.polygon)) {
-        continue;
-      }
+    const creates: Array<{ districtId: string; h3Index: string }> = [];
 
-      await this.prisma.districtCell.create({
-        data: {
-          districtId: district.id,
-          h3Index,
-        },
-      });
-      return;
+    for (const cell of pending) {
+      for (const district of districts) {
+        if (!isPointInPolygon(cell.lat, cell.lng, district.polygon)) {
+          continue;
+        }
+        creates.push({ districtId: district.id, h3Index: cell.h3Index });
+        break;
+      }
+    }
+
+    if (creates.length > 0) {
+      await this.prisma.districtCell.createMany({ data: creates, skipDuplicates: true });
     }
   }
 

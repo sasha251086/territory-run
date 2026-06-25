@@ -31,6 +31,7 @@ export interface UserStats {
   totalInfluence: number;
   currentStreak: number;
   firstCaptureShownAt: string | null;
+  gameTutorialShownAt?: string | null;
 }
 
 export type DecayRisk = 'none' | 'warning' | 'critical';
@@ -96,6 +97,7 @@ export interface CaptureTarget {
   gap: number;
   runsNeeded: number;
   ownerNickname: string | null;
+  category: 'capture' | 'finish' | 'defend';
 }
 
 export interface MapSummary {
@@ -150,6 +152,10 @@ export interface ActivityItem {
   failureReason: string | null;
   processedAt: string | null;
   cellsCaptured?: number | null;
+  cellsTouched?: number | null;
+  newCellsCaptured?: number | null;
+  pvpCaptures?: number | null;
+  influenceAdded?: number | null;
 }
 
 export interface FeedEvent {

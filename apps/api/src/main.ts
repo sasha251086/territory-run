@@ -18,8 +18,24 @@ async function bootstrap() {
   app.useBodyParser('json', { limit: '10mb' });
   app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
 
+  const productionWebOrigin = 'https://territory-run-cjoj.onrender.com';
+  const configuredOrigins = process.env.ALLOWED_ORIGINS?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const corsOrigins =
+    configuredOrigins && configuredOrigins.length > 0
+      ? [...configuredOrigins]
+      : process.env.NODE_ENV === 'production'
+        ? [productionWebOrigin]
+        : ['http://localhost:5173'];
+  if (
+    process.env.NODE_ENV === 'production' &&
+    !corsOrigins.includes(productionWebOrigin)
+  ) {
+    corsOrigins.push(productionWebOrigin);
+  }
   app.enableCors({
-    origin: process.env.ALLOWED_ORIGINS?.split(',') ?? ['http://localhost:5173'],
+    origin: corsOrigins,
     credentials: true,
   });
   app.useGlobalInterceptors(new ResponseInterceptor());

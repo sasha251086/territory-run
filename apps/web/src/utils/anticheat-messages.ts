@@ -14,6 +14,9 @@ export function formatAnticheatMessage(reason: string | null): string {
   if (reason === 'DISTANCE_MISMATCH') {
     return 'Заявленная дистанция сильно отличается от GPS-трека. Проверьте данные пробежки.';
   }
+  if (reason === 'DISTANCE_TOO_SHORT') {
+    return 'Пробежка слишком короткая для засчёта (минимум 100 м по GPS-треку).';
+  }
   if (reason) {
     return `Пробежка отклонена: ${reason}.`;
   }

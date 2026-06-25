@@ -99,6 +99,7 @@ export class CaptureTargetDto {
   gap!: number;
   runsNeeded!: number;
   ownerNickname!: string | null;
+  category!: 'capture' | 'finish' | 'defend';
 }
 
 export class CaptureTargetsResponseDto {

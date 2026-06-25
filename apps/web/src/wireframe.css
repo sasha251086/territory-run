@@ -687,6 +687,21 @@ input:focus {
   background: var(--surface);
 }
 
+.run-row--clickable .run-row__body-btn:hover,
+.run-row--clickable .run-row__hex:hover {
+  opacity: 0.85;
+}
+
+.run-row__body-btn {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
 .run-row__hex {
   width: 44px;
   height: 44px;
@@ -699,6 +714,31 @@ input:focus {
   font-size: 0.82rem;
   font-weight: 800;
   line-height: 1;
+  cursor: pointer;
+}
+
+.run-row__hex:disabled {
+  cursor: default;
+}
+
+.run-row__hex--processing {
+  background: #e8e8e8;
+}
+
+.wire-badge--pending {
+  opacity: 0.7;
+}
+
+.game-tutorial-list {
+  margin: 0 0 1.25rem;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+.game-tutorial-card {
+  max-width: 28rem;
 }
 
 .run-row__hex span {

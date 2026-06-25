@@ -74,7 +74,34 @@ describe('QueueService anticheat integration', () => {
         flagged: true,
         reason: 'SPEED_EXCEEDED',
         cellsAffected: 0,
+        cellsCaptured: 0,
       }),
     );
+  });
+
+  it('should reject activities shorter than minimum distance', async () => {
+    mockPrisma.activity.findUnique.mockResolvedValue({
+      id: 'activity-2',
+      userId: 'user-1',
+      distanceMeters: 10,
+      durationSeconds: 60,
+      track: {
+        route: [
+          { lat: 56.95, lng: 24.1, timestamp: '2026-06-21T10:00:00.000Z' },
+          { lat: 56.95001, lng: 24.1, timestamp: '2026-06-21T10:00:30.000Z' },
+        ],
+      },
+    });
+
+    await service.processActivity('activity-2');
+
+    expect(mockInfluenceService.processTrack).not.toHaveBeenCalled();
+    expect(mockPrisma.activity.update).toHaveBeenCalledWith({
+      where: { id: 'activity-2' },
+      data: expect.objectContaining({
+        status: ActivityStatus.failed,
+        failureReason: 'DISTANCE_TOO_SHORT',
+      }),
+    });
   });
 });

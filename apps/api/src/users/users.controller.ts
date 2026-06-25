@@ -35,6 +35,13 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('me/game-tutorial-shown')
+  @ApiOperation({ summary: 'Mark gameplay tutorial as shown' })
+  async markGameTutorialShown(@Request() req: { user: { id: string } }) {
+    return this.usersService.markGameTutorialShown(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('me/freeze')
   @ApiOperation({ summary: 'Activate territory freeze for 7 days' })
   async activateFreeze(@Request() req: { user: { id: string } }) {

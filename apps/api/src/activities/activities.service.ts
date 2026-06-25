@@ -370,12 +370,25 @@ export class ActivitiesService {
           failureReason: true,
           processedAt: true,
           createdAt: true,
+          cellsCaptured: true,
+          cellsTouched: true,
+          newCellsCaptured: true,
+          pvpCaptures: true,
+          influenceAdded: true,
         },
       }),
       this.prisma.activity.count({ where: { userId } }),
     ]);
 
-    const enrichedItems = await this.attachCellsCapturedFromEvents(userId, items);
+    const enrichedItems = items.map((item) => ({
+      ...item,
+      cellsCaptured:
+        item.status === ActivityStatus.completed
+          ? (item.cellsCaptured ?? null)
+          : item.status === ActivityStatus.failed
+            ? 0
+            : null,
+    }));
 
     return {
       items: enrichedItems,
@@ -429,6 +442,13 @@ export class ActivitiesService {
       select: {
         status: true,
         failureReason: true,
+        distanceMeters: true,
+        durationSeconds: true,
+        cellsCaptured: true,
+        cellsTouched: true,
+        newCellsCaptured: true,
+        pvpCaptures: true,
+        influenceAdded: true,
       },
     });
 
@@ -443,6 +463,71 @@ export class ActivitiesService {
     return {
       status: activity.status,
       ...(activity.failureReason ? { reason: activity.failureReason } : {}),
+      ...(activity.status === ActivityStatus.completed
+        ? {
+            distanceMeters: activity.distanceMeters,
+            durationSeconds: activity.durationSeconds,
+            cellsCaptured: activity.cellsCaptured ?? 0,
+            cellsTouched: activity.cellsTouched ?? 0,
+            newCellsCaptured: activity.newCellsCaptured ?? 0,
+            pvpCaptures: activity.pvpCaptures ?? 0,
+            influenceAdded: activity.influenceAdded ?? 0,
+          }
+        : {}),
+    };
+  }
+
+  async getById(userId: string, activityId: string) {
+    const activity = await this.prisma.activity.findFirst({
+      where: { id: activityId, userId },
+      include: { track: true },
+    });
+
+    if (!activity) {
+      throw new ApiException(
+        ErrorCodes.NOT_FOUND,
+        'Activity not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const route = activity.track?.route as
+      | { lat: number; lng: number }[]
+      | undefined;
+
+    let bounds: { north: number; south: number; east: number; west: number } | null =
+      null;
+    if (route?.length) {
+      let north = route[0].lat;
+      let south = route[0].lat;
+      let east = route[0].lng;
+      let west = route[0].lng;
+      for (const point of route) {
+        north = Math.max(north, point.lat);
+        south = Math.min(south, point.lat);
+        east = Math.max(east, point.lng);
+        west = Math.min(west, point.lng);
+      }
+      bounds = { north, south, east, west };
+    }
+
+    return {
+      id: activity.id,
+      source: activity.source,
+      distanceMeters: activity.distanceMeters,
+      durationSeconds: activity.durationSeconds,
+      avgPace: activity.avgPace,
+      startedAt: activity.startedAt,
+      finishedAt: activity.finishedAt,
+      status: activity.status,
+      failureReason: activity.failureReason,
+      processedAt: activity.processedAt,
+      cellsCaptured: activity.cellsCaptured,
+      cellsTouched: activity.cellsTouched,
+      newCellsCaptured: activity.newCellsCaptured,
+      pvpCaptures: activity.pvpCaptures,
+      influenceAdded: activity.influenceAdded,
+      bounds,
     };
   }
 
@@ -487,45 +572,5 @@ export class ActivitiesService {
     }
 
     return { requeued };
-  }
-
-  private async attachCellsCapturedFromEvents<
-    T extends { id: string; status: ActivityStatus },
-  >(userId: string, items: T[]): Promise<Array<T & { cellsCaptured: number | null }>> {
-    const completedIds = new Set(
-      items.filter((item) => item.status === ActivityStatus.completed).map((item) => item.id),
-    );
-    const cellsByActivity = new Map<string, number>();
-
-    if (completedIds.size > 0) {
-      const events = await this.prisma.event.findMany({
-        where: { userId, type: 'activity_completed' },
-        select: { payload: true },
-        orderBy: { createdAt: 'desc' },
-        take: 1000,
-      });
-
-      for (const event of events) {
-        const payload = event.payload as { activityId?: string; cellsAffected?: number };
-        if (
-          payload.activityId &&
-          completedIds.has(payload.activityId) &&
-          typeof payload.cellsAffected === 'number' &&
-          !cellsByActivity.has(payload.activityId)
-        ) {
-          cellsByActivity.set(payload.activityId, payload.cellsAffected);
-        }
-      }
-    }
-
-    return items.map((item) => {
-      if (item.status === ActivityStatus.completed) {
-        return { ...item, cellsCaptured: cellsByActivity.get(item.id) ?? null };
-      }
-      if (item.status === ActivityStatus.failed) {
-        return { ...item, cellsCaptured: 0 };
-      }
-      return { ...item, cellsCaptured: null };
-    });
   }
 }

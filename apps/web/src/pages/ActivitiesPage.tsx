@@ -3,8 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { apiRequest, apiUploadFile } from '../api/client';
 import type { ActivityItem, IntegrationInfo } from '../api/types';
 import ActivityCard from '../components/ActivityCard';
+import ActivityResultsModal from '../components/ActivityResultsModal';
 import FirstCaptureModal from '../components/FirstCaptureModal';
+import GameTutorialModal from '../components/GameTutorialModal';
+import { useActivityStatusPoll, type ActivityStatusResult } from '../hooks/useActivityStatusPoll';
 import { healthSync, formatHealthSyncMessage } from '../services/health-sync.service';
+import { useAuth } from '../context/AuthContext';
 
 const RUN_PREVIEW_KEY = 'territory-run-run-preview';
 
@@ -57,6 +61,8 @@ async function checkFirstCapture(setShow: (v: boolean) => void, setCells: (n: nu
 
 export default function ActivitiesPage() {
   const navigate = useNavigate();
+  const { user, refreshProfile } = useAuth();
+  const { pollActivity } = useActivityStatusPoll();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [totalActivities, setTotalActivities] = useState(0);
   const [integrations, setIntegrations] = useState<IntegrationInfo[]>([]);
@@ -69,6 +75,8 @@ export default function ActivitiesPage() {
   const [healthSyncMessage, setHealthSyncMessage] = useState<string | null>(null);
   const [showFirstCapture, setShowFirstCapture] = useState(false);
   const [captureCells, setCaptureCells] = useState(0);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [resultsModal, setResultsModal] = useState<ActivityStatusResult | null>(null);
   const [isNativeApp, setIsNativeApp] = useState(false);
   const [healthSyncing, setHealthSyncing] = useState(false);
   const [healthSyncProgress, setHealthSyncProgress] = useState<string | null>(null);
@@ -115,6 +123,38 @@ export default function ActivitiesPage() {
   );
 
   const importBusy = uploading || uploadingSamsungZip || syncing || healthSyncing;
+
+  function watchActivity(activityId: string) {
+    pollActivity(activityId, {
+      onComplete: async (result) => {
+        await loadData();
+        await refreshProfile();
+        await checkFirstCapture(setShowFirstCapture, setCaptureCells);
+        if (!user?.stats?.gameTutorialShownAt) {
+          setShowTutorial(true);
+        }
+        setResultsModal(result);
+      },
+      onFailed: async () => {
+        await loadData();
+      },
+    });
+  }
+
+  function dismissResults() {
+    setResultsModal(null);
+    markRunPreviewAndGoToMap(navigate);
+  }
+
+  async function dismissTutorial() {
+    setShowTutorial(false);
+    try {
+      await apiRequest('/users/me/game-tutorial-shown', { method: 'POST' });
+      await refreshProfile();
+    } catch {
+      // non-blocking
+    }
+  }
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -193,11 +233,13 @@ export default function ActivitiesPage() {
 
       if (result.imported > 0) {
         await loadData();
-        setTimeout(async () => {
-          await loadData();
-          await checkFirstCapture(setShowFirstCapture, setCaptureCells);
-          markRunPreviewAndGoToMap(navigate);
-        }, 8000);
+        const latest = await apiRequest<{
+          items: Array<{ id: string; status: string }>;
+        }>('/activities?page=1&limit=5');
+        const processing = latest.items.find((item) => item.status === 'processing');
+        if (processing) {
+          watchActivity(processing.id);
+        }
       }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Ошибка синхронизации с телефоном');
@@ -220,11 +262,13 @@ export default function ActivitiesPage() {
       await loadData();
 
       if (result.imported > 0) {
-        setTimeout(async () => {
-          await loadData();
-          await checkFirstCapture(setShowFirstCapture, setCaptureCells);
-          markRunPreviewAndGoToMap(navigate);
-        }, 8000);
+        const latest = await apiRequest<{
+          items: Array<{ id: string; status: string }>;
+        }>('/activities?page=1&limit=5');
+        const processing = latest.items.find((item) => item.status === 'processing');
+        if (processing) {
+          watchActivity(processing.id);
+        }
       } else {
         setMessage('Новых пробежек не найдено. Как только появится бег в Strava, он появится здесь.');
       }
@@ -252,12 +296,7 @@ export default function ActivitiesPage() {
       );
       setMessage(`Файл загружен. Статус: ${result.status}. Обработка займёт несколько секунд.`);
       await loadData();
-
-      setTimeout(async () => {
-        await loadData();
-        await checkFirstCapture(setShowFirstCapture, setCaptureCells);
-        markRunPreviewAndGoToMap(navigate);
-      }, 8000);
+      watchActivity(result.activityId);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Не удалось загрузить файл');
     } finally {
@@ -298,11 +337,13 @@ export default function ActivitiesPage() {
 
       if (result.imported > 0) {
         await loadData();
-        setTimeout(async () => {
-          await loadData();
-          await checkFirstCapture(setShowFirstCapture, setCaptureCells);
-          markRunPreviewAndGoToMap(navigate);
-        }, 8000);
+        const latest = await apiRequest<{
+          items: Array<{ id: string; status: string }>;
+        }>('/activities?page=1&limit=5');
+        const processing = latest.items.find((item) => item.status === 'processing');
+        if (processing) {
+          watchActivity(processing.id);
+        }
       }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Не удалось загрузить архив Samsung Health');
@@ -476,6 +517,16 @@ export default function ActivitiesPage() {
         <FirstCaptureModal
           cellsCaptured={captureCells}
           onClose={() => setShowFirstCapture(false)}
+        />
+      )}
+
+      {showTutorial && <GameTutorialModal onClose={() => void dismissTutorial()} />}
+
+      {resultsModal && (
+        <ActivityResultsModal
+          result={resultsModal}
+          cellsOwned={user?.stats?.cellsOwned ?? 0}
+          onDismiss={dismissResults}
         />
       )}
     </div>

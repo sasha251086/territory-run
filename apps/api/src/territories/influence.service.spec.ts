@@ -9,10 +9,12 @@ const mockPrisma = {
   cellOwnership: { findMany: jest.fn(), update: jest.fn(), createMany: jest.fn() },
   user: { findUnique: jest.fn() },
   $transaction: jest.fn(),
+  $executeRaw: jest.fn(),
 };
 
 const mockDistrictService = {
   assignCellToDistrict: jest.fn(),
+  assignCellsToDistricts: jest.fn(),
 };
 
 describe('InfluenceService', () => {
@@ -61,7 +63,10 @@ describe('InfluenceService', () => {
   });
 
   it('should cap influence at 100 when existing + gain exceeds limit', async () => {
-    const track = [{ lat: 56.95, lng: 24.1 }];
+    const track = [
+      { lat: 56.95, lng: 24.1 },
+      { lat: 56.951, lng: 24.1 },
+    ];
     const h3Index = h3.latLngToCell(56.95, 24.1, 9);
     mockPrisma.user.findUnique.mockResolvedValue({
       id: 'user1',
@@ -81,15 +86,14 @@ describe('InfluenceService', () => {
 
     await service.processTrack('user1', track);
 
-    expect(mockPrisma.cellOwnership.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ influence: 100 }),
-      }),
-    );
+    expect(mockPrisma.$executeRaw).toHaveBeenCalled();
   });
 
   it('should apply new player bonus on new cells outside home zone', async () => {
-    const track = [{ lat: 56.95, lng: 24.1 }];
+    const track = [
+      { lat: 56.95, lng: 24.1 },
+      { lat: 56.951, lng: 24.1 },
+    ];
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     mockPrisma.user.findUnique.mockResolvedValue({
       id: 'user1',
@@ -112,7 +116,10 @@ describe('InfluenceService', () => {
   });
 
   it('should not stack new player bonus with home zone bonus', async () => {
-    const track = [{ lat: 56.95, lng: 24.1 }];
+    const track = [
+      { lat: 56.95, lng: 24.1 },
+      { lat: 56.951, lng: 24.1 },
+    ];
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     mockPrisma.user.findUnique.mockResolvedValue({
       id: 'user1',

@@ -78,6 +78,11 @@ model Activity {
   processedAt     DateTime?
   status          ActivityStatus @default(processing)
   failureReason   String?
+  cellsCaptured   Int?
+  cellsTouched    Int?
+  newCellsCaptured Int?
+  pvpCaptures     Int?
+  influenceAdded  Float?
   createdAt       DateTime       @default(now())
 
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -128,6 +133,7 @@ model UserStats {
   currentStreak  Int      @default(0)
   lastRunDate    DateTime?
   firstCaptureShownAt DateTime?
+  gameTutorialShownAt DateTime?
   seasonCellsOwned    Int      @default(0)
   seasonInfluence     Float    @default(0)
   updatedAt      DateTime @updatedAt

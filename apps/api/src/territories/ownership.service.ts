@@ -27,6 +27,7 @@ export class OwnershipService {
   async recalculateOwners(
     h3Indices: string[],
     previousOwnerByCell: Map<string, string | null> = new Map(),
+    options: { suppressCaptureFeed?: boolean } = {},
   ) {
     if (h3Indices.length === 0) {
       return [];
@@ -93,13 +94,15 @@ export class OwnershipService {
           ? (nickById.get(previousOwnerId) ?? null)
           : null;
 
-        await this.feedService.createEvent('cell_captured', newOwnerId, {
-          h3Index,
-          cellOwnerNickname: top.user.nickname,
-          previousOwnerNickname: previousNickname,
-          influence: top.influence,
-          timestamp: new Date(),
-        });
+        if (!options.suppressCaptureFeed && previousNickname) {
+          await this.feedService.createEvent('cell_captured', newOwnerId, {
+            h3Index,
+            cellOwnerNickname: top.user.nickname,
+            previousOwnerNickname: previousNickname,
+            influence: top.influence,
+            timestamp: new Date(),
+          });
+        }
         this.logger.log({
           msg: 'Cell captured',
           h3Index,
