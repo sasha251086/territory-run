@@ -1,0 +1,148 @@
+﻿=== Cursor Agent Shell Diagnosis ===
+Date: 2026-06-24T22:27:08.5653931+03:00
+
+--- Environment ---
+Computer: SASHA2510
+User: sasha
+OS: Microsoft Windows NT 10.0.26200.0
+Is64Bit: True
+
+--- PowerShell ---
+PSVersion: 5.1.26100.8655
+PSEdition: Desktop
+ExecutionPolicy:
+
+        Scope ExecutionPolicy
+        ----- ---------------
+MachinePolicy       Undefined
+   UserPolicy       Undefined
+      Process          Bypass
+  CurrentUser    RemoteSigned
+ LocalMachine       Undefined
+
+
+
+
+--- Cursor install ---
+Cursor path: C:\Users\sasha\AppData\Local\Programs\cursor
+Exists: True
+Cursor.exe version: 3.8.23
+
+--- node-pty (PTY for terminals) ---
+node-pty folder: True
+prebuilds folder: False
+native .node binaries under node-pty: 3
+  C:\Users\sasha\AppData\Local\Programs\cursor\resources\app\node_modules\node-pty\build\Release\conpty.node
+  C:\Users\sasha\AppData\Local\Programs\cursor\resources\app\node_modules\node-pty\build\Release\conpty_console_list.node
+  C:\Users\sasha\AppData\Local\Programs\cursor\resources\app\node_modules\node-pty\build\Release\pty.node
+
+--- cursor-agent-exec ---
+extension folder: True
+native .node binaries in cursor-agent-exec: 6
+  C:\Users\sasha\AppData\Local\Programs\cursor\resources\app\extensions\cursor-agent-exec\dist\node_modules\@anysphere\tree-chunk-napi\tree-chunk-napi.win32-x64-msvc.node
+  C:\Users\sasha\AppData\Local\Programs\cursor\resources\app\extensions\cursor-agent-exec\dist\node_modules\better-sqlite3\build\Release\better_sqlite3.node
+  C:\Users\sasha\AppData\Local\Programs\cursor\resources\app\extensions\cursor-agent-exec\dist\node_modules\tree-sitter\build\Release\tree_sitter_runtime_binding.node
+  C:\Users\sasha\AppData\Local\Programs\cursor\resources\app\extensions\cursor-agent-exec\dist\node_modules\tree-sitter-bash\build\Release\tree_sitter_bash_binding.node
+  C:\Users\sasha\AppData\Local\Programs\cursor\resources\app\extensions\cursor-agent-exec\dist\node_modules\tree-sitter-bash\prebuilds\win32-x64\tree-sitter-bash.node
+  C:\Users\sasha\AppData\Local\Programs\cursor\resources\app\extensions\cursor-agent-exec\dist\node_modules\whichlang-node-win32-x64-msvc\whichlang-node.win32-x64-msvc.node
+
+--- Cursor user settings ---
+{
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "terminal.integrated.shellIntegration.enabled": true,
+  "security.workspace.trust.enabled": false,
+  "window.autoDetectColorScheme": true
+}
+
+
+--- Agent terminal state files ---
+
+File: 3.txt (modified 06/24/2026 22:27:07)
+---
+pid: 7252
+cwd: |
+  C:\Projects\territory-run
+last_command: |
+  C:\Projects\territory-run\terminal.integrated.defaultProfile.windows
+last_exit_code: 1
+---
+PS C:\Projects\territory-run> C:\Projects\territory-run\terminal.integrated.defaultProfile.windows
+C:\Projects\territory-run\terminal.in
+tegrated.defaultProfile.windows : РРјСЏ
+ "C:\Projects\territory-run\terminal.
+integrated.defaultProfile.windows" РЅРµ
+ СЂР°СЃРїРѕР·РЅР°РЅРѕ РєР°Рє РёРјСЏ РєРѕРјР°РЅРґР»РµС‚Р°, С„СѓРЅРєС†
+РёРё, С„Р°Р№Р»Р° СЃС†РµРЅР°СЂРёСЏ РёР»Рё РІС‹РїРѕР»РЅСЏРµРјРѕР№ РїСЂ
+РѕРіСЂР°РјРјС‹. РџСЂРѕРІРµСЂСЊС‚Рµ РїСЂР°РІРёР»СЊРЅРѕСЃС‚СЊ РЅР°РїРёСЃ
+Р°РЅРёСЏ РёРјРµРЅРё, Р° С‚Р°РєР¶Рµ РЅР°Р»РёС‡РёРµ Рё РїСЂР°РІРёР»СЊ
+РЅРѕСЃС‚СЊ РїСѓС‚Рё, РїРѕСЃР»Рµ С‡РµРіРѕ РїРѕРІС‚РѕСЂРёС‚Рµ РїРѕРїС‹
+С‚РєСѓ.
+СЃС‚СЂРѕРєР°:1 Р·РЅР°Рє:1
++ C:\Projects\territory-run\terminal.
+integrated.defaultProfile.windows
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : Object 
+   NotFound: (C:\Projects\ter...Pro  
+  file.windows:String) [], Command   
+ NotFoundException
+    + FullyQualifiedErrorId : Comman 
+   dNotFoundException
+ 
+PS C:\Projects\territory-run> powershell -NoProfile -ExecutionPolicy Bypass -File C:\Projects\territory-run\diagnose-agent-shell.ps1
+
+File: 106411.txt (modified 06/24/2026 22:18:28)
+---
+pid: 5980
+cwd: "C:\\Projects\\territory-run"
+command: "cmd /c \"echo Terminal OK && cd && whoami && echo done > C:\\Projects\\territory-run\\shell-check.txt\""
+started_at: 2026-06-24T19:13:22.340Z
+running_for_ms: 305376   
+---
+
+---
+exit_code: 2148734214
+elapsed_ms: 305910
+ended_at: 2026-06-24T19:18:28.250Z
+---
+
+
+--- Recent .NET CLR crashes (last 24h) ---
+[06/24/2026 22:18:26] ID=1001 Provider=Windows Error Reporting
+Контейнер ошибки , тип 0 Имя события: APPCRASH Отклик: Нет данных Идентификатор CAB: 0  Сигнатура проблемы: P1: powershell.exe P2: 10.0.26100.5074 P3: 04b35d0f P4: clr.dll P5: 4.8.9337.0 P6: 69f01f59 P7: 80131506 P8: 00000000002f3c94 P9:  P10:   Вложенные файлы:  Эти файлы можно найти здесь: \\?\C:\ProgramData\Microsoft\Windows\WER\ReportQueue\AppCrash_powershell.exe_bb541199503da6d4c982f6691d287aa6e542ed3b_ad921f21_16eea5a8-f8cc-4221-863a-13dd63759e2e  Символ анализа:  Повторный поиск решения: 
+
+[06/24/2026 22:13:23] ID=1000 Provider=Application Error
+Имя сбойного приложения: powershell.exe, версия: 10.0.26100.5074, метка времени: 0x04b35d0f Имя сбойного модуля: clr.dll, версия: 4.8.9337.0, метка времени: 0x69f01f59 Код исключения: 0x80131506 Смещение ошибки: 0x00000000002f3c94 Идентификатор сбойного процесса: 0x175C Время запуска сбойного приложения: 0x1DD040D8668B9F6 Путь сбойного приложения: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe Путь сбойного модуля: C:\Windows\Microsoft.NET\Framework64\v4.0.30319\clr.dll Идентификатор 
+
+[06/24/2026 22:13:23] ID=1023 Provider=.NET Runtime
+Приложение: powershell.exe Версия платформы: v4.0.30319 Описание. Процесс был завершен из-за внутренней ошибки среды выполнения .NET по IP-адресу 00007FFF04E83C94 (00007FFF04B90000) с кодом выхода 80131506. 
+
+[06/24/2026 22:07:15] ID=1001 Provider=Windows Error Reporting
+Контейнер ошибки , тип 0 Имя события: APPCRASH Отклик: Нет данных Идентификатор CAB: 0  Сигнатура проблемы: P1: powershell.exe P2: 10.0.26100.5074 P3: 04b35d0f P4: clr.dll P5: 4.8.9337.0 P6: 69f01f59 P7: 80131506 P8: 00000000002f3c94 P9:  P10:   Вложенные файлы:  Эти файлы можно найти здесь: \\?\C:\ProgramData\Microsoft\Windows\WER\ReportQueue\AppCrash_powershell.exe_bb541199503da6d4c982f6691d287aa6e542ed3b_ad921f21_df9ae02e-3f17-4ccb-9cab-5361f4ec11d2  Символ анализа:  Повторный поиск решения: 
+
+[06/24/2026 22:02:09] ID=1000 Provider=Application Error
+Имя сбойного приложения: powershell.exe, версия: 10.0.26100.5074, метка времени: 0x04b35d0f Имя сбойного модуля: clr.dll, версия: 4.8.9337.0, метка времени: 0x69f01f59 Код исключения: 0x80131506 Смещение ошибки: 0x00000000002f3c94 Идентификатор сбойного процесса: 0x74F8 Время запуска сбойного приложения: 0x1DD040BF211B962 Путь сбойного приложения: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe Путь сбойного модуля: C:\Windows\Microsoft.NET\Framework64\v4.0.30319\clr.dll Идентификатор 
+
+[06/24/2026 22:02:06] ID=1023 Provider=.NET Runtime
+Приложение: powershell.exe Версия платформы: v4.0.30319 Описание. Процесс был завершен из-за внутренней ошибки среды выполнения .NET по IP-адресу 00007FFA38BD3C94 (00007FFA388E0000) с кодом выхода 80131506. 
+
+[06/24/2026 16:33:57] ID=1001 Provider=Windows Error Reporting
+Контейнер ошибки , тип 0 Имя события: APPCRASH Отклик: Нет данных Идентификатор CAB: 0  Сигнатура проблемы: P1: powershell.exe P2: 10.0.26100.5074 P3: 04b35d0f P4: clr.dll P5: 4.8.9337.0 P6: 69f01f59 P7: 80131506 P8: 00000000002f3c94 P9:  P10:   Вложенные файлы:  Эти файлы можно найти здесь: \\?\C:\ProgramData\Microsoft\Windows\WER\ReportQueue\AppCrash_powershell.exe_bb541199503da6d4c982f6691d287aa6e542ed3b_ad921f21_aeebd656-dea5-4107-8df5-46cf067688dd  Символ анализа:  Повторный поиск решения: 
+
+[06/24/2026 16:33:54] ID=1000 Provider=Application Error
+Имя сбойного приложения: powershell.exe, версия: 10.0.26100.5074, метка времени: 0x04b35d0f Имя сбойного модуля: clr.dll, версия: 4.8.9337.0, метка времени: 0x69f01f59 Код исключения: 0x80131506 Смещение ошибки: 0x00000000002f3c94 Идентификатор сбойного процесса: 0x3680 Время запуска сбойного приложения: 0x1DD03DE192401C7 Путь сбойного приложения: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe Путь сбойного модуля: C:\Windows\Microsoft.NET\Framework64\v4.0.30319\clr.dll Идентификатор 
+
+[06/24/2026 16:33:53] ID=1023 Provider=.NET Runtime
+Приложение: powershell.exe Версия платформы: v4.0.30319 Описание. Процесс был завершен из-за внутренней ошибки среды выполнения .NET по IP-адресу 00007FFA38BD3C94 (00007FFA388E0000) с кодом выхода 80131506. 
+
+[06/24/2026 15:39:19] ID=1001 Provider=Windows Error Reporting
+Контейнер ошибки , тип 0 Имя события: APPCRASH Отклик: Нет данных Идентификатор CAB: 0  Сигнатура проблемы: P1: powershell.exe P2: 10.0.26100.5074 P3: 04b35d0f P4: clr.dll P5: 4.8.9337.0 P6: 69f01f59 P7: 80131506 P8: 00000000002f3c94 P9:  P10:   Вложенные файлы:  Эти файлы можно найти здесь: \\?\C:\ProgramData\Microsoft\Windows\WER\ReportQueue\AppCrash_powershell.exe_bb541199503da6d4c982f6691d287aa6e542ed3b_ad921f21_5d6fea49-bdcd-46f0-bd48-737a08dddd64  Символ анализа:  Повторный поиск решения: 
+
+
+--- Node PTY smoke test ---
+Found bundled node: C:\Users\sasha\AppData\Local\Programs\cursor\resources\app\resources\helpers\node.exe
+PTY_EXIT {"exitCode":0}
+PTY_OUT [?9001h[?1004h[?25l[2J[m[HWindows PowerShell
+(C) ╨Ъ╨╛╤А╨┐╨╛╤А╨░╤Ж╨╕╤П ╨Ь╨░╨╣╨║╤А╨╛╤Б╨╛╤Д╤В (Microsoft Corporation). ╨Т╤Б╨╡ ╨┐╤А╨░╨▓╨░ ╨╖╨░╤Й╨╕╤Й╨╡╨╜╤Л.[4;1H╨г╤Б╤В╨░╨╜╨╛╨▓╨╕╤В╨╡ ╨┐╨╛╤Б╨╗╨╡╨┤╨╜╤О╤О ╨▓╨╡╤А╤Б╨╕╤О PowerShell ╨┤╨╗╤П ╨╜╨╛╨▓╤Л╤Е ╤Д╤Г╨╜╨║╤Ж╨╕╨╣ ╨╕ ╤Г╨╗╤Г╤З╤И╨╡╨╜╨╕╤П! ht
+
+=== Done. Full report saved to: C:\Projects\territory-run\agent-shell-diagnosis.txt ===

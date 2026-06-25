@@ -1,0 +1,19 @@
+﻿=== Agent-like spawn simulation ===
+Date: 2026-06-24T22:31:16.4567304+03:00
+
+Using node: C:\Users\sasha\AppData\Local\Programs\cursor\resources\app\resources\helpers\node.exe
+
+--- PTY spawn tests with VSCODE-like env ---
+VSCODE_INJECTION=1, TERM_PROGRAM=vscode, cwd=C:\Projects\territory-run
+
+RESULT {"test":"powershell default","ok":true,"ms":1628,"exitCode":0,"out":"\u001b[?9001h\u001b[?1004h\u001b[?25l\u001b[2J\u001b[m\u001b[HWindows PowerShell\r\n(C) ╨Ъ╨╛╤А╨┐╨╛╤А╨░╤Ж╨╕╤П ╨Ь╨░╨╣╨║╤А╨╛╤Б╨╛╤Д╤В (Microsoft Corporation). ╨Т╤Б╨╡ ╨┐╤А╨░╨▓╨░ ╨╖╨░╤Й╨╕╤Й╨╡╨╜╤Л.\u001b[4;1H╨г╤Б╤В╨░╨╜╨╛╨▓╨╕╤В╨╡ ╨┐╨╛╤Б╨╗╨╡╨┤╨╜╤О╤О ╨▓╨╡╤А╤Б╨╕╤О PowerShell ╨┤╨╗╤П ╨╜╨╛╨▓╤Л╤Е ╤Д╤Г╨╜╨║╤Ж╨╕╨╣ ╨╕ ╤Г╨╗╤Г╤З╤И╨╡╨╜╨╕╤П! https://aka.ms/PSWindows\u001b]0;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\u0007\u001b[?25h\u001b[?25l\u001b[7;"}
+RESULT {"test":"powershell -NoProfile","ok":true,"ms":1818,"exitCode":0,"out":"\u001b[?9001h\u001b[?1004h\u001b[?25l\u001b[2J\u001b[m\u001b[HWindows PowerShell\r\n(C) ╨Ъ╨╛╤А╨┐╨╛╤А╨░╤Ж╨╕╤П ╨Ь╨░╨╣╨║╤А╨╛╤Б╨╛╤Д╤В (Microsoft Corporation). ╨Т╤Б╨╡ ╨┐╤А╨░╨▓╨░ ╨╖╨░╤Й╨╕╤Й╨╡╨╜╤Л.\u001b[4;1H╨г╤Б╤В╨░╨╜╨╛╨▓╨╕╤В╨╡ ╨┐╨╛╤Б╨╗╨╡╨┤╨╜╤О╤О ╨▓╨╡╤А╤Б╨╕╤О PowerShell ╨┤╨╗╤П ╨╜╨╛╨▓╤Л╤Е ╤Д╤Г╨╜╨║╤Ж╨╕╨╣ ╨╕ ╤Г╨╗╤Г╤З╤И╨╡╨╜╨╕╤П! https://aka.ms/PSWindows\u001b]0;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\u0007\u001b[?25h\u001b[?25l\u001b[7;"}
+RESULT {"test":"powershell -NoProfile -NonInteractive","ok":true,"ms":1365,"exitCode":0,"out":"\u001b[?9001h\u001b[?1004h\u001b[?25l\u001b[2J\u001b[m\u001b[HWindows PowerShell\r\n(C) ╨Ъ╨╛╤А╨┐╨╛╤А╨░╤Ж╨╕╤П ╨Ь╨░╨╣╨║╤А╨╛╤Б╨╛╤Д╤В (Microsoft Corporation). ╨Т╤Б╨╡ ╨┐╤А╨░╨▓╨░ ╨╖╨░╤Й╨╕╤Й╨╡╨╜╤Л.\u001b[4;1H╨г╤Б╤В╨░╨╜╨╛╨▓╨╕╤В╨╡ ╨┐╨╛╤Б╨╗╨╡╨┤╨╜╤О╤О ╨▓╨╡╤А╤Б╨╕╤О PowerShell ╨┤╨╗╤П ╨╜╨╛╨▓╤Л╤Е ╤Д╤Г╨╜╨║╤Ж╨╕╨╣ ╨╕ ╤Г╨╗╤Г╤З╤И╨╡╨╜╨╕╤П! https://aka.ms/PSWindows\u001b]0;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\u0007\u001b[?25h\u001b[?25l\u001b[7;"}
+RESULT {"test":"powershell -NoProfile -Command echo","ok":true,"ms":1347,"exitCode":0,"out":"\u001b[?9001h\u001b[?1004h\u001b[?25l\u001b[2J\u001b[m\u001b[HPTY_CMD_TEST\u001b]0;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\u0007\u001b[?25h\r\n"}
+RESULT {"test":"cmd.exe","ok":true,"ms":1145,"exitCode":0,"out":"\u001b[?9001h\u001b[?1004h\u001b[?25l\u001b[2J\u001b[m\u001b[HMicrosoft Windows [Version 10.0.26200.8655]\u001b]0;C:\\WINDOWS\\SYSTEM32\\cmd.exe\u0007\u001b[?25h\u001b[?25l\r\n(c) ╨Ъ╨╛╤А╨┐╨╛╤А╨░╤Ж╨╕╤П ╨Ь╨░╨╣╨║╤А╨╛╤Б╨╛╤Д╤В (Microsoft Corporation). ╨Т╤Б╨╡ ╨┐╤А╨░╨▓╨░ ╨╖╨░╤Й╨╕╤Й╨╡╨╜╤Л.\u001b[4;1HC:\\Projects\\territory-run>echo SPAWN_OK\r\nSPAWN_OK\u001b[7;1HC:\\Projects\\territory-run>exit\r\n\u001b[?25h"}
+SUMMARY failed=0 total=5
+
+--- Check Event Viewer for new powershell APPCRASH (last 5 min) ---
+No new powershell CLR crashes in last 5 minutes.
+
+Report: C:\Projects\territory-run\agent-shell-diagnosis-v2.txt
