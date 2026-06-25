@@ -6,7 +6,7 @@ import { AuthService } from './auth.service';
 import { UsersModule } from '../users/users.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { JwtStrategy } from './jwt.strategy';
-import { JWT_ACCESS_EXPIRES_IN } from './auth.constants';
+import { JWT_ACCESS_EXPIRES_SECONDS } from './auth.constants';
 
 @Module({
   imports: [
@@ -15,7 +15,7 @@ import { JWT_ACCESS_EXPIRES_IN } from './auth.constants';
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'default_secret_change_me',
-      signOptions: { expiresIn: JWT_ACCESS_EXPIRES_IN },
+      signOptions: { expiresIn: JWT_ACCESS_EXPIRES_SECONDS },
     }),
   ],
   controllers: [AuthController],

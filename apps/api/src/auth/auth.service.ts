@@ -7,8 +7,8 @@ import { ApiException } from '../common/api.exception';
 import { ErrorCodes } from '../common/error-codes';
 import { hashToken } from '../common/encryption.util';
 import {
-  JWT_ACCESS_EXPIRES_IN,
-  JWT_REFRESH_EXPIRES_IN,
+  JWT_ACCESS_EXPIRES_SECONDS,
+  JWT_REFRESH_EXPIRES_SECONDS,
   JWT_REFRESH_EXPIRES_MS,
 } from './auth.constants';
 
@@ -116,11 +116,11 @@ export class AuthService {
   async generateTokens(userId: string) {
     const payload = { sub: userId };
     const accessToken = this.jwtService.sign(payload, {
-      expiresIn: JWT_ACCESS_EXPIRES_IN,
+      expiresIn: JWT_ACCESS_EXPIRES_SECONDS,
       secret: this.getAccessSecret(),
     });
     const refreshToken = this.jwtService.sign(payload, {
-      expiresIn: JWT_REFRESH_EXPIRES_IN,
+      expiresIn: JWT_REFRESH_EXPIRES_SECONDS,
       secret: this.getRefreshSecret(),
     });
 
