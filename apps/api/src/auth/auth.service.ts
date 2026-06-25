@@ -8,7 +8,7 @@ import { ErrorCodes } from '../common/error-codes';
 import { hashToken } from '../common/encryption.util';
 import {
   JWT_ACCESS_EXPIRES_IN,
-  JWT_REFRESH_EXPIRES_DAYS,
+  JWT_REFRESH_EXPIRES_IN,
   JWT_REFRESH_EXPIRES_MS,
 } from './auth.constants';
 
@@ -120,7 +120,7 @@ export class AuthService {
       secret: this.getAccessSecret(),
     });
     const refreshToken = this.jwtService.sign(payload, {
-      expiresIn: `${JWT_REFRESH_EXPIRES_DAYS}d`,
+      expiresIn: JWT_REFRESH_EXPIRES_IN,
       secret: this.getRefreshSecret(),
     });
 
