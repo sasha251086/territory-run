@@ -51,6 +51,9 @@ export interface MapCell {
   gapToLeader?: number;
   runsToCapture?: number;
   myRank?: number | null;
+  contested?: boolean;
+  contestGap?: number;
+  challengerNickname?: string | null;
 }
 
 export interface CellPlayer {
@@ -77,6 +80,10 @@ export interface CellPlayersResponse {
   runsToCapture: number;
   isOwner: boolean;
   leadOverNext: number | null;
+  contested: boolean;
+  contestGap: number | null;
+  tiedOnInfluence: boolean;
+  challengerNickname: string | null;
   history: CellHistoryEntry[];
 }
 
@@ -142,6 +149,7 @@ export interface ActivityItem {
   status: 'processing' | 'completed' | 'failed';
   failureReason: string | null;
   processedAt: string | null;
+  cellsCaptured?: number | null;
 }
 
 export interface FeedEvent {

@@ -8,6 +8,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [nickname, setNickname] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -27,38 +28,65 @@ export default function RegisterPage() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card wide game-auth-card">
-        <div className="auth-hero-copy">
-          <p className="eyebrow">Territory Run</p>
-          <h1>Создать команду</h1>
-          <p>Начните с аккаунта, выберите базу и превращайте пробежки в контроль города.</p>
-        </div>
+      <div className="auth-card">
+        <div className="auth-logo">LOGO</div>
+        <h1>Territory Run</h1>
+        <p className="auth-subtitle">Захвати свой город</p>
 
-        <section className="onboarding-copy">
-          <p>Бегай и захватывай территории на карте города.</p>
-          <p>Защищай свой район и домашнюю базу.</p>
-          <p>Стань королём района, контролируя большую часть клеток.</p>
-        </section>
+        <div className="auth-tabs">
+          <Link to="/login">Вход</Link>
+          <span className="active">Регистрация</span>
+        </div>
 
         <form className="stack" onSubmit={handleSubmit}>
           <label>
             Email
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <input
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
           </label>
           <label>
             Никнейм
-            <input type="text" value={nickname} onChange={(e) => setNickname(e.target.value)} required />
+            <input
+              type="text"
+              autoComplete="nickname"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              required
+            />
           </label>
           <label>
             Пароль
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
+            <div className="password-field">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+              >
+                {showPassword ? 'Скрыть' : 'Показать'}
+              </button>
+            </div>
           </label>
           {error && <p className="error-banner">{error}</p>}
           <button type="submit" className="primary-btn" disabled={loading}>
-            {loading ? 'Создание...' : 'Создать аккаунт'}
+            {loading ? 'Создание…' : 'Зарегистрироваться'}
           </button>
         </form>
-        <p className="muted">
+
+        <p className="muted" style={{ marginTop: 16, textAlign: 'center' }}>
           Уже есть аккаунт? <Link to="/login">Войти</Link>
         </p>
       </div>

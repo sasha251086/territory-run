@@ -40,9 +40,6 @@ export default function CellBottomSheet({
       >
         <div className="bottom-sheet-handle" aria-hidden="true" />
         <CellPopupContent cell={cell} />
-        <button type="button" className="ghost-btn bottom-sheet-close" onClick={onClose}>
-          Закрыть
-        </button>
       </section>
     </div>
   );

@@ -23,12 +23,12 @@ function HomePicker({
       <CircleMarker
         center={position}
         radius={8}
-        pathOptions={{ color: '#1a5f4a', fillColor: '#22c55e', fillOpacity: 1 }}
+        pathOptions={{ color: '#1A1A1A', fillColor: '#C8C8C8', fillOpacity: 1 }}
       />
       <Circle
         center={position}
         radius={500}
-        pathOptions={{ color: '#f59e0b', fillColor: '#fbbf24', fillOpacity: 0.2 }}
+        pathOptions={{ color: '#8A8A8A', fillColor: '#E5E5E5', fillOpacity: 0.35, dashArray: '6 4' }}
       />
     </>
   );
@@ -65,31 +65,29 @@ export default function OnboardingPage() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card wide game-auth-card">
-        <div className="auth-hero-copy">
-          <p className="eyebrow">
-            {user?.homeLat != null ? 'Домашняя база' : 'Шаг 2 из 2'}
-          </p>
-          <h1>{user?.homeLat != null ? 'Новая база' : 'Выберите базу'}</h1>
-          <p>
-            Нажмите на карту, чтобы указать дом. В радиусе 500 м действует бонус к влиянию.
-          </p>
-        </div>
+      <div className="auth-card" style={{ width: 'min(100%, 440px)' }}>
+        <h1>{user?.homeLat != null ? 'Новая база' : 'Выберите базу'}</h1>
+        <p className="auth-subtitle">
+          Нажмите на карту — в радиусе 500 м действует бонус к влиянию.
+        </p>
 
-        <div className="map-frame onboarding-map">
-          <MapContainer center={position} zoom={14} className="leaflet-map">
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <div className="onboarding-map">
+          <MapContainer
+            center={position}
+            zoom={14}
+            zoomControl={false}
+            attributionControl={false}
+            className="leaflet-map"
+            style={{ height: '100%' }}
+          >
+            <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
             <HomePicker position={position} onPick={(lat, lng) => setPosition([lat, lng])} />
           </MapContainer>
         </div>
 
-        <p className="muted small">
-          После сохранения подключите Strava в профиле — это ключевой шаг, чтобы начать захватывать территории.
-        </p>
-
         {error && <p className="error-banner">{error}</p>}
         <button type="button" className="primary-btn" onClick={saveHome} disabled={loading}>
-          {loading ? 'Сохранение...' : user?.homeLat != null ? 'Сохранить новую базу' : 'Сохранить и перейти в профиль'}
+          {loading ? 'Сохранение…' : 'Сохранить'}
         </button>
       </div>
     </div>

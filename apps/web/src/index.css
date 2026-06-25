@@ -1,51 +1,70 @@
 
-/* Game UI skin */
+/* Monochrome UI + map cell colors (reference palette) */
 :root {
-  color: #f8fafc;
-  background: #07111f;
+  color: #1A1A1A;
+  background: #FFFFFF;
   font-family: Outfit, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --bg: #07111f;
-  --panel: rgba(7, 17, 31, 0.78);
-  --panel-strong: rgba(9, 18, 32, 0.92);
-  --panel-soft: rgba(15, 23, 42, 0.58);
-  --line: rgba(148, 163, 184, 0.25);
-  --line-hot: rgba(132, 204, 22, 0.56);
-  --text: #f8fafc;
-  --muted: #a7b4c8;
-  --green: #8dff42;
-  --green-strong: #5be322;
-  --blue: #38bdf8;
-  --purple: #b15cff;
-  --orange: #fb923c;
-  --danger: #fb7185;
-  --shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+
+  /* UI — monochrome */
+  --bg: #FFFFFF;
+  --surface: #F0F0F0;
+  --surface-2: #E5E5E5;
+  --border: #D0D0D0;
+  --border-strong: #1A1A1A;
+  --text: #1A1A1A;
+  --text-secondary: #5C5C5C;
+  --text-muted: #8A8A8A;
+  --btn-primary: #C8C8C8;
+
+  /* Map cells only */
+  --cell-own: #9BC49B;
+  --cell-own-stroke: #6B9A6B;
+  --cell-rival: #A8B8CC;
+  --cell-rival-stroke: #7A8FA8;
+  --cell-empty: #F2F2F2;
+  --cell-empty-stroke: #D8D8D8;
+  --cell-risk: #D4B896;
+  --cell-risk-stroke: #B8956A;
+  --cell-critical: #C99090;
+  --cell-critical-stroke: #A86B6B;
+  --cell-target: #A8C4D4;
+  --cell-target-stroke: #7A9DB8;
+  --cell-district: #B8A8CC;
+  --cell-district-stroke: #8A7AA8;
+  --cell-other: #B8A8CC;
+  --cell-other-stroke: #8A7AA8;
+
+  /* Legacy aliases used across stylesheets */
+  --panel: var(--surface);
+  --panel-strong: var(--surface);
+  --panel-soft: var(--surface-2);
+  --line: var(--border);
+  --line-hot: var(--border-strong);
+  --muted: var(--text-muted);
+  --green: var(--text);
+  --green-strong: var(--text);
+  --blue: var(--text-secondary);
+  --purple: var(--text-secondary);
+  --orange: var(--text-secondary);
+  --danger: var(--text);
+  --shadow: 0 8px 24px rgba(26, 26, 26, 0.08);
 }
 
 body {
   min-width: 320px;
   min-height: 100dvh;
   color: var(--text);
-  background:
-    radial-gradient(circle at 12% 8%, rgba(56, 189, 248, 0.18), transparent 34rem),
-    radial-gradient(circle at 88% 18%, rgba(141, 255, 66, 0.14), transparent 30rem),
-    linear-gradient(145deg, #08111f 0%, #0f172a 48%, #061018 100%);
+  background: var(--bg);
 }
 
 body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  background-image:
-    linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
-  background-size: 42px 42px;
-  mask-image: radial-gradient(circle at center, black, transparent 78%);
+  display: none;
 }
 
 a {
-  color: var(--green);
+  color: var(--text);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .app-shell {
@@ -95,8 +114,8 @@ a {
 }
 
 .hud-metrics {
-  display: none;
-  gap: 8px;
+  display: flex;
+  gap: 6px;
 }
 
 .hud-metrics span,
@@ -108,11 +127,11 @@ a {
 }
 
 .hud-metrics span {
-  min-width: 82px;
+  min-width: 64px;
   border-radius: 999px;
-  padding: 7px 10px;
+  padding: 6px 8px;
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.65rem;
   text-align: center;
   text-transform: uppercase;
 }
@@ -428,8 +447,10 @@ input:focus {
 }
 
 @media (min-width: 680px) {
-  .hud-metrics {
-    display: flex;
+  .hud-metrics span {
+    min-width: 82px;
+    padding: 7px 10px;
+    font-size: 0.72rem;
   }
 
   .app-main {
@@ -768,6 +789,36 @@ input:focus {
   padding: 10px 12px;
   text-align: center;
   pointer-events: none;
+}
+
+.map-overlay--full {
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  font-weight: 700;
+}
+
+.map-empty-state {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 510;
+  transform: translate(-50%, -50%);
+  width: min(88%, 280px);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 16px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(7, 17, 31, 0.9);
+  pointer-events: none;
+}
+
+.map-empty-state p {
+  margin: 0.35rem 0;
+  color: var(--muted);
+  font-size: 0.86rem;
 }
 
 @media (max-width: 520px) {
@@ -1785,7 +1836,7 @@ input:focus {
 .fab-upload {
   position: fixed;
   right: calc(18px + env(safe-area-inset-right));
-  bottom: calc(92px + env(safe-area-inset-bottom));
+  bottom: calc(104px + env(safe-area-inset-bottom));
   z-index: 1150;
   width: 56px;
   height: 56px;
@@ -1813,4 +1864,93 @@ input:focus {
 @keyframes cell-flash {
   0%, 100% { filter: brightness(1); }
   50% { filter: brightness(1.45); }
+}
+
+.nav-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.nav-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  font-weight: 900;
+}
+
+.status-badge {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.tag-green {
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.18);
+}
+
+.tag-amber {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.2);
+  animation: decay-pulse 1.4s ease-in-out infinite;
+}
+
+.tag-red {
+  color: #fecdd3;
+  background: rgba(244, 63, 94, 0.2);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 1.25rem 0.5rem;
+}
+
+.empty-state__icon {
+  font-size: 2rem;
+  margin: 0 0 0.5rem;
+}
+
+.bottom-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(2, 6, 23, 0.72);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 12px;
+}
+
+.bottom-sheet {
+  width: min(100%, 480px);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 18px 18px 14px 14px;
+  background: rgba(7, 17, 31, 0.96);
+  padding: 16px;
+}
+
+.bottom-sheet-actions {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.password-field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.password-field input {
+  width: 100%;
+}
+
+.password-toggle {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.72);
+  cursor: pointer;
 }

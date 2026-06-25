@@ -88,4 +88,11 @@ export class AuthController {
   async refresh(@Body() body: RefreshTokenDto) {
     return this.authService.refresh(body.refreshToken);
   }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Invalidate refresh token' })
+  async logout(@Body() body: RefreshTokenDto) {
+    await this.authService.logout(body.refreshToken);
+  }
 }

@@ -1,12 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import * as h3 from 'h3-js';
 import { InfluenceService } from './influence.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DistrictService } from '../districts/district.service';
 
 const mockPrisma = {
-  cell: { upsert: jest.fn(), findUnique: jest.fn() },
-  cellOwnership: { findUnique: jest.fn(), update: jest.fn(), create: jest.fn() },
+  cell: { findMany: jest.fn(), createMany: jest.fn() },
+  cellOwnership: { findMany: jest.fn(), update: jest.fn(), createMany: jest.fn() },
   user: { findUnique: jest.fn() },
+  $transaction: jest.fn(),
 };
 
 const mockDistrictService = {
@@ -18,7 +20,10 @@ describe('InfluenceService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    mockPrisma.cell.findUnique.mockResolvedValue(null);
+    mockPrisma.cell.findMany.mockResolvedValue([]);
+    mockPrisma.cellOwnership.findMany.mockResolvedValue([]);
+    mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InfluenceService,
@@ -47,17 +52,17 @@ describe('InfluenceService', () => {
       createdAt: new Date('2020-01-01'),
       stats: { currentStreak: 0, cellsOwned: 0 },
     });
-    mockPrisma.cell.upsert.mockResolvedValue({});
-    mockPrisma.cellOwnership.findUnique.mockResolvedValue(null);
-    mockPrisma.cellOwnership.create.mockResolvedValue({});
+    mockPrisma.cell.createMany.mockResolvedValue({ count: 3 });
+    mockPrisma.cellOwnership.createMany.mockResolvedValue({ count: 3 });
 
     const result = await service.processTrack('user1', track);
     expect(result.h3Indices).toHaveLength(3);
-    expect(mockPrisma.cellOwnership.create).toHaveBeenCalledTimes(3);
+    expect(mockPrisma.cellOwnership.createMany).toHaveBeenCalled();
   });
 
   it('should cap influence at 100 when existing + gain exceeds limit', async () => {
     const track = [{ lat: 56.95, lng: 24.1 }];
+    const h3Index = h3.latLngToCell(56.95, 24.1, 9);
     mockPrisma.user.findUnique.mockResolvedValue({
       id: 'user1',
       homeLat: null,
@@ -65,12 +70,13 @@ describe('InfluenceService', () => {
       createdAt: new Date('2020-01-01'),
       stats: { currentStreak: 0, cellsOwned: 0 },
     });
-    mockPrisma.cell.upsert.mockResolvedValue({});
-    mockPrisma.cellOwnership.findUnique.mockResolvedValue({
-      h3Index: 'cell1',
-      userId: 'user1',
-      influence: 99.5,
-    });
+    mockPrisma.cellOwnership.findMany.mockResolvedValue([
+      {
+        h3Index,
+        userId: 'user1',
+        influence: 99.5,
+      },
+    ]);
     mockPrisma.cellOwnership.update.mockResolvedValue({});
 
     await service.processTrack('user1', track);
@@ -92,15 +98,15 @@ describe('InfluenceService', () => {
       createdAt: oneDayAgo,
       stats: { currentStreak: 0, cellsOwned: 0 },
     });
-    mockPrisma.cell.upsert.mockResolvedValue({});
-    mockPrisma.cellOwnership.findUnique.mockResolvedValue(null);
-    mockPrisma.cellOwnership.create.mockResolvedValue({});
+    mockPrisma.cellOwnership.createMany.mockResolvedValue({ count: 1 });
 
     await service.processTrack('user1', track);
 
-    expect(mockPrisma.cellOwnership.create).toHaveBeenCalledWith(
+    expect(mockPrisma.cellOwnership.createMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ influence: 1.25 }),
+        data: expect.arrayContaining([
+          expect.objectContaining({ influence: 1.25 }),
+        ]),
       }),
     );
   });
@@ -115,15 +121,15 @@ describe('InfluenceService', () => {
       createdAt: oneDayAgo,
       stats: { currentStreak: 0, cellsOwned: 0 },
     });
-    mockPrisma.cell.upsert.mockResolvedValue({});
-    mockPrisma.cellOwnership.findUnique.mockResolvedValue(null);
-    mockPrisma.cellOwnership.create.mockResolvedValue({});
+    mockPrisma.cellOwnership.createMany.mockResolvedValue({ count: 1 });
 
     await service.processTrack('user1', track);
 
-    expect(mockPrisma.cellOwnership.create).toHaveBeenCalledWith(
+    expect(mockPrisma.cellOwnership.createMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ influence: 1.25 }),
+        data: expect.arrayContaining([
+          expect.objectContaining({ influence: 1.25 }),
+        ]),
       }),
     );
   });

@@ -11,6 +11,9 @@ export function formatAnticheatMessage(reason: string | null): string {
       'и GPS включён на всём маршруте. Можно попробовать «Пересчитать» после исправления трека.'
     );
   }
+  if (reason === 'DISTANCE_MISMATCH') {
+    return 'Заявленная дистанция сильно отличается от GPS-трека. Проверьте данные пробежки.';
+  }
   if (reason) {
     return `Пробежка отклонена: ${reason}.`;
   }

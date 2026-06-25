@@ -3,6 +3,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { FeedService } from '../feed/feed.service';
 import { DistrictService } from '../districts/district.service';
 import { SIEGE_THRESHOLD } from '../common/constants';
+import { rankCellOwnerships } from '../common/cell-ownership.util';
+
+type OwnershipRow = {
+  h3Index: string;
+  userId: string;
+  influence: number;
+  lastActivityAt: Date;
+  user: { nickname: string };
+};
 
 @Injectable()
 export class OwnershipService {
@@ -19,13 +28,46 @@ export class OwnershipService {
     h3Indices: string[],
     previousOwnerByCell: Map<string, string | null> = new Map(),
   ) {
-    const results = [];
+    if (h3Indices.length === 0) {
+      return [];
+    }
+
+    const allOwnerships = await this.prisma.cellOwnership.findMany({
+      where: { h3Index: { in: h3Indices } },
+      include: { user: true },
+    });
+
+    const ownershipsByCell = new Map<string, OwnershipRow[]>();
+    for (const ownership of allOwnerships) {
+      const list = ownershipsByCell.get(ownership.h3Index) ?? [];
+      list.push(ownership);
+      ownershipsByCell.set(ownership.h3Index, list);
+    }
+    for (const [h3Index, list] of ownershipsByCell) {
+      ownershipsByCell.set(h3Index, rankCellOwnerships(list));
+    }
+
+    const previousOwnerIds = new Set<string>();
     for (const h3Index of h3Indices) {
-      const ownerships = await this.prisma.cellOwnership.findMany({
-        where: { h3Index },
-        orderBy: { influence: 'desc' },
-        include: { user: true },
-      });
+      const previousOwnerId = previousOwnerByCell.get(h3Index) ?? null;
+      if (previousOwnerId) {
+        previousOwnerIds.add(previousOwnerId);
+      }
+    }
+
+    const previousUsers =
+      previousOwnerIds.size > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: [...previousOwnerIds] } },
+            select: { id: true, nickname: true },
+          })
+        : [];
+    const nickById = new Map(previousUsers.map((user) => [user.id, user.nickname]));
+
+    const results = [];
+
+    for (const h3Index of h3Indices) {
+      const ownerships = ownershipsByCell.get(h3Index) ?? [];
 
       if (ownerships.length === 0) {
         results.push({ h3Index, ownerId: null, influence: 0 });
@@ -48,12 +90,7 @@ export class OwnershipService {
         });
 
         const previousNickname = previousOwnerId
-          ? (
-              await this.prisma.user.findUnique({
-                where: { id: previousOwnerId },
-                select: { nickname: true },
-              })
-            )?.nickname ?? null
+          ? (nickById.get(previousOwnerId) ?? null)
           : null;
 
         await this.feedService.createEvent('cell_captured', newOwnerId, {
@@ -87,19 +124,44 @@ export class OwnershipService {
   async getCurrentOwner(h3Index: string) {
     const ownerships = await this.prisma.cellOwnership.findMany({
       where: { h3Index },
-      orderBy: { influence: 'desc' },
-      take: 1,
       include: { user: true },
     });
-    return ownerships[0] || null;
+    const ranked = rankCellOwnerships(ownerships);
+    return ranked[0] || null;
   }
 
   async snapshotOwners(h3Indices: string[]): Promise<Map<string, string | null>> {
     const map = new Map<string, string | null>();
     for (const h3Index of h3Indices) {
-      const owner = await this.getCurrentOwner(h3Index);
-      map.set(h3Index, owner?.userId ?? null);
+      map.set(h3Index, null);
     }
+
+    if (h3Indices.length === 0) {
+      return map;
+    }
+
+    const ownerships = await this.prisma.cellOwnership.findMany({
+      where: { h3Index: { in: h3Indices } },
+      select: {
+        h3Index: true,
+        userId: true,
+        influence: true,
+        lastActivityAt: true,
+      },
+    });
+
+    const ownershipsByCell = new Map<string, typeof ownerships>();
+    for (const ownership of ownerships) {
+      const list = ownershipsByCell.get(ownership.h3Index) ?? [];
+      list.push(ownership);
+      ownershipsByCell.set(ownership.h3Index, list);
+    }
+
+    for (const h3Index of h3Indices) {
+      const ranked = rankCellOwnerships(ownershipsByCell.get(h3Index) ?? []);
+      map.set(h3Index, ranked[0]?.userId ?? null);
+    }
+
     return map;
   }
 

@@ -24,8 +24,6 @@ export class DecayService {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - DECAY_DELETE_AFTER_DAYS);
 
-    // 1. Удаляем записи старше DECAY_DELETE_AFTER_DAYS (заброшенные территории).
-    // Пользователи с активной заморозкой не теряют клетки.
     const deleted = await this.prisma.cellOwnership.deleteMany({
       where: {
         lastActivityAt: {
@@ -38,43 +36,24 @@ export class DecayService {
     });
     this.logger.log(`Deleted ${deleted.count} abandoned ownerships`);
 
-    // 2. Для оставшихся записей применяем распад (influence *= 0.98).
-    // Cap (MAX_INFLUENCE_PER_CELL) применяется при начислении в InfluenceService;
-    // decay только уменьшает значение и не может превысить лимит.
-    // Получаем все записи, которые нужно обновить
-    const ownerships = await this.prisma.cellOwnership.findMany({
+    const affectedCells = await this.prisma.cellOwnership.findMany({
       where: {
         lastActivityAt: {
           gte: cutoffDate,
         },
       },
+      select: { h3Index: true },
+      distinct: ['h3Index'],
     });
 
-    this.logger.log(`Updating ${ownerships.length} ownerships with decay`);
+    const updated = await this.prisma.$executeRaw`
+      UPDATE "CellOwnership"
+      SET influence = ROUND((influence * ${DECAY_RATE_PER_DAY})::numeric, 2)
+      WHERE "lastActivityAt" >= ${cutoffDate}
+    `;
+    this.logger.log(`Updated ${updated} ownerships with decay`);
 
-    // Обновляем каждую запись в цикле (для MVP подходит)
-    // Для продакшена лучше использовать один большой UPDATE запрос
-    for (const ownership of ownerships) {
-      const newInfluence = ownership.influence * DECAY_RATE_PER_DAY;
-      // Округляем до 2 знаков, чтобы не накапливать ошибки
-      const rounded = Math.round(newInfluence * 100) / 100;
-
-      await this.prisma.cellOwnership.update({
-        where: {
-          h3Index_userId: {
-            h3Index: ownership.h3Index,
-            userId: ownership.userId,
-          },
-        },
-        data: {
-          influence: rounded,
-        },
-      });
-    }
-
-    // 3. Пересчитываем владельцев для всех клеток, у которых изменилось влияние
-    // Собираем уникальные h3Index
-    const h3Indices = [...new Set(ownerships.map((o) => o.h3Index))];
+    const h3Indices = affectedCells.map((row) => row.h3Index);
     if (h3Indices.length > 0) {
       await this.ownershipService.recalculateOwners(h3Indices);
       this.logger.log(`Recalculated owners for ${h3Indices.length} cells`);
@@ -100,7 +79,6 @@ export class DecayService {
     this.logger.log('Daily decay completed');
   }
 
-  // Для тестирования: запуск вручную через эндпоинт (опционально)
   async runDecayManually() {
     await this.decayInfluence();
   }

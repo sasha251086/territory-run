@@ -45,6 +45,15 @@ export class CellResponseDto {
 
   @ApiPropertyOptional({ example: 2 })
   myRank?: number | null;
+
+  @ApiPropertyOptional({ example: true })
+  contested?: boolean;
+
+  @ApiPropertyOptional({ example: 0.5 })
+  contestGap?: number;
+
+  @ApiPropertyOptional({ example: 'runner_ivan', nullable: true })
+  challengerNickname?: string | null;
 }
 
 export class MapCellsResponseDto {
@@ -70,6 +79,10 @@ export class CellPlayersResponseDto {
   runsToCapture!: number;
   isOwner!: boolean;
   leadOverNext!: number | null;
+  contested!: boolean;
+  contestGap!: number | null;
+  tiedOnInfluence!: boolean;
+  challengerNickname!: string | null;
   history!: Array<{
     fromNickname: string | null;
     toNickname: string;

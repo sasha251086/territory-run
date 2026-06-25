@@ -1,15 +1,23 @@
 ﻿import { Injectable, HttpStatus } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
+import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { ApiException } from '../common/api.exception';
 import { ErrorCodes } from '../common/error-codes';
+import { hashToken } from '../common/encryption.util';
+import {
+  JWT_ACCESS_EXPIRES_IN,
+  JWT_REFRESH_EXPIRES_DAYS,
+  JWT_REFRESH_EXPIRES_MS,
+} from './auth.constants';
 
 @Injectable()
 export class AuthService {
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
+    private prisma: PrismaService,
   ) {}
 
   async register(email: string, nickname: string, password: string) {
@@ -65,8 +73,11 @@ export class AuthService {
         secret: this.getRefreshSecret(),
       });
 
-      const user = await this.usersService.findById(payload.sub);
-      if (!user) {
+      const tokenHash = hashToken(refreshToken);
+      const stored = await this.prisma.refreshToken.findUnique({
+        where: { tokenHash },
+      });
+      if (!stored || stored.expiresAt < new Date()) {
         throw new ApiException(
           ErrorCodes.TOKEN_EXPIRED,
           'Refresh token is invalid or expired',
@@ -74,12 +85,17 @@ export class AuthService {
         );
       }
 
-      const accessToken = this.jwtService.sign(
-        { sub: payload.sub },
-        { expiresIn: '15m', secret: this.getAccessSecret() },
-      );
+      const user = await this.usersService.findById(payload.sub);
+      if (!user || user.id !== stored.userId) {
+        throw new ApiException(
+          ErrorCodes.TOKEN_EXPIRED,
+          'Refresh token is invalid or expired',
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
 
-      return { accessToken };
+      await this.prisma.refreshToken.delete({ where: { tokenHash } });
+      return this.generateTokens(user.id);
     } catch (error) {
       if (error instanceof ApiException) {
         throw error;
@@ -92,16 +108,31 @@ export class AuthService {
     }
   }
 
+  async logout(refreshToken: string) {
+    const tokenHash = hashToken(refreshToken);
+    await this.prisma.refreshToken.deleteMany({ where: { tokenHash } });
+  }
+
   async generateTokens(userId: string) {
     const payload = { sub: userId };
     const accessToken = this.jwtService.sign(payload, {
-      expiresIn: '15m',
+      expiresIn: JWT_ACCESS_EXPIRES_IN,
       secret: this.getAccessSecret(),
     });
     const refreshToken = this.jwtService.sign(payload, {
-      expiresIn: '30d',
+      expiresIn: `${JWT_REFRESH_EXPIRES_DAYS}d`,
       secret: this.getRefreshSecret(),
     });
+
+    const expiresAt = new Date(Date.now() + JWT_REFRESH_EXPIRES_MS);
+    await this.prisma.refreshToken.create({
+      data: {
+        userId,
+        tokenHash: hashToken(refreshToken),
+        expiresAt,
+      },
+    });
+
     return { accessToken, refreshToken };
   }
 

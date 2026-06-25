@@ -51,4 +51,14 @@ describe('AnticheatService', () => {
 
     expect(result).toEqual({ valid: false, reason: 'INSUFFICIENT_POINTS' });
   });
+
+  it('should reject inflated claimed distance', () => {
+    const result = service.validateClaimedDistance(1000, 1500, 0.2);
+    expect(result).toEqual({ valid: false, reason: 'DISTANCE_MISMATCH' });
+  });
+
+  it('should accept claimed distance within tolerance', () => {
+    const result = service.validateClaimedDistance(1000, 1150, 0.2);
+    expect(result).toEqual({ valid: true });
+  });
 });

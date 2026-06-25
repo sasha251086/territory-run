@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   MapContainer,
@@ -10,7 +10,7 @@ import {
   useMapEvents,
   Popup,
 } from 'react-leaflet';
-import { cellToBoundary } from 'h3-js';
+import { cellToBoundary, cellToLatLng } from 'h3-js';
 import type { LatLngBounds, LatLngExpression } from 'leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -23,11 +23,10 @@ import type {
   MapSummary,
   RivalCell,
 } from '../api/types';
-import CellPopupContent from '../components/CellPopup';
+import CellBottomSheet from '../components/CellBottomSheet';
 import DistrictMapPopup from '../components/DistrictMapPopup';
 import { useAuth } from '../context/AuthContext';
-import { formatAreaM2, formatCellsArea } from '../utils/territory';
-import { districtHudClass, districtPolygonsForMap } from '../utils/district-geo';
+import { districtPolygonsForMap } from '../utils/district-geo';
 
 const RUN_PREVIEW_KEY = 'territory-run-run-preview';
 
@@ -41,32 +40,157 @@ function boundsToQuery(bounds: LatLngBounds) {
   });
 }
 
+function expandBounds(bounds: LatLngBounds, paddingRatio = 0.4): LatLngBounds {
+  const north = bounds.getNorth();
+  const south = bounds.getSouth();
+  const east = bounds.getEast();
+  const west = bounds.getWest();
+  const latPad = (north - south) * paddingRatio;
+  const lngPad = (east - west) * paddingRatio;
+  return L.latLngBounds([south - latPad, west - lngPad], [north + latPad, east + lngPad]);
+}
+
+function pruneCellsAwayFromBounds(
+  cells: MapCell[],
+  bounds: LatLngBounds,
+  paddingRatio = 0.65,
+): MapCell[] {
+  const north = bounds.getNorth();
+  const south = bounds.getSouth();
+  const east = bounds.getEast();
+  const west = bounds.getWest();
+  const latPad = (north - south) * paddingRatio;
+  const lngPad = (east - west) * paddingRatio;
+  const minLat = south - latPad;
+  const maxLat = north + latPad;
+  const minLng = west - lngPad;
+  const maxLng = east + lngPad;
+
+  return cells.filter((cell) => {
+    const [lat, lng] = cellCenter(cell);
+    return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
+  });
+}
+
 function MapEvents({ onMove }: { onMove: (bounds: LatLngBounds) => void }) {
   const map = useMapEvents({
     moveend: () => onMove(map.getBounds()),
     zoomend: () => onMove(map.getBounds()),
-    load: () => onMove(map.getBounds()),
   });
   return null;
 }
 
-function FlyToCells({ targets, trigger }: { targets: LatLngExpression[]; trigger: number }) {
+type FlyMode = 'home' | 'territory' | 'targets';
+
+type FlyRequest = {
+  mode: FlyMode;
+  trigger: number;
+  points?: LatLngExpression[];
+};
+
+function cellCenter(cell: MapCell): [number, number] {
+  if (cell.lat != null && cell.lng != null) {
+    return [cell.lat, cell.lng];
+  }
+  const [lat, lng] = cellToLatLng(cell.h3Index);
+  return [lat, lng];
+}
+
+function MapFlyController({
+  request,
+  homeCenter,
+  territoryPoints,
+}: {
+  request: FlyRequest | null;
+  homeCenter: [number, number] | null;
+  territoryPoints: LatLngExpression[];
+}) {
   const map = useMap();
 
   useEffect(() => {
-    if (trigger <= 0 || targets.length === 0) {
+    if (!request) {
       return;
     }
-    map.fitBounds(L.latLngBounds(targets), { padding: [32, 32], maxZoom: 15 });
-  }, [map, targets, trigger]);
 
+    if (request.mode === 'home' && homeCenter) {
+      map.setView(homeCenter, 13, { animate: true });
+      return;
+    }
+
+    if (request.mode === 'territory' && territoryPoints.length > 0) {
+      map.fitBounds(L.latLngBounds(territoryPoints), {
+        padding: [56, 56],
+        maxZoom: 14,
+        animate: true,
+      });
+      return;
+    }
+
+    if (request.mode === 'targets' && request.points && request.points.length > 0) {
+      map.fitBounds(L.latLngBounds(request.points), {
+        padding: [32, 32],
+        maxZoom: 15,
+        animate: true,
+      });
+    }
+    // Only fly when the user triggers navigation, not when cell lists refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, request?.trigger, request?.mode]);
+
+  return null;
+}
+
+function HighlightPane() {
+  const map = useMap();
+  useEffect(() => {
+    if (!map.getPane('highlightPane')) {
+      map.createPane('highlightPane');
+      const pane = map.getPane('highlightPane');
+      if (pane) {
+        pane.style.zIndex = '380';
+      }
+    }
+  }, [map]);
+  return null;
+}
+
+const TARGET_FILL = '#F0E090';
+const TARGET_STROKE = '#C9A030';
+const CONTESTED_FILL = '#F0D890';
+const CONTESTED_STROKE = '#C9A844';
+
+function MapSheetDismiss({
+  active,
+  onDismiss,
+}: {
+  active: boolean;
+  onDismiss: () => void;
+}) {
+  useMapEvents({
+    click: () => {
+      if (active) {
+        onDismiss();
+      }
+    },
+  });
   return null;
 }
 
 function MapControlBridge({ onMap }: { onMap: (map: L.Map) => void }) {
   const map = useMap();
   useEffect(() => {
-    onMap(map);
+    const syncSize = () => map.invalidateSize();
+    const attach = () => {
+      syncSize();
+      onMap(map);
+    };
+    map.whenReady(() => {
+      attach();
+      window.setTimeout(attach, 0);
+      window.setTimeout(syncSize, 150);
+    });
+    window.addEventListener('resize', syncSize);
+    return () => window.removeEventListener('resize', syncSize);
   }, [map, onMap]);
   return null;
 }
@@ -89,27 +213,83 @@ function cellBoundary(h3Index: string): [number, number][] {
   return cellToBoundary(h3Index).map(([lat, lng]) => [lat, lng] as [number, number]);
 }
 
-function cellColor(
+type CellPaint = { fill: string; stroke: string; fillOpacity: number };
+
+const MAX_CELL_INFLUENCE = 100;
+/** Full saturation around this influence — matches typical per-cell values in play. */
+const VISUAL_INFLUENCE_CAP = 12;
+const MIN_INFLUENCE_FILL_OPACITY = 0.08;
+const MAX_INFLUENCE_FILL_OPACITY = 0.98;
+
+function influenceVisualStrength(influence: number): number {
+  const clamped = Math.max(0, Math.min(MAX_CELL_INFLUENCE, influence));
+  if (clamped <= 0) {
+    return 0;
+  }
+  const normalized = Math.min(1, clamped / VISUAL_INFLUENCE_CAP);
+  return Math.pow(normalized, 0.5);
+}
+
+function fillOpacityForInfluence(influence: number, min = MIN_INFLUENCE_FILL_OPACITY, max = MAX_INFLUENCE_FILL_OPACITY) {
+  const strength = influenceVisualStrength(influence);
+  return min + (max - min) * strength;
+}
+
+function cellPaint(
   cell: MapCell,
   currentUserId: string | undefined,
   rivalH3: Set<string>,
   targetH3: Set<string>,
   previewFlash: boolean,
-) {
+): CellPaint {
+  const influence = cell.influence ?? 0;
+  const influenceOpacity = fillOpacityForInfluence(influence);
+
   if (targetH3.has(cell.h3Index)) {
-    return '#f5c842';
+    return { fill: TARGET_FILL, stroke: TARGET_STROKE, fillOpacity: influenceOpacity };
+  }
+  if (cell.contested) {
+    return { fill: CONTESTED_FILL, stroke: CONTESTED_STROKE, fillOpacity: influenceOpacity };
   }
   if (rivalH3.has(cell.h3Index) && cell.ownerId !== currentUserId) {
-    return '#ff6b9d';
+    return { fill: '#A8B8CC', stroke: '#7A8FA8', fillOpacity: influenceOpacity };
   }
   if (cell.ownerId === currentUserId) {
-    if (previewFlash) return '#3dff8a';
-    if (cell.decayRisk === 'critical') return '#ff5a4a';
-    if (cell.decayRisk === 'warning') return '#ff9f43';
-    return '#45c8e7';
+    if (previewFlash) {
+      return { fill: '#9BC49B', stroke: '#6B9A6B', fillOpacity: Math.min(0.96, influenceOpacity + 0.04) };
+    }
+    if (cell.decayRisk === 'critical') {
+      return { fill: '#C99090', stroke: '#A86B6B', fillOpacity: influenceOpacity };
+    }
+    if (cell.decayRisk === 'warning') {
+      return { fill: '#D4B896', stroke: '#B8956A', fillOpacity: influenceOpacity };
+    }
+    return { fill: '#9BC49B', stroke: '#6B9A6B', fillOpacity: influenceOpacity };
   }
-  if (!cell.ownerId) return '#c6d3df';
-  return '#9b6dff';
+  if (!cell.ownerId) {
+    return { fill: '#F2F2F2', stroke: '#D8D8D8', fillOpacity: 0.22 };
+  }
+  return { fill: '#B8A8CC', stroke: '#8A7AA8', fillOpacity: influenceOpacity };
+}
+
+function resolveCellFillOpacity(
+  paint: CellPaint,
+  options: {
+    isSelected: boolean;
+    emphasizeMine: boolean;
+    emphasizeTarget: boolean;
+  },
+) {
+  if (options.isSelected) {
+    return Math.min(0.98, paint.fillOpacity + 0.06);
+  }
+  if (options.emphasizeTarget) {
+    return Math.min(0.96, paint.fillOpacity + 0.05);
+  }
+  if (options.emphasizeMine) {
+    return Math.min(0.96, paint.fillOpacity + 0.04);
+  }
+  return paint.fillOpacity;
 }
 
 function cellClassName(
@@ -120,7 +300,9 @@ function cellClassName(
   previewFlash: boolean,
 ) {
   const classes = ['map-cell-polygon'];
-  if (cell.ownerId === currentUserId) {
+  if (cell.contested) {
+    classes.push('contested-cell');
+  } else if (cell.ownerId === currentUserId) {
     classes.push('owned-cell');
     if (previewFlash) classes.push('cell-preview-flash');
     if (cell.decayRisk === 'warning') classes.push('decay-warning');
@@ -136,22 +318,26 @@ function cellClassName(
   return classes.join(' ');
 }
 
-function mergeCells(primary: MapCell[], secondary: MapCell[]) {
+function mergeCells(base: MapCell[], overlay: MapCell[]) {
   const byId = new Map<string, MapCell>();
-  for (const cell of primary) {
+  for (const cell of base) {
     byId.set(cell.h3Index, cell);
   }
-  for (const cell of secondary) {
-    byId.set(cell.h3Index, cell);
+  for (const cell of overlay) {
+    const existing = byId.get(cell.h3Index);
+    if (!existing) {
+      byId.set(cell.h3Index, cell);
+      continue;
+    }
+    byId.set(cell.h3Index, {
+      ...existing,
+      ...cell,
+      contested: Boolean(existing.contested || cell.contested),
+      contestGap: cell.contestGap ?? existing.contestGap,
+      challengerNickname: cell.challengerNickname ?? existing.challengerNickname,
+    });
   }
   return Array.from(byId.values());
-}
-
-function streakLabel(streak: number) {
-  if (streak >= 14) return '×1.3';
-  if (streak >= 7) return '×1.2';
-  if (streak >= 4) return '×1.1';
-  return '';
 }
 
 export default function MapPage() {
@@ -160,19 +346,75 @@ export default function MapPage() {
   const [nearbyCells, setNearbyCells] = useState<MapCell[]>([]);
   const [myCells, setMyCells] = useState<MapCell[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [flyTrigger, setFlyTrigger] = useState(0);
+  const [selectedCell, setSelectedCell] = useState<MapCell | null>(null);
+  const [flyRequest, setFlyRequest] = useState<FlyRequest | null>(null);
+  const [territoryHighlight, setTerritoryHighlight] = useState(false);
   const [summary, setSummary] = useState<MapSummary | null>(null);
   const [targets, setTargets] = useState<CaptureTarget[]>([]);
+  const [targetsHighlight, setTargetsHighlight] = useState(false);
   const [targetsMessage, setTargetsMessage] = useState<string | null>(null);
   const [findingTargets, setFindingTargets] = useState(false);
   const [rivalCells, setRivalCells] = useState<RivalCell[]>([]);
   const [previewFlash, setPreviewFlash] = useState(false);
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
-  const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
+  const initialCellsLoadRef = useRef(false);
+  const initialLoadDoneRef = useRef(false);
+  const fetchControllerRef = useRef<AbortController | null>(null);
+  const fetchFrameRef = useRef<number | null>(null);
   const [districts, setDistricts] = useState<DistrictListItem[]>([]);
-  const [districtOverview, setDistrictOverview] = useState<DistrictProgress[]>([]);
   const [selectedDistrict, setSelectedDistrict] = useState<DistrictProgress | null>(null);
+  const flyTriggerRef = useRef(0);
+
+  const queueFly = useCallback((mode: FlyMode, points?: LatLngExpression[]) => {
+    flyTriggerRef.current += 1;
+    setFlyRequest({ mode, trigger: flyTriggerRef.current, points });
+  }, []);
+
+  const closeCellSheet = useCallback(() => setSelectedCell(null), []);
+
+  const flyHome = useCallback(() => {
+    setSelectedCell(null);
+    setTerritoryHighlight(false);
+    setTargets([]);
+    setTargetsHighlight(false);
+    setTargetsMessage(null);
+    queueFly('home');
+  }, [queueFly]);
+
+  const flyTerritory = useCallback(() => {
+    setSelectedCell(null);
+    setTargets([]);
+    setTargetsHighlight(false);
+    setTargetsMessage(null);
+    setTerritoryHighlight(true);
+    queueFly('territory');
+  }, [queueFly]);
+
+  const dismissTargets = useCallback(() => {
+    setTargets([]);
+    setTargetsHighlight(false);
+    setTargetsMessage(null);
+  }, []);
+
+  const dismissPreview = useCallback(() => {
+    setPreviewMessage(null);
+    setPreviewFlash(false);
+  }, []);
+
+  const dismissMapOverlay = useCallback(() => {
+    if (previewMessage) {
+      dismissPreview();
+    }
+    if (targetsHighlight) {
+      dismissTargets();
+    }
+    if (selectedCell) {
+      closeCellSheet();
+    }
+  }, [previewMessage, targetsHighlight, selectedCell, dismissPreview, dismissTargets, closeCellSheet]);
 
   const defaultCenter = useMemo<[number, number]>(() => {
     if (user?.homeLat != null && user.homeLng != null) {
@@ -216,15 +458,10 @@ export default function MapPage() {
 
   const loadDistricts = useCallback(async () => {
     try {
-      const [allDistricts, overview] = await Promise.all([
-        apiRequest<DistrictListItem[]>('/districts'),
-        apiRequest<{ districts: DistrictProgress[] }>('/districts/my/overview'),
-      ]);
+      const allDistricts = await apiRequest<DistrictListItem[]>('/districts');
       setDistricts(allDistricts);
-      setDistrictOverview(overview.districts);
     } catch {
       setDistricts([]);
-      setDistrictOverview([]);
     }
   }, []);
 
@@ -233,17 +470,80 @@ export default function MapPage() {
   }, [loadDistricts, user?.stats?.cellsOwned]);
 
   const loadNearbyCells = useCallback(async (bounds: LatLngBounds) => {
-    setLoading(true);
+    fetchControllerRef.current?.abort();
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
+
+    const isFirstLoad = !initialLoadDoneRef.current;
+    if (isFirstLoad) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     setError(null);
+
     try {
-      const query = boundsToQuery(bounds);
-      const data = await apiRequest<{ cells: MapCell[] }>(`/map/cells?${query.toString()}`);
-      setNearbyCells(data.cells);
+      const query = boundsToQuery(expandBounds(bounds));
+      const data = await apiRequest<{ cells: MapCell[] }>(`/map/cells?${query.toString()}`, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      setNearbyCells((prev) => {
+        const merged = mergeCells(prev, data.cells);
+        return pruneCellsAwayFromBounds(merged, bounds);
+      });
     } catch (err) {
+      if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Не удалось загрузить карту');
     } finally {
+      if (controller.signal.aborted) {
+        return;
+      }
+      initialLoadDoneRef.current = true;
+      setInitialLoadDone(true);
       setLoading(false);
+      setRefreshing(false);
+      if (fetchControllerRef.current === controller) {
+        fetchControllerRef.current = null;
+      }
     }
+  }, []);
+
+  const queueNearbyCellsLoad = useCallback(
+    (bounds: LatLngBounds) => {
+      if (fetchFrameRef.current != null) {
+        cancelAnimationFrame(fetchFrameRef.current);
+      }
+      fetchFrameRef.current = requestAnimationFrame(() => {
+        fetchFrameRef.current = null;
+        void loadNearbyCells(bounds);
+      });
+    },
+    [loadNearbyCells],
+  );
+
+  const handleMapInstance = useCallback(
+    (map: L.Map) => {
+      if (!initialCellsLoadRef.current) {
+        initialCellsLoadRef.current = true;
+        void loadNearbyCells(map.getBounds());
+      }
+    },
+    [loadNearbyCells],
+  );
+
+  useEffect(() => {
+    return () => {
+      fetchControllerRef.current?.abort();
+      if (fetchFrameRef.current != null) {
+        cancelAnimationFrame(fetchFrameRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -257,32 +557,44 @@ export default function MapPage() {
     setSearchParams({}, { replace: true });
     setPreviewFlash(true);
     setPreviewMessage('Пробежка обработана! Ваши клетки подсвечены на карте.');
-    setFlyTrigger((value) => value + 1);
+    setTerritoryHighlight(true);
+    queueFly('territory');
 
     const timer = window.setTimeout(() => setPreviewFlash(false), 4000);
     return () => window.clearTimeout(timer);
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, queueFly]);
+
+  useEffect(() => {
+    if (!previewMessage) {
+      return;
+    }
+    const timer = window.setTimeout(() => dismissPreview(), 8000);
+    return () => window.clearTimeout(timer);
+  }, [previewMessage, dismissPreview]);
 
   const displayCells = useMemo(
-    () => mergeCells(myCells, nearbyCells),
+    () => mergeCells(nearbyCells, myCells),
     [myCells, nearbyCells],
   );
 
   const rivalH3 = useMemo(() => new Set(rivalCells.map((c) => c.h3Index)), [rivalCells]);
   const targetH3 = useMemo(() => new Set(targets.map((t) => t.h3Index)), [targets]);
 
-  const flyTargets = useMemo(() => {
-    if (targets.length > 0) {
-      return targets.map((t) => [t.lat, t.lng] as LatLngExpression);
+  const territoryPoints = useMemo(
+    () => myCells.map((cell) => cellCenter(cell) as LatLngExpression),
+    [myCells],
+  );
+
+  const homeCenter = useMemo<[number, number] | null>(() => {
+    if (user?.homeLat != null && user.homeLng != null) {
+      return [user.homeLat, user.homeLng];
     }
-    return myCells
-      .filter((cell) => cell.lat != null && cell.lng != null)
-      .map((cell) => [cell.lat as number, cell.lng as number] as LatLngExpression);
-  }, [myCells, targets]);
+    return null;
+  }, [user?.homeLat, user?.homeLng]);
 
   async function handleFindTargets() {
     setFindingTargets(true);
-    setTargetsMessage(null);
+    setError(null);
     try {
       let lat = user?.homeLat;
       let lng = user?.homeLng;
@@ -303,11 +615,23 @@ export default function MapPage() {
       );
       setTargets(data.targets);
       setTargetsMessage(data.message);
+      setTerritoryHighlight(false);
       if (data.targets.length > 0) {
-        setFlyTrigger((value) => value + 1);
+        setTargetsHighlight(true);
+        queueFly(
+          'targets',
+          data.targets.map((t) => [t.lat, t.lng] as LatLngExpression),
+        );
+      } else {
+        setTargetsHighlight(false);
+        setTargetsMessage(null);
+        setError('Рядом нет клеток для захвата — пробегитесь по новому маршруту.');
       }
     } catch (err) {
-      setTargetsMessage(
+      setTargetsHighlight(false);
+      setTargets([]);
+      setTargetsMessage(null);
+      setError(
         err instanceof Error ? err.message : 'Не удалось найти цели. Укажите домашнюю базу на карте.',
       );
     } finally {
@@ -337,77 +661,102 @@ export default function MapPage() {
       return dLat > 0.05 || dLng > 0.05;
     });
 
-  const totalInfluence = Math.round(user?.stats?.totalInfluence ?? 0);
   const cellsOwned = user?.stats?.cellsOwned ?? 0;
-  const totalRuns = user?.stats?.totalRuns ?? 0;
   const currentStreak = user?.stats?.currentStreak ?? 0;
   const level = Math.max(1, Math.floor(cellsOwned / 12) + 1);
-  const streakBonus = streakLabel(currentStreak);
-  const territoryArea =
-    summary?.territoryAreaM2 != null
-      ? formatAreaM2(summary.territoryAreaM2)
-      : formatCellsArea(cellsOwned);
   const atRisk = summary?.cellsAtRisk ?? 0;
 
+  const legendItems = [
+    { fill: '#9BC49B', stroke: '#6B9A6B', label: 'Своя' },
+    { fill: '#A8B8CC', stroke: '#7A8FA8', label: 'Соперник' },
+    { fill: '#F2F2F2', stroke: '#D8D8D8', label: 'Нейтральная' },
+    { fill: '#D4B896', stroke: '#B8956A', label: 'Риск' },
+    { fill: '#C99090', stroke: '#A86B6B', label: 'Критично' },
+    { fill: CONTESTED_FILL, stroke: CONTESTED_STROKE, label: 'Спор' },
+    ...(targetsHighlight
+      ? [{ fill: TARGET_FILL, stroke: TARGET_STROKE, label: 'Цель' }]
+      : []),
+  ];
+
   return (
-    <div className="map-page game-map-page">
-      <section className="map-profile-card">
-        <div className="map-brand-row">
-          <p className="eyebrow">Territory Run</p>
-          <div className="level-hex" aria-label={`Уровень ${level}`}>
-            <span>{level}</span>
-          </div>
+    <div className="map-page">
+      <header className="wire-map-header">
+        <div className="wire-avatar" aria-hidden="true" />
+        <div>
+          <strong>{user?.nickname || 'runner'}</strong>
+          <p>
+            Ур. {level} · {cellsOwned} клеток
+            {currentStreak > 0 ? ` · стрик ${currentStreak} дн` : ''}
+          </p>
         </div>
+      </header>
 
-        <div className="map-user-row">
-          <div className="runner-avatar" aria-hidden="true">●</div>
-          <div className="map-user-copy">
-            <h1>{user?.nickname || 'runner'}</h1>
-            <p className="map-territory-area">{territoryArea}</p>
-          </div>
-          {currentStreak > 0 && (
-            <span className="streak-badge" title="Стрик активности">
-              🔥 {currentStreak}
-              {streakBonus ? ` ${streakBonus}` : ''}
-            </span>
-          )}
-        </div>
-
-        <div className="map-stat-cards">
-          <div className="map-stat-card stat-cells">
-            <span className="stat-icon" aria-hidden="true">⬡</span>
-            <span>Клетки</span>
-            <strong>{cellsOwned}</strong>
-          </div>
-          <div className="map-stat-card stat-influence">
-            <span className="stat-icon" aria-hidden="true">⚡</span>
-            <span>Влияние</span>
-            <strong>{totalInfluence}</strong>
-          </div>
-          <div className="map-stat-card stat-runs">
-            <span className="stat-icon" aria-hidden="true">👟</span>
-            <span>Пробежки</span>
-            <strong>{totalRuns}</strong>
-          </div>
-        </div>
-      </section>
-
-      <div className="map-frame game-map-frame">
+      <div className="map-frame">
         <MapContainer
           key={`${defaultCenter[0]}-${defaultCenter[1]}`}
           center={defaultCenter}
           zoom={13}
+          zoomControl={false}
+          attributionControl={false}
           className="leaflet-map"
           style={{ width: '100%', height: '100%' }}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
           />
-          <MapControlBridge onMap={setMapInstance} />
+          <MapControlBridge onMap={handleMapInstance} />
           <DistrictPane />
-          <MapEvents onMove={loadNearbyCells} />
-          <FlyToCells targets={flyTargets} trigger={flyTrigger} />
+          <HighlightPane />
+          <MapEvents onMove={queueNearbyCellsLoad} />
+          <MapSheetDismiss
+            active={targetsHighlight || selectedCell != null || previewMessage != null}
+            onDismiss={dismissMapOverlay}
+          />
+          <MapFlyController
+            request={flyRequest}
+            homeCenter={homeCenter}
+            territoryPoints={territoryPoints}
+          />
+
+          {targetsHighlight &&
+            targets.map((target) => {
+              try {
+                const boundary = cellBoundary(target.h3Index);
+                return (
+                  <Polygon
+                    key={`target-${target.h3Index}`}
+                    positions={boundary}
+                    pane="highlightPane"
+                    pathOptions={{
+                      color: TARGET_STROKE,
+                      fillColor: TARGET_FILL,
+                      fillOpacity: 0.92,
+                      opacity: 1,
+                      weight: 3.5,
+                      lineJoin: 'round',
+                      className: 'capture-target-cell capture-target-emphasis',
+                    }}
+                  />
+                );
+              } catch {
+                return (
+                  <Circle
+                    key={`target-fallback-${target.h3Index}`}
+                    center={[target.lat, target.lng]}
+                    radius={95}
+                    pane="highlightPane"
+                    pathOptions={{
+                      color: TARGET_STROKE,
+                      fillColor: TARGET_FILL,
+                      fillOpacity: 0.5,
+                      weight: 3,
+                      className: 'capture-target-cell capture-target-emphasis',
+                    }}
+                  />
+                );
+              }
+            })}
 
           {districts.flatMap((district) =>
             districtPolygonsForMap(district.polygon).map((rings, partIndex) => (
@@ -416,9 +765,9 @@ export default function MapPage() {
                 positions={rings}
                 pane="districtPane"
                 pathOptions={{
-                  color: '#ffffff',
-                  weight: 1,
-                  opacity: 0.25,
+                  color: '#8A7AA8',
+                  weight: 1.5,
+                  opacity: 0.55,
                   fillOpacity: 0,
                   className: 'map-district-polygon',
                 }}
@@ -448,12 +797,23 @@ export default function MapPage() {
               <Circle
                 center={[user.homeLat, user.homeLng]}
                 radius={500}
-                pathOptions={{ color: '#3dff8a', fillColor: '#3dff8a', fillOpacity: 0.08, weight: 2 }}
+                pathOptions={{
+                  color: '#8A8A8A',
+                  fillColor: '#E5E5E5',
+                  fillOpacity: 0.25,
+                  weight: 1.5,
+                  dashArray: '6 4',
+                }}
               />
               <CircleMarker
                 center={[user.homeLat, user.homeLng]}
-                radius={9}
-                pathOptions={{ color: '#ffffff', fillColor: '#45c8e7', fillOpacity: 1, weight: 3 }}
+                radius={8}
+                pathOptions={{
+                  color: '#1A1A1A',
+                  fillColor: '#C8C8C8',
+                  fillOpacity: 1,
+                  weight: 2,
+                }}
               />
             </>
           )}
@@ -461,85 +821,97 @@ export default function MapPage() {
           {displayCells.map((cell) => {
             try {
               const boundary = cellBoundary(cell.h3Index);
-              const color = cellColor(cell, user?.id, rivalH3, targetH3, previewFlash);
+              const paint = cellPaint(cell, user?.id, rivalH3, targetH3, previewFlash);
               const isMine = cell.ownerId === user?.id;
+              const isTarget = targetH3.has(cell.h3Index);
+              const isSelected = selectedCell?.h3Index === cell.h3Index;
+              const emphasizeMine = isMine && territoryHighlight;
+              const emphasizeTarget = isTarget && targetsHighlight;
+              const fillOpacity = resolveCellFillOpacity(paint, {
+                isSelected,
+                emphasizeMine,
+                emphasizeTarget,
+              });
+              const strokeOpacity = 0.35 + 0.65 * influenceVisualStrength(cell.influence ?? 0);
               return (
                 <Polygon
                   key={cell.h3Index}
                   positions={boundary}
                   pathOptions={{
-                    color,
-                    fillColor: color,
-                    fillOpacity: isMine ? 0.78 : targetH3.has(cell.h3Index) ? 0.68 : 0.58,
-                    opacity: 1,
-                    weight: targetH3.has(cell.h3Index) ? 2 : 0,
+                    color: isSelected
+                      ? '#1A1A1A'
+                      : emphasizeMine
+                        ? '#4A7A4A'
+                        : emphasizeTarget
+                          ? TARGET_STROKE
+                          : paint.stroke,
+                    fillColor: paint.fill,
+                    fillOpacity,
+                    opacity: strokeOpacity,
+                    weight: isSelected ? 4.5 : emphasizeMine || emphasizeTarget ? 3.5 : 2,
                     lineJoin: 'round',
-                    className: cellClassName(cell, user?.id, rivalH3, targetH3, previewFlash),
+                    className: [
+                      cellClassName(cell, user?.id, rivalH3, targetH3, previewFlash),
+                      emphasizeMine ? 'territory-emphasis' : '',
+                      isSelected ? 'map-cell-selected' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' '),
                   }}
-                >
-                  <Popup minWidth={240}>
-                    <CellPopupContent cell={cell} />
-                  </Popup>
-                </Polygon>
+                  eventHandlers={{
+                    click: (event) => {
+                      L.DomEvent.stopPropagation(event.originalEvent);
+                      setSelectedCell(cell);
+                    },
+                  }}
+                />
               );
             } catch {
               return null;
             }
           })}
+
+          {selectedCell &&
+            (() => {
+              try {
+                const paint = cellPaint(
+                  selectedCell,
+                  user?.id,
+                  rivalH3,
+                  targetH3,
+                  previewFlash,
+                );
+                return (
+                  <Polygon
+                    key={`selected-${selectedCell.h3Index}`}
+                    positions={cellBoundary(selectedCell.h3Index)}
+                    pane="highlightPane"
+                    pathOptions={{
+                      color: '#1A1A1A',
+                      fillColor: paint.fill,
+                      fillOpacity: 0,
+                      weight: 5,
+                      opacity: 1,
+                      lineJoin: 'round',
+                      interactive: false,
+                      className: 'map-cell-selected-ring',
+                    }}
+                  />
+                );
+              } catch {
+                return null;
+              }
+            })()}
         </MapContainer>
 
-        <div className="map-zoom-controls" aria-label="Масштаб карты">
-          <button
-            type="button"
-            aria-label="Увеличить"
-            onClick={() => mapInstance?.zoomIn()}
-            disabled={!mapInstance}
-          >
-            +
-          </button>
-          <button
-            type="button"
-            aria-label="Уменьшить"
-            onClick={() => mapInstance?.zoomOut()}
-            disabled={!mapInstance}
-          >
-            −
-          </button>
-          <button
-            type="button"
-            aria-label="К моей территории"
-            onClick={() => setFlyTrigger((value) => value + 1)}
-            disabled={myCells.length === 0}
-          >
-            ⌖
-          </button>
-        </div>
-
-        <button
-          type="button"
-          className="map-tool-btn map-tool-right"
-          onClick={() => setFlyTrigger((value) => value + 1)}
-          disabled={myCells.length === 0}
-        >
-          Мои зоны
-        </button>
-
-        <div className="map-vignette" aria-hidden="true" />
-
-        {districtOverview.length > 0 && (
-          <section className="map-district-hud" aria-label="Контроль районов">
-            {districtOverview.map((entry) => (
-              <button
-                key={entry.districtId}
-                type="button"
-                className={`map-district-hud__item ${districtHudClass(entry.myControlPercent, entry.isKing)}`.trim()}
-                onClick={() => void openDistrictProgress(entry.districtId)}
-              >
-                Район {entry.districtName}: {entry.myControlPercent}%
-              </button>
-            ))}
-          </section>
-        )}
+        <ul className="map-legend" aria-label="Легенда карты">
+          {legendItems.map((item) => (
+            <li key={item.label}>
+              <span style={{ background: item.fill, borderColor: item.stroke }} />
+              {item.label}
+            </li>
+          ))}
+        </ul>
 
         {selectedDistrict && (
           <div className="map-district-popup-wrap">
@@ -550,46 +922,68 @@ export default function MapPage() {
           </div>
         )}
 
-        <section className="map-hud map-capture-card">
-          {atRisk > 0 ? (
-            <>
-              <strong>⚠ {atRisk} под угрозой</strong>
-              <span>Забегите снова, чтобы удержать территорию</span>
-            </>
-          ) : previewMessage ? (
-            <>
-              <strong>Готово!</strong>
-              <span>{previewMessage}</span>
-            </>
-          ) : (
-            <>
-              <strong>{cellsOwned}</strong>
-              <span>
-                {territoryArea} · {totalInfluence} влияния
-              </span>
-            </>
-          )}
+        {loading && displayCells.length === 0 && (
+          <div className="map-overlay map-overlay--full">
+            Загружаем карту…
+          </div>
+        )}
 
-          {targetsMessage && <p className="map-targets-msg">{targetsMessage}</p>}
-          {!targetsMessage && atRisk === 0 && (
-            <button
-              type="button"
-              className="map-find-targets-btn"
-              onClick={() => void handleFindTargets()}
-              disabled={findingTargets}
-            >
-              {findingTargets ? 'Поиск целей…' : 'Найти цели'}
-            </button>
-          )}
+        {refreshing && <div className="map-sync-indicator" aria-hidden="true" />}
 
-          {cellsFarFromHome && (
-            <p className="map-capture-footnote">Клетки далеко от базы. Нажмите «Мои зоны».</p>
-          )}
-          {error && <p className="map-inline-error">{error}</p>}
-        </section>
-
-        {loading && <div className="map-overlay">Обновление карты...</div>}
+        {initialLoadDone && myCells.length === 0 && displayCells.length === 0 && (
+          <div className="map-empty-state">
+            <p><strong>У тебя пока нет клеток</strong></p>
+            <p>Загрузи первую пробежку на вкладке «Бег».</p>
+          </div>
+        )}
       </div>
+
+      {previewMessage && (
+        <p className="map-floating-toast" role="status">
+          {previewMessage}
+        </p>
+      )}
+
+      {targetsHighlight && targetsMessage && (
+        <p className="map-floating-toast" role="status">
+          {targetsMessage}
+        </p>
+      )}
+
+      <div className="map-action-bar" aria-label="Быстрые действия карты">
+        <button type="button" onClick={flyTerritory} disabled={myCells.length === 0}>
+          Моя территория
+        </button>
+        {atRisk > 0 && (
+          <button type="button" onClick={flyTerritory}>⚠ {atRisk} клетки</button>
+        )}
+        <button type="button" onClick={flyHome} disabled={homeCenter == null}>
+          Дом
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleFindTargets()}
+          disabled={findingTargets}
+        >
+          {findingTargets ? 'Поиск…' : 'Цели'}
+        </button>
+      </div>
+
+      {error && (
+        <p
+          className="error-banner map-page-footnote"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {error}
+        </p>
+      )}
+      {cellsFarFromHome && (
+        <p className="muted small map-page-footnote">
+          Клетки далеко от базы — нажмите «Моя территория».
+        </p>
+      )}
+
+      <CellBottomSheet cell={selectedCell} onClose={closeCellSheet} />
     </div>
   );
 }

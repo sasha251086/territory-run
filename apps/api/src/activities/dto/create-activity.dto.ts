@@ -1,14 +1,18 @@
-﻿import { IsString, IsNumber, IsArray, IsDateString, IsOptional, ValidateNested } from 'class-validator';
+﻿import { IsString, IsNumber, IsArray, IsDateString, IsOptional, ValidateNested, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 class TrackPointDto {
   @ApiProperty({ example: 56.95 })
   @IsNumber()
+  @Min(-90)
+  @Max(90)
   lat!: number;
 
   @ApiProperty({ example: 24.1 })
   @IsNumber()
+  @Min(-180)
+  @Max(180)
   lng!: number;
 
   @ApiPropertyOptional({ example: '2026-06-21T10:00:00.000Z' })

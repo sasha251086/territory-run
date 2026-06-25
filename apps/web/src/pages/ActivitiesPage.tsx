@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiRequest, apiUploadFile } from '../api/client';
 import type { ActivityItem, IntegrationInfo } from '../api/types';
@@ -65,6 +65,7 @@ export default function ActivitiesPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadingSamsungZip, setUploadingSamsungZip] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [healthSyncMessage, setHealthSyncMessage] = useState<string | null>(null);
   const [showFirstCapture, setShowFirstCapture] = useState(false);
   const [captureCells, setCaptureCells] = useState(0);
@@ -72,6 +73,7 @@ export default function ActivitiesPage() {
   const [healthSyncing, setHealthSyncing] = useState(false);
   const [healthSyncProgress, setHealthSyncProgress] = useState<string | null>(null);
   const [reprocessing, setReprocessing] = useState(false);
+  const [importMenuOpen, setImportMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const samsungZipInputRef = useRef<HTMLInputElement>(null);
 
@@ -104,14 +106,29 @@ export default function ActivitiesPage() {
     setTotalActivities(total);
   }, []);
 
+  const sortedItems = useMemo(
+    () =>
+      [...items].sort(
+        (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+      ),
+    [items],
+  );
+
+  const importBusy = uploading || uploadingSamsungZip || syncing || healthSyncing;
+
   const loadData = useCallback(async () => {
     setLoading(true);
+    setErrorMessage(null);
     try {
       const [, connected] = await Promise.all([
         loadActivities(),
         apiRequest<IntegrationInfo[]>('/integrations'),
       ]);
       setIntegrations(connected);
+    } catch (err) {
+      setItems([]);
+      setTotalActivities(0);
+      setErrorMessage(err instanceof Error ? err.message : 'Не удалось загрузить пробежки');
     } finally {
       setLoading(false);
     }
@@ -128,6 +145,7 @@ export default function ActivitiesPage() {
   async function handleHealthSync() {
     setHealthSyncing(true);
     setMessage(null);
+    setErrorMessage(null);
     setHealthSyncMessage(null);
     setHealthSyncProgress(null);
     try {
@@ -182,7 +200,7 @@ export default function ActivitiesPage() {
         }, 8000);
       }
     } catch (err) {
-      setHealthSyncMessage(err instanceof Error ? err.message : 'Ошибка синхронизации с телефоном');
+      setErrorMessage(err instanceof Error ? err.message : 'Ошибка синхронизации с телефоном');
     } finally {
       setHealthSyncing(false);
       setHealthSyncProgress(null);
@@ -192,6 +210,7 @@ export default function ActivitiesPage() {
   async function handleSync() {
     setSyncing(true);
     setMessage(null);
+    setErrorMessage(null);
     try {
       const result = await apiRequest<{ imported: number; skipped: number }>(
         '/integrations/strava/sync',
@@ -210,7 +229,7 @@ export default function ActivitiesPage() {
         setMessage('Новых пробежек не найдено. Как только появится бег в Strava, он появится здесь.');
       }
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Ошибка синхронизации');
+      setErrorMessage(err instanceof Error ? err.message : 'Ошибка синхронизации');
     } finally {
       setSyncing(false);
     }
@@ -225,6 +244,7 @@ export default function ActivitiesPage() {
 
     setUploading(true);
     setMessage(null);
+    setErrorMessage(null);
     try {
       const result = await apiUploadFile<{ activityId: string; status: string }>(
         '/activities/import',
@@ -239,7 +259,7 @@ export default function ActivitiesPage() {
         markRunPreviewAndGoToMap(navigate);
       }, 8000);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Не удалось загрузить файл');
+      setErrorMessage(err instanceof Error ? err.message : 'Не удалось загрузить файл');
     } finally {
       setUploading(false);
     }
@@ -253,7 +273,7 @@ export default function ActivitiesPage() {
     }
 
     if (file.size > 350 * 1024 * 1024) {
-      setMessage(
+      setErrorMessage(
         `Архив слишком большой (${Math.round(file.size / 1024 / 1024)} МБ, лимит 350 МБ). ` +
           'Заархивируй только папку jsons/com.samsung.shealth.exercise.',
       );
@@ -262,6 +282,7 @@ export default function ActivitiesPage() {
 
     setUploadingSamsungZip(true);
     setMessage(null);
+    setErrorMessage(null);
     try {
       const result = await apiUploadFile<{
         imported: number;
@@ -284,7 +305,7 @@ export default function ActivitiesPage() {
         }, 8000);
       }
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Не удалось загрузить архив Samsung Health');
+      setErrorMessage(err instanceof Error ? err.message : 'Не удалось загрузить архив Samsung Health');
     } finally {
       setUploadingSamsungZip(false);
     }
@@ -293,6 +314,7 @@ export default function ActivitiesPage() {
   async function handleReprocessFailed() {
     setReprocessing(true);
     setMessage(null);
+    setErrorMessage(null);
     try {
       const result = await apiRequest<{ requeued: number; skipped: number }>(
         '/activities/reprocess-failed',
@@ -303,7 +325,7 @@ export default function ActivitiesPage() {
       );
       setTimeout(() => void loadData(), 5000);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Не удалось пересчитать пробежки');
+      setErrorMessage(err instanceof Error ? err.message : 'Не удалось пересчитать пробежки');
     } finally {
       setReprocessing(false);
     }
@@ -312,139 +334,133 @@ export default function ActivitiesPage() {
   const hasStrava = integrations.some((item) => item.provider === 'strava' && item.connected);
   const failedCount = items.filter((item) => item.status === 'failed').length;
 
+  function handleHealthAction() {
+    if (isNativeApp) {
+      void handleHealthSync();
+      return;
+    }
+    samsungZipInputRef.current?.click();
+  }
+
   if (loading) {
-    return <div className="page-center">Загрузка пробежек...</div>;
+    return <div className="page-center">Загрузка пробежек…</div>;
   }
 
   return (
-    <div className="stack game-screen">
-      <section className="screen-hero">
-        <p className="eyebrow">Run Control</p>
-        <h1>Пробежки</h1>
-        <p>Загружайте маршруты, синхронизируйте трекеры и превращайте бег в новые зоны на карте.</p>
-      </section>
+    <div className="page-screen page-screen--runs">
+      <h1 className="page-title">Пробежки</h1>
 
-      {message && (
-        <section className="card">
-          <p className="info-box">{message}</p>
-        </section>
+      <button
+        type="button"
+        className="primary-btn runs-add-btn"
+        onClick={() => setImportMenuOpen(true)}
+        disabled={importBusy}
+      >
+        {importBusy ? 'Импорт…' : '+ Добавить пробежку'}
+      </button>
+
+      {importMenuOpen && (
+        <div
+          className="bottom-sheet-backdrop"
+          onClick={() => setImportMenuOpen(false)}
+          role="presentation"
+        >
+          <section
+            className="bottom-sheet import-sheet"
+            role="dialog"
+            aria-label="Как добавить пробежку"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="bottom-sheet-handle" aria-hidden="true" />
+            <p className="import-sheet-title">Добавить пробежку</p>
+            <div className="import-sheet-actions">
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => {
+                  setImportMenuOpen(false);
+                  fileInputRef.current?.click();
+                }}
+                disabled={importBusy}
+              >
+                GPX файл
+              </button>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => {
+                  setImportMenuOpen(false);
+                  void handleSync();
+                }}
+                disabled={!hasStrava || importBusy}
+              >
+                Strava
+                {!hasStrava && <span className="muted small"> · не подключена</span>}
+              </button>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => {
+                  setImportMenuOpen(false);
+                  handleHealthAction();
+                }}
+                disabled={importBusy}
+              >
+                {isNativeApp ? 'Samsung Health (телефон)' : 'Samsung Health (архив ZIP)'}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
 
-      <div className="action-grid">
-        <section className="card highlight-card action-card">
-          <h2>Загрузить ZIP из Samsung Health</h2>
-          <p className="muted">
-            Samsung Health не передаёт GPS-маршруты в Health Connect, но хранит их в архиве персональных данных.
-            Открой Samsung Health → Настройки → Загрузить персональные данные → заархивируй{' '}
-            <strong>корневую папку экспорта</strong> (где лежат CSV и папка jsons/) и загрузи ZIP сюда.
-            Если архив больше 350 МБ — упакуй только папку jsons/com.samsung.shealth.exercise.
-          </p>
-          <input
-            ref={samsungZipInputRef}
-            type="file"
-            accept=".zip,application/zip"
-            hidden
-            onChange={handleSamsungZipSelected}
-          />
-          <button
-            type="button"
-            className="primary-btn"
-            onClick={() => samsungZipInputRef.current?.click()}
-            disabled={uploadingSamsungZip}
-          >
-            {uploadingSamsungZip ? 'Разбор архива...' : 'Загрузить ZIP Samsung Health'}
-          </button>
-        </section>
+      {message && <p className="info-box">{message}</p>}
+      {errorMessage && <p className="error-banner">{errorMessage}</p>}
+      {healthSyncProgress && <p className="muted small">{healthSyncProgress}</p>}
+      {healthSyncMessage && <p className="info-box">{healthSyncMessage}</p>}
 
-        <section className="card highlight-card action-card">
-          <h2>Загрузить GPX файл</h2>
-          <p className="muted">
-            Экспортируйте пробежку из Samsung Health, Garmin, Nike или другого приложения в формат GPX и загрузите файл сюда.
-          </p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".gpx"
-            hidden
-            onChange={handleFileSelected}
-          />
-          <button
-            type="button"
-            className="primary-btn"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-          >
-            {uploading ? 'Загрузка...' : 'Загрузить трек'}
-          </button>
-        </section>
-      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".gpx"
+        hidden
+        onChange={handleFileSelected}
+      />
+      <input
+        ref={samsungZipInputRef}
+        type="file"
+        accept=".zip,application/zip"
+        hidden
+        onChange={handleSamsungZipSelected}
+      />
 
-      {isNativeApp && (
-        <section className="card highlight-card action-card">
-          <h2>Синхронизация с телефоном</h2>
-          <p className="muted">
-            На Samsung сначала читаем GPS напрямую из Samsung Health (Data SDK).
-            Если недоступно — fallback через Health Connect. На iOS — Apple Health.
-          </p>
+      {failedCount > 0 && (
+        <div className="button-row">
           <button
             type="button"
-            className="primary-btn"
-            onClick={() => void handleHealthSync()}
-            disabled={healthSyncing}
+            className="ghost-btn"
+            onClick={() => void handleReprocessFailed()}
+            disabled={reprocessing}
           >
-            {healthSyncing ? 'Синхронизация...' : 'Синхронизировать пробежки'}
+            {reprocessing ? 'Пересчёт…' : 'Пересчитать отклонённые'}
           </button>
-          {healthSyncProgress && <p className="muted small">{healthSyncProgress}</p>}
-          {healthSyncMessage && (
-            <p className="info-box" style={{ marginTop: '0.75rem' }}>
-              {healthSyncMessage}
-            </p>
-          )}
-        </section>
+        </div>
       )}
 
-      <section className="card">
-        <h2>Strava (опционально)</h2>
-        <p className="muted">
-          Если Strava подключена, можно синхронизировать пробежки автоматически.
+      {totalActivities > 0 && (
+        <p className="muted small run-list-meta">
+          Показано {sortedItems.length} из {totalActivities}
         </p>
-        {hasStrava ? (
-          <button type="button" className="ghost-btn" onClick={handleSync} disabled={syncing}>
-            {syncing ? 'Синхронизация...' : 'Синхронизировать Strava'}
-          </button>
-        ) : (
-          <p className="muted small">
-            Strava не подключена — это необязательно, GPX-файла достаточно.
-          </p>
-        )}
-      </section>
+      )}
 
-      <section className="card">
-        <h2>Мои пробежки</h2>
-        {failedCount > 0 && (
-          <div className="button-row" style={{ marginBottom: '0.75rem' }}>
-            <button
-              type="button"
-              className="ghost-btn"
-              onClick={() => void handleReprocessFailed()}
-              disabled={reprocessing}
-            >
-              {reprocessing ? 'Пересчёт...' : 'Пересчитать отклонённые'}
-            </button>
-          </div>
-        )}
-        {totalActivities > 0 && (
-          <p className="muted small">
-            Показано {items.length} из {totalActivities}
-          </p>
-        )}
-        {items.length === 0 ? (
-          <p className="muted">
-            Пробежек пока нет. Загрузите ZIP из Samsung Health, GPX-файл или синхронизируйте Strava.
-          </p>
-        ) : (
-          <ul className="activity-list">
-            {items.map((item) => (
+      {sortedItems.length === 0 ? (
+        <div className="empty-state">
+          <h3>Пока нет пробежек</h3>
+          <p className="muted">Загрузите GPX, Strava или Health — и захватите клетки на карте.</p>
+        </div>
+      ) : (
+        <div className="run-list-scroll">
+          <ul className="run-list">
+            {sortedItems.map((item) => (
               <ActivityCard
                 key={item.id}
                 item={item}
@@ -453,8 +469,8 @@ export default function ActivitiesPage() {
               />
             ))}
           </ul>
-        )}
-      </section>
+        </div>
+      )}
 
       {showFirstCapture && (
         <FirstCaptureModal
@@ -462,16 +478,6 @@ export default function ActivitiesPage() {
           onClose={() => setShowFirstCapture(false)}
         />
       )}
-
-      <button
-        type="button"
-        className="fab-upload"
-        aria-label="Загрузить GPX"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={uploading}
-      >
-        +
-      </button>
     </div>
   );
 }

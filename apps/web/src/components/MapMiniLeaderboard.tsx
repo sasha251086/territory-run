@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { apiRequest } from '../api/client';
 import type { LeaderboardEntry } from '../api/types';
-import { formatCellsArea } from '../utils/territory';
+import { formatCellCount } from '../utils/territory';
 import { useAuth } from '../context/AuthContext';
 
-const RANK_COLORS = ['#3dff8a', '#45c8e7', '#9b6dff', '#f5c842'];
+const RANK_COLORS = ['#1A1A1A', '#5C5C5C', '#8A8A8A', '#B8B8B8'];
 
 export default function MapMiniLeaderboard() {
   const { user } = useAuth();
@@ -47,7 +47,7 @@ export default function MapMiniLeaderboard() {
             >
               <span>{index + 1}</span>
               <em>{item.nickname}{isYou ? ' (вы)' : ''}</em>
-              <strong>{formatCellsArea(Math.round(item.value))}</strong>
+              <strong>{formatCellCount(Math.round(item.value))}</strong>
             </li>
           );
         })}

@@ -8,6 +8,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { ActivitiesService } from '../../../activities/activities.service';
 import { ApiException } from '../../../common/api.exception';
 import { ErrorCodes } from '../../../common/error-codes';
+import { decryptSecret, encryptSecret } from '../../../common/encryption.util';
 import {
   ActivityProvider,
   ExternalActivity,
@@ -37,6 +38,9 @@ interface StravaTokenResponse {
 export class StravaService implements ActivityProvider {
   private readonly logger = new Logger(StravaService.name);
   private readonly provider = 'strava';
+  private requestChain: Promise<void> = Promise.resolve();
+  private readonly requestDelayMs = 200;
+  private readonly maxRetries = 3;
 
   constructor(
     private prisma: PrismaService,
@@ -97,16 +101,16 @@ export class StravaService implements ActivityProvider {
       },
       update: {
         externalUserId: String(tokenData.athlete.id),
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token,
+        accessToken: encryptSecret(tokenData.access_token),
+        refreshToken: encryptSecret(tokenData.refresh_token),
         expiresAt: new Date(tokenData.expires_at * 1000),
       },
       create: {
         userId,
         provider: this.provider,
         externalUserId: String(tokenData.athlete.id),
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token,
+        accessToken: encryptSecret(tokenData.access_token),
+        refreshToken: encryptSecret(tokenData.refresh_token),
         expiresAt: new Date(tokenData.expires_at * 1000),
       },
     });
@@ -125,7 +129,7 @@ export class StravaService implements ActivityProvider {
     }
 
     const validIntegration = await this.ensureValidToken(integration);
-    const activities = await this.getActivities(validIntegration.accessToken);
+    const activities = await this.getActivities(this.getAccessToken(validIntegration));
 
     let imported = 0;
     let skipped = 0;
@@ -194,16 +198,10 @@ export class StravaService implements ActivityProvider {
   }
 
   async getActivities(accessToken: string): Promise<ExternalActivity[]> {
-    const response = await fetch(
+    const response = await this.fetchStrava(
       'https://www.strava.com/api/v3/athlete/activities?per_page=30',
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      },
+      { headers: { Authorization: `Bearer ${accessToken}` } },
     );
-
-    if (!response.ok) {
-      throw new Error(`Strava activities request failed: ${response.status}`);
-    }
 
     const summaries = (await response.json()) as StravaActivitySummary[];
     const activities: ExternalActivity[] = [];
@@ -217,12 +215,13 @@ export class StravaService implements ActivityProvider {
 
   async getActivity(accessToken: string, id: string): Promise<ExternalActivity> {
     const [activityResponse, streamsResponse] = await Promise.all([
-      fetch(`https://www.strava.com/api/v3/activities/${id}`, {
+      this.fetchStrava(`https://www.strava.com/api/v3/activities/${id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       }),
-      fetch(`https://www.strava.com/api/v3/activities/${id}/streams?keys=latlng,time`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }),
+      this.fetchStrava(
+        `https://www.strava.com/api/v3/activities/${id}/streams?keys=latlng,time`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      ),
     ]);
 
     if (!activityResponse.ok) {
@@ -295,6 +294,14 @@ export class StravaService implements ActivityProvider {
     return this.refreshToken(integration);
   }
 
+  private getAccessToken(integration: Integration): string {
+    return decryptSecret(integration.accessToken);
+  }
+
+  private getRefreshToken(integration: Integration): string {
+    return decryptSecret(integration.refreshToken);
+  }
+
   private async refreshToken(integration: Integration): Promise<Integration> {
     this.assertStravaConfigured();
 
@@ -302,7 +309,7 @@ export class StravaService implements ActivityProvider {
       client_id: process.env.STRAVA_CLIENT_ID!,
       client_secret: process.env.STRAVA_CLIENT_SECRET!,
       grant_type: 'refresh_token',
-      refresh_token: integration.refreshToken,
+      refresh_token: this.getRefreshToken(integration),
     });
 
     const response = await fetch('https://www.strava.com/oauth/token', {
@@ -331,11 +338,35 @@ export class StravaService implements ActivityProvider {
     return this.prisma.integration.update({
       where: { id: integration.id },
       data: {
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token,
+        accessToken: encryptSecret(tokenData.access_token),
+        refreshToken: encryptSecret(tokenData.refresh_token),
         expiresAt: new Date(tokenData.expires_at * 1000),
       },
     });
+  }
+
+  private async fetchStrava(url: string, init: RequestInit, attempt = 0): Promise<Response> {
+    const next = this.requestChain.then(
+      () => new Promise<void>((resolve) => setTimeout(resolve, this.requestDelayMs)),
+    );
+    this.requestChain = next.catch(() => undefined);
+    await next;
+
+    const response = await fetch(url, init);
+    if (response.status === 429 && attempt < this.maxRetries) {
+      const retryAfterHeader = response.headers.get('retry-after');
+      const retryAfterMs = retryAfterHeader
+        ? Number(retryAfterHeader) * 1000
+        : (attempt + 1) * 1000;
+      await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+      return this.fetchStrava(url, init, attempt + 1);
+    }
+
+    if (!response.ok) {
+      throw new Error(`Strava request failed: ${response.status}`);
+    }
+
+    return response;
   }
 
   private assertStravaConfigured(): void {

@@ -31,6 +31,7 @@ describe('DistrictService recalculateDistrictControl', () => {
     jest.clearAllMocks();
     service = new DistrictService(
       mockPrisma as never,
+      { get: jest.fn(), set: jest.fn() } as never,
       mockFeedService as never,
       mockOwnershipService as never,
     );

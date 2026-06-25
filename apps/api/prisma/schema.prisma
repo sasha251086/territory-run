@@ -29,6 +29,19 @@ model User {
   rivalsFollowing RivalFollow[] @relation("RivalFollower")
   rivalsFollowers RivalFollow[] @relation("RivalTarget")
   seasonResults SeasonResult[]
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model District {
@@ -82,11 +95,15 @@ model ActivityTrack {
 model Cell {
   h3Index     String   @id
   center      Json?     // можно хранить { lat, lng }
+  centerLat   Float?
+  centerLng   Float?
   createdAt   DateTime @default(now())
 
   ownerships  CellOwnership[]
   districtCells DistrictCell[]
   history     CellHistory[]
+
+  @@index([centerLat, centerLng])
 }
 
 model CellOwnership {

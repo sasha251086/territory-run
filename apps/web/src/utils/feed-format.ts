@@ -35,3 +35,23 @@ export function formatFeedEvent(event: FeedEvent, viewerUserId?: string): string
       return event.type.replace(/_/g, ' ');
   }
 }
+
+export function formatFeedBadge(event: FeedEvent): string | null {
+  const payload = event.payload;
+
+  switch (event.type) {
+    case 'activity_completed': {
+      if (payload.flagged) return 'ERR';
+      const cells = Number(payload.cellsAffected ?? 0);
+      return cells > 0 ? `+${cells} клеток` : null;
+    }
+    case 'cell_captured':
+      return '+1 клетка';
+    case 'district_captured':
+      return 'король';
+    case 'cell_siege':
+      return 'осада';
+    default:
+      return null;
+  }
+}

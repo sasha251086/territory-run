@@ -375,8 +375,10 @@ export class ActivitiesService {
       this.prisma.activity.count({ where: { userId } }),
     ]);
 
+    const enrichedItems = await this.attachCellsCapturedFromEvents(userId, items);
+
     return {
-      items,
+      items: enrichedItems,
       total,
       page,
       limit,
@@ -485,5 +487,45 @@ export class ActivitiesService {
     }
 
     return { requeued };
+  }
+
+  private async attachCellsCapturedFromEvents<
+    T extends { id: string; status: ActivityStatus },
+  >(userId: string, items: T[]): Promise<Array<T & { cellsCaptured: number | null }>> {
+    const completedIds = new Set(
+      items.filter((item) => item.status === ActivityStatus.completed).map((item) => item.id),
+    );
+    const cellsByActivity = new Map<string, number>();
+
+    if (completedIds.size > 0) {
+      const events = await this.prisma.event.findMany({
+        where: { userId, type: 'activity_completed' },
+        select: { payload: true },
+        orderBy: { createdAt: 'desc' },
+        take: 1000,
+      });
+
+      for (const event of events) {
+        const payload = event.payload as { activityId?: string; cellsAffected?: number };
+        if (
+          payload.activityId &&
+          completedIds.has(payload.activityId) &&
+          typeof payload.cellsAffected === 'number' &&
+          !cellsByActivity.has(payload.activityId)
+        ) {
+          cellsByActivity.set(payload.activityId, payload.cellsAffected);
+        }
+      }
+    }
+
+    return items.map((item) => {
+      if (item.status === ActivityStatus.completed) {
+        return { ...item, cellsCaptured: cellsByActivity.get(item.id) ?? null };
+      }
+      if (item.status === ActivityStatus.failed) {
+        return { ...item, cellsCaptured: 0 };
+      }
+      return { ...item, cellsCaptured: null };
+    });
   }
 }

@@ -1,4 +1,5 @@
 ﻿import { Injectable } from '@nestjs/common';
+import * as h3 from 'h3-js';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { MapQueryDto } from './dto/map-query.dto';
@@ -8,7 +9,7 @@ import {
   CellResponseDto,
   MapSummaryResponseDto,
 } from './dto/cell-response.dto';
-import { haversineDistance, isWithinBbox, roundCoord } from '../common/geo.util';
+import { haversineDistance, roundCoord } from '../common/geo.util';
 import {
   CAPTURE_TARGET_MAX_GAP,
   CAPTURE_TARGET_RADIUS_M,
@@ -19,6 +20,10 @@ import {
   decayRiskFor,
   runsToCapture,
 } from '../common/cell-decay.util';
+import {
+  getCellContestState,
+  rankCellOwnerships,
+} from '../common/cell-ownership.util';
 
 type OwnershipWithUser = {
   userId: string;
@@ -41,41 +46,39 @@ export class MapService {
     const east = roundCoord(query.east);
     const west = roundCoord(query.west);
 
-    const cacheKey = `map:bbox:${north}:${south}:${east}:${west}:${limit}:${userId}`;
+    const cacheKey = `map:bbox:${north}:${south}:${east}:${west}:${limit}`;
 
     const cached = await this.redisService.get(cacheKey);
+    let baseCells: Array<{
+      h3Index: string;
+      center: unknown;
+      ownerships: OwnershipWithUser[];
+    }>;
+
     if (cached) {
-      return JSON.parse(cached);
+      baseCells = this.reviveCachedCells(JSON.parse(cached));
+    } else {
+      baseCells = await this.prisma.cell.findMany({
+        where: {
+          centerLat: { gte: south, lte: north },
+          centerLng: { gte: west, lte: east },
+        },
+        take: limit,
+        include: {
+          ownerships: {
+            include: { user: true },
+            orderBy: { influence: 'desc' },
+          },
+        },
+      });
+
+      await this.redisService.set(cacheKey, JSON.stringify(baseCells), 45);
     }
 
-    const cells = await this.prisma.cell.findMany({
-      include: {
-        ownerships: {
-          include: { user: true },
-          orderBy: { influence: 'desc' },
-        },
-      },
-    });
-
-    const filtered = cells
-      .filter((cell) => {
-        const center = cell.center as { lat: number; lng: number } | null;
-        if (!center) return false;
-        return isWithinBbox(center.lat, center.lng, north, south, east, west);
-      })
-      .slice(0, limit);
-
-    const h3Indices = filtered.map((c) => c.h3Index);
-    const myOwnerships = await this.prisma.cellOwnership.findMany({
-      where: { userId, h3Index: { in: h3Indices } },
-    });
-    const myByCell = new Map(myOwnerships.map((o) => [o.h3Index, o]));
-
-    const result = filtered.map((cell) =>
-      this.toCellDto(cell, myByCell.get(cell.h3Index), cell.ownerships, userId),
+    const result = baseCells.map((cell) =>
+      this.toCellDto(cell, cell.ownerships, userId),
     );
 
-    await this.redisService.set(cacheKey, JSON.stringify(result), 45);
     return result;
   }
 
@@ -95,18 +98,22 @@ export class MapService {
     });
 
     return ownerships.map((ownership) =>
-      this.toCellDto(ownership.cell, ownership, ownership.cell.ownerships, userId),
+      this.toCellDto(ownership.cell, ownership.cell.ownerships, userId),
     );
   }
 
   async getCellPlayers(h3Index: string, userId: string): Promise<CellPlayersResponseDto> {
     const ownerships = await this.prisma.cellOwnership.findMany({
       where: { h3Index },
-      orderBy: { influence: 'desc' },
       include: { user: true },
     });
 
-    const allRanked = ownerships.map((o, index) => ({
+    const ranked = rankCellOwnerships(ownerships);
+    const leader = ranked[0];
+    const second = ranked[1];
+    const contest = getCellContestState(leader?.influence ?? 0, second?.influence ?? 0);
+
+    const allRanked = ranked.map((o, index) => ({
       rank: index + 1,
       userId: o.userId,
       nickname: o.user.nickname,
@@ -114,14 +121,12 @@ export class MapService {
       isMe: o.userId === userId,
     }));
 
-    const myIndex = ownerships.findIndex((o) => o.userId === userId);
-    const myOwnership = myIndex >= 0 ? ownerships[myIndex] : null;
-    const leader = ownerships[0];
+    const myIndex = ranked.findIndex((o) => o.userId === userId);
+    const myOwnership = myIndex >= 0 ? ranked[myIndex] : null;
     const isOwner = leader?.userId === userId;
     const myInfluence = myOwnership?.influence ?? 0;
     const leaderInfluence = leader?.influence ?? 0;
     const gapToLeader = isOwner ? 0 : Math.max(0, leaderInfluence - myInfluence);
-    const second = ownerships[1];
 
     const historyRows = await this.prisma.cellHistory.findMany({
       where: { h3Index },
@@ -151,6 +156,10 @@ export class MapService {
       isOwner,
       leadOverNext:
         isOwner && second ? Math.max(0, myInfluence - second.influence) : null,
+      contested: contest.contested,
+      contestGap: contest.contested ? contest.contestGap : null,
+      tiedOnInfluence: contest.tiedOnInfluence,
+      challengerNickname: contest.contested ? second?.user.nickname ?? null : null,
       history: historyRows.map((row) => ({
         fromNickname: row.fromUserId ? nickById.get(row.fromUserId) ?? null : null,
         toNickname: nickById.get(row.toUserId) ?? 'Игрок',
@@ -213,8 +222,6 @@ export class MapService {
   }
 
   async getMapSummary(userId: string): Promise<MapSummaryResponseDto> {
-    const h3Module = await import('h3-js');
-    const h3 = h3Module.default || h3Module;
     const cellAreaM2 = h3.getHexagonAreaAvg(9, 'm2');
 
     const myOwnerships = await this.prisma.cellOwnership.findMany({
@@ -298,18 +305,43 @@ export class MapService {
       .filter((row): row is NonNullable<typeof row> => row !== null);
   }
 
+  private reviveCachedCells(
+    cells: Array<{
+      h3Index: string;
+      center: unknown;
+      ownerships: OwnershipWithUser[];
+    }>,
+  ) {
+    return cells.map((cell) => ({
+      ...cell,
+      ownerships: cell.ownerships.map((ownership) => ({
+        ...ownership,
+        influence: Number(ownership.influence),
+        lastActivityAt:
+          ownership.lastActivityAt instanceof Date
+            ? ownership.lastActivityAt
+            : new Date(ownership.lastActivityAt),
+      })),
+    }));
+  }
+
   private toCellDto(
     cell: {
       h3Index: string;
       center: unknown;
+      centerLat?: number | null;
+      centerLng?: number | null;
       ownerships: OwnershipWithUser[];
     },
-    myOwnership: { userId: string; influence: number; lastActivityAt: Date } | undefined,
     ownerships: OwnershipWithUser[],
     userId: string,
   ): CellResponseDto {
-    const topOwner = ownerships[0];
+    const ranked = rankCellOwnerships(ownerships);
+    const topOwner = ranked[0];
+    const second = ranked[1];
+    const contest = getCellContestState(topOwner?.influence ?? 0, second?.influence ?? 0);
     const center = cell.center as { lat: number; lng: number } | null;
+    const myOwnership = ranked.find((o) => o.userId === userId);
     const myInfluence = myOwnership?.influence;
     const myLastActivityAt = myOwnership?.lastActivityAt ?? null;
     const isOwner = topOwner?.userId === userId;
@@ -319,7 +351,7 @@ export class MapService {
     let myRank: number | null | undefined;
 
     if (myOwnership) {
-      const rankIndex = ownerships.findIndex((o) => o.userId === userId);
+      const rankIndex = ranked.findIndex((o) => o.userId === userId);
       myRank = rankIndex >= 0 ? rankIndex + 1 : null;
 
       if (!isOwner && topOwner) {
@@ -328,14 +360,19 @@ export class MapService {
       }
     }
 
+    const involvedInContest =
+      contest.contested &&
+      myOwnership != null &&
+      (isOwner || (myInfluence ?? 0) > 0);
+
     return {
       h3Index: cell.h3Index,
       ownerId: topOwner?.userId || null,
       ownerNickname: topOwner?.user?.nickname || null,
       influence: topOwner?.influence || 0,
       lastActivityAt: topOwner?.lastActivityAt || null,
-      lat: center?.lat ?? null,
-      lng: center?.lng ?? null,
+      lat: center?.lat ?? cell.centerLat ?? null,
+      lng: center?.lng ?? cell.centerLng ?? null,
       myInfluence,
       myLastActivityAt,
       daysSinceMyActivity: daysSinceActivity(myLastActivityAt),
@@ -344,6 +381,10 @@ export class MapService {
       gapToLeader,
       runsToCapture: runsNeeded,
       myRank,
+      contested: involvedInContest,
+      contestGap: involvedInContest ? contest.contestGap : undefined,
+      challengerNickname:
+        involvedInContest && isOwner ? second?.user.nickname ?? null : undefined,
     };
   }
 }

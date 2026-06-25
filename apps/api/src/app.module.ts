@@ -16,6 +16,7 @@ import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { DistrictsModule } from './districts/districts.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { RivalsModule } from './rivals/rivals.module';
+import { HealthModule } from './health/health.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
 
 const isProduction = process.env.NODE_ENV === 'production';
@@ -57,6 +58,7 @@ const isProduction = process.env.NODE_ENV === 'production';
     DistrictsModule,
     IntegrationsModule,
     RivalsModule,
+    HealthModule,
   ],
   providers: [
     {

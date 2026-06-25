@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiRequest } from '../api/client';
 import type { FeedEvent } from '../api/types';
-import { formatFeedEvent } from '../utils/feed-format';
+import { formatFeedBadge, formatFeedEvent } from '../utils/feed-format';
 import { useAuth } from '../context/AuthContext';
 
 type FeedTab = 'all' | 'rivals';
@@ -53,84 +53,67 @@ export default function FeedPage() {
   }
 
   return (
-    <div className="stack game-screen">
-      <section className="screen-hero">
-        <p className="eyebrow">City Log</p>
-        <h1>Лента событий</h1>
-        <p>Следите, кто расширяет территорию, возвращает районы и набирает влияние.</p>
-      </section>
+    <div className="page-screen">
+      <h1 className="page-title">Лента</h1>
 
-      <section className="card compact-card">
-        <div className="tabs">
-          <button
-            type="button"
-            className={tab === 'all' ? 'tab active' : 'tab'}
-            onClick={() => setTab('all')}
-          >
-            Все
-          </button>
-          <button
-            type="button"
-            className={tab === 'rivals' ? 'tab active' : 'tab'}
-            onClick={() => setTab('rivals')}
-          >
-            Соперники
-          </button>
-        </div>
-      </section>
+      <div className="segmented">
+        <button
+          type="button"
+          className={tab === 'all' ? 'active' : undefined}
+          onClick={() => setTab('all')}
+        >
+          Все
+        </button>
+        <button
+          type="button"
+          className={tab === 'rivals' ? 'active' : undefined}
+          onClick={() => setTab('rivals')}
+        >
+          Соперники
+        </button>
+      </div>
 
-      <section className="card">
-        <h2>{tab === 'rivals' ? 'Соперники' : 'Лента событий'}</h2>
-        {loading ? (
-          <p className="muted">Загрузка...</p>
-        ) : items.length === 0 ? (
+      {loading ? (
+        <p className="muted">Загрузка…</p>
+      ) : items.length === 0 ? (
+        <div className="empty-state">
+          <h3>Пока тихо</h3>
           <p className="muted">
             {tab === 'rivals'
-              ? 'Добавьте соперников в рейтинге или профиле, чтобы видеть их события.'
-              : 'Событий пока нет.'}
+              ? 'Добавьте соперников в рейтинге, чтобы видеть их события.'
+              : 'Здесь появятся события после первой пробежки.'}
           </p>
-        ) : (
-          <ul className="feed-list">
-            {items.map((event) => {
-              if (event.type === 'cell_siege') {
-                const mapLink = siegeMapLink(event);
-                const isMine = event.userId === user?.id;
-                return (
-                  <li key={event.id} className="feed-card feed-card--siege">
-                    <div className="feed-card__siege-head">
-                      <span aria-hidden="true">🛡</span>
-                      <strong>{isMine ? 'Осада вашей клетки' : 'Осада клетки'}</strong>
-                    </div>
-                    <p>{formatFeedEvent(event, user?.id)}</p>
-                    {mapLink && (
-                      <button
-                        type="button"
-                        className="ghost-btn small-btn"
-                        onClick={() => openOnMap(event)}
-                      >
-                        Посмотреть на карте
-                      </button>
-                    )}
-                    <time dateTime={event.createdAt}>
-                      {new Date(event.createdAt).toLocaleString('ru-RU')}
-                    </time>
-                  </li>
-                );
-              }
+        </div>
+      ) : (
+        <ul className="feed-list">
+          {items.map((event) => {
+            const badge = formatFeedBadge(event);
+            const mapLink = siegeMapLink(event);
 
-              return (
-                <li key={event.id} className="feed-card">
+            return (
+              <li key={event.id} className="feed-row">
+                <div className="feed-row__head">
                   <strong>{event.user.nickname}</strong>
-                  <p>{formatFeedEvent(event, user?.id)}</p>
-                  <time dateTime={event.createdAt}>
-                    {new Date(event.createdAt).toLocaleString('ru-RU')}
-                  </time>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+                  {badge && <span className="wire-badge">{badge}</span>}
+                </div>
+                <p>{formatFeedEvent(event, user?.id)}</p>
+                {mapLink && (
+                  <button
+                    type="button"
+                    className="ghost-btn small-btn"
+                    onClick={() => openOnMap(event)}
+                  >
+                    На карте
+                  </button>
+                )}
+                <time dateTime={event.createdAt}>
+                  {new Date(event.createdAt).toLocaleString('ru-RU')}
+                </time>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

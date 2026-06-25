@@ -17,17 +17,19 @@ export class TerritoriesService {
     });
   }
 
-  async getCellsInBbox(_north: number, _south: number, _east: number, _west: number) {
-    // Пока заглушка, позже реализуем фильтрацию через PostGIS
-    // Для MVP вернём все клетки (позже добавим ограничение по BBOX)
+  async getCellsInBbox(north: number, south: number, east: number, west: number) {
     return this.prisma.cell.findMany({
+      where: {
+        centerLat: { gte: south, lte: north },
+        centerLng: { gte: west, lte: east },
+      },
       include: {
         ownerships: {
           include: { user: true },
           orderBy: { influence: 'desc' },
         },
       },
-      take: 1000, // ограничим для безопасности
+      take: 1000,
     });
   }
 }

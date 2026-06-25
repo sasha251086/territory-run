@@ -12,7 +12,8 @@ export type TrackPoint = {
 export type AnticheatFailureReason =
   | 'INSUFFICIENT_POINTS'
   | 'SPEED_EXCEEDED'
-  | 'GPS_ANOMALY';
+  | 'GPS_ANOMALY'
+  | 'DISTANCE_MISMATCH';
 
 export type AnticheatResult =
   | { valid: true }
@@ -59,6 +60,23 @@ export class AnticheatService {
       if (speedMs > MAX_RUN_SPEED_MS) {
         return { valid: false, reason: 'SPEED_EXCEEDED' };
       }
+    }
+
+    return { valid: true };
+  }
+
+  validateClaimedDistance(
+    actualDistanceMeters: number,
+    claimedDistanceMeters: number,
+    tolerance = 0.2,
+  ): AnticheatResult {
+    if (claimedDistanceMeters <= 0 || actualDistanceMeters <= 0) {
+      return { valid: true };
+    }
+
+    const maxAllowed = actualDistanceMeters * (1 + tolerance);
+    if (claimedDistanceMeters > maxAllowed) {
+      return { valid: false, reason: 'DISTANCE_MISMATCH' };
     }
 
     return { valid: true };

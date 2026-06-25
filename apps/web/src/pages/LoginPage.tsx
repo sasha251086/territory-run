@@ -7,6 +7,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -26,29 +27,52 @@ export default function LoginPage() {
 
   return (
     <div className="auth-page">
-      <div className="auth-card game-auth-card">
-        <div className="auth-hero-copy">
-          <p className="eyebrow">Territory Run</p>
-          <h1>Вход в город</h1>
-          <p>Продолжайте захватывать районы и защищать свою территорию.</p>
+      <div className="auth-card">
+        <div className="auth-logo">LOGO</div>
+        <h1>Territory Run</h1>
+        <p className="auth-subtitle">Захвати свой город</p>
+
+        <div className="auth-tabs">
+          <span className="active">Вход</span>
+          <Link to="/register">Регистрация</Link>
         </div>
+
         <form className="stack" onSubmit={handleSubmit}>
           <label>
             Email
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <input
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
           </label>
           <label>
             Пароль
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <div className="password-field">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="password-toggle"
+                onClick={() => setShowPassword((value) => !value)}
+                aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+              >
+                {showPassword ? 'Скрыть' : 'Показать'}
+              </button>
+            </div>
           </label>
           {error && <p className="error-banner">{error}</p>}
           <button type="submit" className="primary-btn" disabled={loading}>
-            {loading ? 'Вход...' : 'Войти'}
+            {loading ? 'Вход…' : 'Войти'}
           </button>
         </form>
-        <p className="muted">
-          Нет аккаунта? <Link to="/register">Зарегистрироваться</Link>
-        </p>
       </div>
     </div>
   );

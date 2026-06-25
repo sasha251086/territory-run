@@ -18,11 +18,10 @@ export default function FirstCaptureModal({
   return (
     <div className="modal-backdrop">
       <div className="modal-card">
-        <p className="eyebrow">Первая территория</p>
-        <h2>Первая территория захвачена!</h2>
-        <p>Вы захватили {cellsCaptured} клеток. Продолжайте бегать и расширяйте влияние на карте.</p>
+        <h2>Первая территория!</h2>
+        <p>Захвачено {cellsCaptured} клеток. Продолжайте бегать и расширяйте влияние.</p>
         <button type="button" className="primary-btn" onClick={() => void handleClose()}>
-          Отлично!
+          Отлично
         </button>
       </div>
     </div>

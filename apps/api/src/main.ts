@@ -18,7 +18,10 @@ async function bootstrap() {
   app.useBodyParser('json', { limit: '10mb' });
   app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
 
-  app.enableCors();
+  app.enableCors({
+    origin: process.env.ALLOWED_ORIGINS?.split(',') ?? ['http://localhost:5173'],
+    credentials: true,
+  });
   app.useGlobalInterceptors(new ResponseInterceptor());
 
   app.useGlobalPipes(

@@ -1,5 +1,6 @@
 import { Injectable, HttpStatus, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { FeedService } from '../feed/feed.service';
 import { OwnershipService } from '../territories/ownership.service';
 import { GeoJsonPolygon, isPointInPolygon } from '../common/geo.util';
@@ -9,12 +10,12 @@ import { ErrorCodes } from '../common/error-codes';
 
 @Injectable()
 export class DistrictService {
-  private districtsCache: Array<{ id: string; polygon: GeoJsonPolygon }> | null = null;
-  private districtsCacheAt = 0;
-  private readonly cacheTtlMs = 60_000;
+  private readonly cacheKey = 'districts:polygons';
+  private readonly cacheTtlSec = 300;
 
   constructor(
     private prisma: PrismaService,
+    private redisService: RedisService,
     private feedService: FeedService,
     @Inject(forwardRef(() => OwnershipService))
     private ownershipService: OwnershipService,
@@ -292,21 +293,21 @@ export class DistrictService {
   }
 
   private async getDistrictPolygons(): Promise<Array<{ id: string; polygon: GeoJsonPolygon }>> {
-    const now = Date.now();
-    if (this.districtsCache && now - this.districtsCacheAt < this.cacheTtlMs) {
-      return this.districtsCache;
+    const cached = await this.redisService.get(this.cacheKey);
+    if (cached) {
+      return JSON.parse(cached) as Array<{ id: string; polygon: GeoJsonPolygon }>;
     }
 
     const districts = await this.prisma.district.findMany({
       select: { id: true, polygon: true },
     });
 
-    this.districtsCache = districts.map((district) => ({
+    const result = districts.map((district) => ({
       id: district.id,
       polygon: district.polygon as GeoJsonPolygon,
     }));
-    this.districtsCacheAt = now;
 
-    return this.districtsCache;
+    await this.redisService.set(this.cacheKey, JSON.stringify(result), this.cacheTtlSec);
+    return result;
   }
 }

@@ -95,10 +95,21 @@ export const authApi = {
     }, false),
 
   refresh: (refreshToken: string) =>
-    apiRequest<{ accessToken: string }>('/auth/refresh', {
+    apiRequest<{ accessToken: string; refreshToken?: string }>('/auth/refresh', {
       method: 'POST',
       body: JSON.stringify({ refreshToken }),
     }, false),
+
+  logout: async (refreshToken: string) => {
+    const response = await fetch(`${API_URL}/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!response.ok && response.status !== 204) {
+      throw new Error('Не удалось выйти из аккаунта');
+    }
+  },
 };
 
 export { API_URL };

@@ -31,6 +31,11 @@ export const MAX_RIVAL_FOLLOWS = 3;
 export const SIEGE_THRESHOLD = 0.8;
 export const SIEGE_EVENT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
+/** Contested cell: gap to 2nd place within this absolute influence. */
+export const CONTEST_GAP_ABSOLUTE = 1;
+/** Contested cell: gap within this fraction of leader influence. */
+export const CONTEST_GAP_RELATIVE = 0.1;
+
 /** Season competition cycle length in days. Territory is not reset — only season score. */
 export const SEASON_DURATION_DAYS = 45;
 

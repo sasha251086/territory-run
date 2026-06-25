@@ -4,15 +4,18 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { UsersModule } from '../users/users.module';
+import { PrismaModule } from '../prisma/prisma.module';
 import { JwtStrategy } from './jwt.strategy';
+import { JWT_ACCESS_EXPIRES_IN } from './auth.constants';
 
 @Module({
   imports: [
     UsersModule,
+    PrismaModule,
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'default_secret_change_me',
-      signOptions: { expiresIn: '15m' },
+      signOptions: { expiresIn: JWT_ACCESS_EXPIRES_IN },
     }),
   ],
   controllers: [AuthController],

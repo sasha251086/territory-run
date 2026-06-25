@@ -10,7 +10,7 @@ import type {
   SeasonLeaderboardEntry,
   SeasonLeaderboardResponse,
 } from '../api/types';
-import { formatCellsArea } from '../utils/territory';
+import { formatCellCount } from '../utils/territory';
 import { useAuth } from '../context/AuthContext';
 
 type Tab = 'cells' | 'influence' | 'distance' | 'nearby' | 'season';
@@ -118,8 +118,11 @@ export default function LeaderboardPage() {
   }
 
   function valueLabel(value: number) {
-    if (tab === 'cells' || tab === 'nearby' || tab === 'season') {
-      return tab === 'season' ? `${value} захватов` : formatCellsArea(value);
+    if (tab === 'cells' || tab === 'nearby') {
+      return formatCellCount(value);
+    }
+    if (tab === 'season') {
+      return `${value} захватов`;
     }
     if (tab === 'influence') return `${Math.round(value)} влияния`;
     return `${(value / 1000).toFixed(1)} км`;
@@ -133,74 +136,69 @@ export default function LeaderboardPage() {
         : 'Сравните контроль зон, влияние и дистанцию с другими бегунами города.';
 
   return (
-    <div className="stack game-screen">
-      <section className="screen-hero">
-        <p className="eyebrow">Urban Conquest</p>
-        <h1>Рейтинг районов</h1>
-        <p>{heroText}</p>
-      </section>
+    <div className="page-screen">
+      <h1 className="page-title">Рейтинг</h1>
 
-      <section className="card compact-card">
-        <h2>Рейтинг</h2>
-        <div className="tabs">
-          <button type="button" className={tab === 'cells' ? 'tab active' : 'tab'} onClick={() => setTab('cells')}>
-            Клетки
-          </button>
-          <button type="button" className={tab === 'influence' ? 'tab active' : 'tab'} onClick={() => setTab('influence')}>
-            Влияние
-          </button>
-          <button type="button" className={tab === 'distance' ? 'tab active' : 'tab'} onClick={() => setTab('distance')}>
-            Дистанция
-          </button>
-          <button type="button" className={tab === 'nearby' ? 'tab active' : 'tab'} onClick={() => setTab('nearby')}>
-            Рядом со мной
-          </button>
-          <button type="button" className={tab === 'season' ? 'tab active' : 'tab'} onClick={() => setTab('season')}>
-            Сезон
-          </button>
-        </div>
-      </section>
+      <div className="leaderboard-tabs">
+        <button type="button" className={tab === 'cells' ? 'tab active' : 'tab'} onClick={() => setTab('cells')}>
+          Клетки
+        </button>
+        <button type="button" className={tab === 'influence' ? 'tab active' : 'tab'} onClick={() => setTab('influence')}>
+          Влияние
+        </button>
+        <button type="button" className={tab === 'distance' ? 'tab active' : 'tab'} onClick={() => setTab('distance')}>
+          Дистанция
+        </button>
+        <button type="button" className={tab === 'nearby' ? 'tab active' : 'tab'} onClick={() => setTab('nearby')}>
+          Рядом
+        </button>
+        <button type="button" className={tab === 'season' ? 'tab active' : 'tab'} onClick={() => setTab('season')}>
+          Сезон
+        </button>
+      </div>
 
-      {message && (
-        <section className="card">
-          <p className="info-box">{message}</p>
-        </section>
-      )}
+      <p className="muted small">{heroText}</p>
+
+      {message && <p className="error-banner">{message}</p>}
 
       {tab === 'season' && season?.season && (
-        <section className="card highlight-card">
-          <p className="info-box">
-            Сезон {season.season.number} · осталось {season.season.daysLeft}{' '}
-            {season.season.daysLeft === 1 ? 'день' : season.season.daysLeft < 5 ? 'дня' : 'дней'}
-          </p>
-        </section>
+        <p className="info-box">
+          Сезон {season.season.number} · осталось {season.season.daysLeft}{' '}
+          {season.season.daysLeft === 1 ? 'день' : season.season.daysLeft < 5 ? 'дня' : 'дней'}
+        </p>
       )}
 
       {tab === 'nearby' && regional?.noHomeBase && (
-        <section className="card highlight-card">
+        <div>
           <p className="info-box">
             Установите домашнюю базу в{' '}
             <Link to="/profile">профиле</Link>, чтобы видеть соседей в радиусе 5 км.
           </p>
           <Link to="/onboarding" className="primary-btn" style={{ display: 'inline-block', marginTop: 8 }}>
-            Выбрать базу на карте
+            Выбрать базу
           </Link>
-        </section>
+        </div>
       )}
 
       {tab === 'nearby' && regional && !regional.noHomeBase && regional.items.length < 3 && (
-        <section className="card">
-          <p className="muted">Пока мало игроков рядом. Зовите друзей!</p>
-        </section>
+        <p className="muted">Пока мало игроков рядом.</p>
       )}
 
-      <section className="card leaderboard-card">
+      <section>
         {loading ? (
           <p className="muted">Загрузка...</p>
         ) : tab === 'nearby' && regional?.noHomeBase ? (
           <p className="muted">Нужна домашняя база для регионального рейтинга.</p>
         ) : displayItems.length === 0 ? (
-          <p className="muted">{tab === 'season' ? 'В этом сезоне захватов пока нет.' : 'Пока нет данных.'}</p>
+          <div className="empty-state">
+            <p className="empty-state__icon" aria-hidden="true">🏆</p>
+            <h3>{tab === 'season' ? 'Сезон только начался' : 'Рейтинг пуст'}</h3>
+            <p className="muted">
+              {tab === 'season'
+                ? 'Загрузите пробежку, чтобы попасть в сезонный зачёт.'
+                : 'Станьте первым — загрузите пробежку и захватите клетки на карте.'}
+            </p>
+          </div>
         ) : (
           <ol className="leaderboard">
             {displayItems.map((item, index) => {
@@ -254,7 +252,7 @@ export default function LeaderboardPage() {
       </section>
 
       {tab === 'season' && seasonHistory.length > 0 && (
-        <section className="card">
+        <section className="profile-section">
           <h2>Ваши прошлые сезоны</h2>
           <ul className="list">
             {seasonHistory.map((entry) => (

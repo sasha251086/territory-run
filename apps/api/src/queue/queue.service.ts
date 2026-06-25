@@ -1,5 +1,6 @@
-﻿import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+﻿import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { ActivityStatus } from '@prisma/client';
+import * as h3 from 'h3-js';
 import { Queue, Worker } from 'bullmq';
 import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,14 +9,16 @@ import { OwnershipService } from '../territories/ownership.service';
 import { FeedService } from '../feed/feed.service';
 import { AnticheatService, TrackPoint } from '../activities/anticheat.service';
 import { sanitizeTrackPoints } from '../common/track.util';
+import { haversineDistance } from '../common/geo.util';
 import { captureException } from '../common/sentry.util';
 import { nextStreakState } from '../common/streak.util';
 
 @Injectable()
-export class QueueService implements OnModuleInit {
+export class QueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(QueueService.name);
   private queue!: Queue;
   private worker!: Worker;
+  private redisConnection!: Redis;
 
   constructor(
     private prisma: PrismaService,
@@ -26,13 +29,13 @@ export class QueueService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    const connection = new Redis({
+    this.redisConnection = new Redis({
       host: process.env.REDIS_HOST || 'localhost',
       port: Number(process.env.REDIS_PORT) || 6379,
       maxRetriesPerRequest: null,
     });
 
-    this.queue = new Queue('activity-processing', { connection });
+    this.queue = new Queue('activity-processing', { connection: this.redisConnection });
 
     this.worker = new Worker(
       'activity-processing',
@@ -40,7 +43,7 @@ export class QueueService implements OnModuleInit {
         const { activityId } = job.data;
         await this.processActivity(activityId);
       },
-      { connection },
+      { connection: this.redisConnection },
     );
 
     this.worker.on('completed', (job) => {
@@ -64,6 +67,12 @@ export class QueueService implements OnModuleInit {
         queue: 'activity-processing',
       });
     });
+  }
+
+  async onModuleDestroy() {
+    await this.worker?.close();
+    await this.queue?.close();
+    await this.redisConnection?.quit();
   }
 
   async addActivityProcessingJob(activityId: string) {
@@ -92,35 +101,20 @@ export class QueueService implements OnModuleInit {
     const validation = this.anticheatService.validateTrack(track);
     if (validation.valid === false) {
       const { reason } = validation;
-      await this.prisma.activity.update({
-        where: { id: activityId },
-        data: {
-          status: ActivityStatus.failed,
-          failureReason: reason,
-          processedAt: new Date(),
-        },
-      });
-
-      await this.feedService.createEvent('activity_completed', activity.userId, {
-        activityId: activity.id,
-        distance: activity.distanceMeters,
-        duration: activity.durationSeconds,
-        cellsAffected: 0,
-        flagged: true,
-        reason,
-      });
-
-      this.logger.warn({
-        msg: 'Activity rejected by anticheat',
-        activityId,
-        userId: activity.userId,
-        reason,
-      });
+      await this.failActivity(activityId, activity, reason);
       return;
     }
 
-    const h3Module = await import('h3-js');
-    const h3 = h3Module.default || h3Module;
+    const trackDistance = this.calculateTrackDistance(track);
+    const distanceCheck = this.anticheatService.validateClaimedDistance(
+      trackDistance,
+      activity.distanceMeters,
+    );
+    if (distanceCheck.valid === false) {
+      await this.failActivity(activityId, activity, distanceCheck.reason);
+      return;
+    }
+
     const previewCells = new Set<string>();
     for (const point of track) {
       previewCells.add(h3.latLngToCell(point.lat, point.lng, 9));
@@ -204,6 +198,50 @@ export class QueueService implements OnModuleInit {
       activityId,
       userId: activity.userId,
       cellsAffected: affectedCells.h3Indices.length,
+    });
+  }
+
+  private calculateTrackDistance(track: TrackPoint[]): number {
+    let total = 0;
+    for (let i = 1; i < track.length; i++) {
+      total += haversineDistance(
+        track[i - 1].lat,
+        track[i - 1].lng,
+        track[i].lat,
+        track[i].lng,
+      );
+    }
+    return Math.round(total);
+  }
+
+  private async failActivity(
+    activityId: string,
+    activity: { id: string; userId: string; distanceMeters: number; durationSeconds: number },
+    reason: string,
+  ) {
+    await this.prisma.activity.update({
+      where: { id: activityId },
+      data: {
+        status: ActivityStatus.failed,
+        failureReason: reason,
+        processedAt: new Date(),
+      },
+    });
+
+    await this.feedService.createEvent('activity_completed', activity.userId, {
+      activityId: activity.id,
+      distance: activity.distanceMeters,
+      duration: activity.durationSeconds,
+      cellsAffected: 0,
+      flagged: true,
+      reason,
+    });
+
+    this.logger.warn({
+      msg: 'Activity rejected by anticheat',
+      activityId,
+      userId: activity.userId,
+      reason,
     });
   }
 }

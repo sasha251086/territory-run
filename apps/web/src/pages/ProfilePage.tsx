@@ -17,7 +17,7 @@ function streakBonusLabel(streak: number) {
 }
 
 export default function ProfilePage() {
-  const { user, refreshProfile } = useAuth();
+  const { user, refreshProfile, logout } = useAuth();
   const navigate = useNavigate();
   const [integrations, setIntegrations] = useState<IntegrationInfo[]>([]);
   const [rivals, setRivals] = useState<RivalFollow[]>([]);
@@ -123,39 +123,40 @@ export default function ProfilePage() {
   const showActivateFreeze = canActivateFreeze(freezeActive, user?.freezeLastUsedAt);
 
   return (
-    <div className="stack game-screen">
-      <section className="screen-hero profile-hero">
-        <p className="eyebrow">Runner Profile</p>
-        <h1>{user?.nickname}</h1>
-        <p>{user?.email}</p>
-        {currentStreak > 0 && (
-          <p className="streak-line">
-            🔥 Стрик: {currentStreak} дн.
-            {streakBonus ? ` · бонус ${streakBonus}` : ''}
-          </p>
-        )}
-        <div className="stats-grid hero-stats">
-          <div><span>Клетки</span><strong>{user?.stats?.cellsOwned ?? 0}</strong></div>
-          <div><span>Влияние</span><strong>{Math.round(user?.stats?.totalInfluence ?? 0)}</strong></div>
-          <div><span>Пробежки</span><strong>{user?.stats?.totalRuns ?? 0}</strong></div>
+    <div className="page-screen">
+      <header className="profile-header">
+        <div className="wire-avatar" aria-hidden="true" />
+        <div>
+          <h1>{user?.nickname}</h1>
+          <p>{user?.email}</p>
         </div>
-      </section>
+        <span className="wire-chip">Ур. {Math.max(1, Math.floor((user?.stats?.cellsOwned ?? 0) / 12) + 1)}</span>
+      </header>
 
-      <section className="card">
-        <h2>Профиль</h2>
-        <p><strong>{user?.nickname}</strong></p>
-        <p className="muted">{user?.email}</p>
-        <div className="stats-grid">
-          <div><span>Клетки</span><strong>{user?.stats?.cellsOwned ?? 0}</strong></div>
-          <div><span>Влияние</span><strong>{Math.round(user?.stats?.totalInfluence ?? 0)}</strong></div>
-          <div><span>Пробежки</span><strong>{user?.stats?.totalRuns ?? 0}</strong></div>
-          {currentStreak > 0 && (
-            <div><span>Стрик</span><strong>{currentStreak} дн.</strong></div>
-          )}
+      <div className="stats-grid">
+        <div>
+          <span>Клетки</span>
+          <strong>{user?.stats?.cellsOwned ?? 0}</strong>
         </div>
-      </section>
+        <div>
+          <span>Влияние</span>
+          <strong>{Math.round(user?.stats?.totalInfluence ?? 0)}</strong>
+        </div>
+        <div>
+          <span>Пробежки</span>
+          <strong>{user?.stats?.totalRuns ?? 0}</strong>
+        </div>
+        <div>
+          <span>Стрик</span>
+          <strong>{currentStreak > 0 ? `${currentStreak} дн` : '—'}</strong>
+        </div>
+      </div>
 
-      <section className="card highlight-card">
+      {currentStreak > 0 && streakBonus && (
+        <p className="muted small">Бонус стрика: {streakBonus}</p>
+      )}
+
+      <section className="profile-section">
         <h2>Защита территории</h2>
         {freezeActive && freezeDaysLeft != null ? (
           <>
@@ -186,8 +187,9 @@ export default function ProfilePage() {
               onClick={() => void handleActivateFreeze()}
               disabled={freezeLoading}
             >
-              {freezeLoading ? '…' : 'Заморозить территорию на 7 дней'}
+              {freezeLoading ? '…' : 'Заморозить на 7 дней'}
             </button>
+            <p className="muted small">Клетки не удаляются 7 дней. Доступно раз в 90 дней.</p>
           </>
         ) : freezeCooldownDays != null ? (
           <p className="muted">
@@ -198,7 +200,7 @@ export default function ProfilePage() {
         {freezeMessage && <p className="info-box">{freezeMessage}</p>}
       </section>
 
-      <section className="card">
+      <section className="profile-section">
         <h2>Соперники</h2>
         <p className="muted">
           До 3 соперников — их клетки подсвечиваются на карте. Добавьте из{' '}
@@ -224,7 +226,7 @@ export default function ProfilePage() {
         )}
       </section>
 
-      <section className="card highlight-card action-card">
+      <section className="profile-section">
         <h2>Загрузить пробежку</h2>
         <p className="muted">
           Самый простой способ — загрузить GPX-файл на вкладке{' '}
@@ -232,8 +234,8 @@ export default function ProfilePage() {
         </p>
       </section>
 
-      <section className="card">
-        <h2>Strava (опционально)</h2>
+      <section className="profile-section">
+        <h2>Strava</h2>
         <p className="muted">
           Можно подключить Strava для автоматической синхронизации вместо ручной загрузки файлов.
         </p>
@@ -257,8 +259,8 @@ export default function ProfilePage() {
         {message && <p className="error-banner">{message}</p>}
       </section>
 
-      <section className="card">
-        <h3>Домашняя база</h3>
+      <section className="profile-section">
+        <h2>Домашняя база</h2>
         <p className="muted">
           {user?.homeLat != null && user.homeLng != null
             ? `Координаты: ${user.homeLat.toFixed(5)}, ${user.homeLng.toFixed(5)}`
@@ -284,7 +286,19 @@ export default function ProfilePage() {
             Изменить домашнюю базу
           </button>
         </div>
-        {refreshMessage && <p className="info-box">{refreshMessage}</p>}
+        {refreshMessage && (
+          <p className={refreshMessage === 'Статистика обновлена' ? 'info-box' : 'error-banner'}>
+            {refreshMessage}
+          </p>
+        )}
+      </section>
+
+      <section className="profile-section">
+        <h2>Аккаунт</h2>
+        <p className="muted small">Выход из аккаунта на этом устройстве.</p>
+        <button type="button" className="ghost-btn" onClick={() => void logout()}>
+          Выйти
+        </button>
       </section>
     </div>
   );

@@ -27,6 +27,7 @@ describe('StravaService sync deduplication', () => {
     process.env.STRAVA_CLIENT_ID = 'test-client-id';
     process.env.STRAVA_CLIENT_SECRET = 'test-client-secret';
     process.env.STRAVA_REDIRECT_URI = 'http://localhost:3000/callback';
+    process.env.TOKEN_ENCRYPTION_KEY = 'test-encryption-key-for-unit-tests';
 
     service = new StravaService(
       mockPrisma as never,
