@@ -2,6 +2,7 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import AppLayout from '../components/AppLayout';
 import SiegeNotificationWatcher from '../components/SiegeNotificationWatcher';
+import SamsungAutoSyncWatcher from '../components/SamsungAutoSyncWatcher';
 
 export default function ProtectedRoute() {
   const { user, loading } = useAuth();
@@ -21,6 +22,7 @@ export default function ProtectedRoute() {
   return (
     <AppLayout>
       <SiegeNotificationWatcher />
+      <SamsungAutoSyncWatcher />
       <Outlet />
     </AppLayout>
   );

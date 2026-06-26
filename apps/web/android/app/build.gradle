@@ -2,6 +2,69 @@ apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 apply plugin: 'kotlin-parcelize'
 
+// Web UI: Gradle MUST rebuild dist from src before packaging (Studio does not run Vite by itself).
+def webRootDir = file("${projectDir}/../..")
+def webDistDir = file("${webRootDir}/dist")
+def webAssetsDir = file("${projectDir}/src/main/assets/public")
+
+tasks.register('buildWebFrontend', Exec) {
+    workingDir webRootDir
+    def isWindows = org.apache.tools.ant.taskdefs.condition.Os.isFamily(
+        org.apache.tools.ant.taskdefs.condition.Os.FAMILY_WINDOWS
+    )
+    if (isWindows) {
+        commandLine 'powershell', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/gradle-build-web.ps1'
+    } else {
+        commandLine 'sh', 'scripts/gradle-build-web.sh'
+    }
+}
+
+tasks.register('assertWebDistExists') {
+    doLast {
+        if (!file("${webDistDir}/index.html").exists()) {
+            throw new GradleException(
+                "Missing web dist. Run: cd apps/web && pnpm mobile:build"
+            )
+        }
+    }
+}
+
+tasks.register('clearStaleWebBundles') {
+    doLast {
+        delete fileTree("${webAssetsDir}/assets")
+        delete file("${webAssetsDir}/index.html")
+        delete file("${webAssetsDir}/manifest.webmanifest")
+        delete file("${webAssetsDir}/sw.js")
+        delete file("${webAssetsDir}/registerSW.js")
+        delete file("${webAssetsDir}/build-stamp.txt")
+    }
+}
+
+tasks.register('syncWebDistToAssets', Copy) {
+    dependsOn tasks.named('clearStaleWebBundles')
+    from webDistDir
+    into webAssetsDir
+    include '**/*'
+    duplicatesStrategy DuplicatesStrategy.INCLUDE
+    doLast {
+        logger.lifecycle("Packaged web UI from ${webDistDir}")
+    }
+}
+
+tasks.named('clearStaleWebBundles').configure {
+    if (project.hasProperty('skipWebBuild')) {
+        dependsOn tasks.named('assertWebDistExists')
+    } else {
+        dependsOn tasks.named('buildWebFrontend')
+    }
+}
+
+tasks.whenTaskAdded { task ->
+    if (task.name ==~ /merge.*Assets/) {
+        task.dependsOn tasks.named('syncWebDistToAssets')
+    }
+}
+
 def samsungLibsDir = file('libs')
 def samsungSdkAars = fileTree(dir: samsungLibsDir, include: ['*.aar'])
 def samsungSdkZipCandidates = fileTree(dir: samsungLibsDir, include: ['*.zip']).files
@@ -47,8 +110,8 @@ android {
         applicationId "com.territoryrun.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.2.0"
+        versionCode 9
+        versionName "2.0.0"
         buildConfigField "boolean", "HAS_SAMSUNG_HEALTH_SDK", "${hasSamsungHealthSdk}"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {

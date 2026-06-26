@@ -672,3 +672,45 @@ export const healthSync = {
     return result;
   },
 };
+
+export type HealthSyncImportOutcome =
+  | { ok: true; result: HealthSyncResult }
+  | { ok: false; reason: 'permission_denied' | 'plugin_missing' | 'consent_required' | 'cancelled' };
+
+/** Shared import flow for manual sync and Samsung auto-sync. */
+export async function runHealthSyncImport(options: {
+  days?: number;
+  onProgress?: (progress: SyncProgress) => void;
+  /** Manual sync: confirm Health Connect per-workout GPS dialogs. Auto-sync: skip. */
+  confirmHealthConnectConsent?: () => Promise<boolean>;
+}): Promise<HealthSyncImportOutcome> {
+  const days = options.days ?? 14;
+
+  const granted = await healthSync.requestPermissions();
+  if (!granted) {
+    return { ok: false, reason: 'permission_denied' };
+  }
+
+  if (healthSync.isAndroid()) {
+    const samsungAvailable = await healthSync.isSamsungHealthAvailable();
+    if (!samsungAvailable && !healthSync.isExerciseRoutePluginAvailable()) {
+      return { ok: false, reason: 'plugin_missing' };
+    }
+
+    if (!samsungAvailable) {
+      const preview = await healthSync.previewConsentSync(days);
+      if (preview.pendingConsent > 0) {
+        if (!options.confirmHealthConnectConsent) {
+          return { ok: false, reason: 'consent_required' };
+        }
+        const confirmed = await options.confirmHealthConnectConsent();
+        if (!confirmed) {
+          return { ok: false, reason: 'cancelled' };
+        }
+      }
+    }
+  }
+
+  const result = await healthSync.syncWithConsentFlow(days, options.onProgress);
+  return { ok: true, result };
+}

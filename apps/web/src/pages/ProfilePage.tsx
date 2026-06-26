@@ -9,6 +9,12 @@ import {
   writeSiegeNotificationsEnabled,
 } from '../hooks/useSiegeNotifications';
 import {
+  enableSamsungAutoSync,
+  readSamsungAutoSyncEnabled,
+  writeSamsungAutoSyncEnabled,
+} from '../hooks/useSamsungAutoSync';
+import { healthSync } from '../services/health-sync.service';
+import {
   canActivateFreeze,
   daysUntilFreezeAvailable,
   daysUntilFreezeEnds,
@@ -33,6 +39,11 @@ export default function ProfilePage() {
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [freezeLoading, setFreezeLoading] = useState(false);
   const [freezeMessage, setFreezeMessage] = useState<string | null>(null);
+  const [uiOrigin, setUiOrigin] = useState('');
+
+  useEffect(() => {
+    setUiOrigin(window.location.origin);
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -129,6 +140,41 @@ export default function ProfilePage() {
   const showActivateFreeze = canActivateFreeze(freezeActive, user?.freezeLastUsedAt);
   const [siegeNotifyEnabled, setSiegeNotifyEnabled] = useState(readSiegeNotificationsEnabled);
   const [notifyMessage, setNotifyMessage] = useState<string | null>(null);
+  const [samsungAutoSync, setSamsungAutoSync] = useState(readSamsungAutoSyncEnabled);
+  const [samsungAutoSyncMessage, setSamsungAutoSyncMessage] = useState<string | null>(null);
+  const [showSamsungSettings, setShowSamsungSettings] = useState(false);
+
+  useEffect(() => {
+    async function detectNativeHealth() {
+      if (!healthSync.isNativeApp() || !healthSync.isAndroid()) {
+        setShowSamsungSettings(false);
+        return;
+      }
+      setShowSamsungSettings(true);
+    }
+    void detectNativeHealth();
+  }, []);
+
+  async function toggleSamsungAutoSync() {
+    setSamsungAutoSyncMessage(null);
+    if (samsungAutoSync) {
+      writeSamsungAutoSyncEnabled(false);
+      setSamsungAutoSync(false);
+      setSamsungAutoSyncMessage('Автозагрузка отключена');
+      return;
+    }
+    const ok = await enableSamsungAutoSync();
+    setSamsungAutoSync(ok);
+    if (ok) {
+      setSamsungAutoSyncMessage(
+        'Автозагрузка включена. Новые пробежки из Samsung Health подтянутся при открытии приложения (раз в ~30 мин).',
+      );
+    } else {
+      setSamsungAutoSyncMessage(
+        'Разрешите доступ к Samsung Health в системном диалоге (Developer Mode в Samsung Health, если SDK ещё не в Play).',
+      );
+    }
+  }
 
   async function toggleSiegeNotifications() {
     setNotifyMessage(null);
@@ -219,6 +265,26 @@ export default function ProfilePage() {
           <p className="muted small">Браузер не поддерживает push-уведомления.</p>
         )}
       </section>
+
+      {showSamsungSettings && (
+        <section className="profile-section">
+          <h2>Samsung Health</h2>
+          <p className="muted small">
+            На Samsung с APK импорт идёт через Samsung Health Data SDK (GPS-маршруты). Ручная синхронизация — на
+            вкладке <Link to="/activities">Пробежки</Link>.
+          </p>
+          <label className="profile-notify-row" style={{ cursor: 'pointer' }}>
+            <span>Автоматически загружать новые пробежки</span>
+            <input
+              type="checkbox"
+              checked={samsungAutoSync}
+              onChange={() => void toggleSamsungAutoSync()}
+              aria-label="Автоматически загружать пробежки из Samsung Health"
+            />
+          </label>
+          {samsungAutoSyncMessage && <p className="info-box">{samsungAutoSyncMessage}</p>}
+        </section>
+      )}
 
       <section className="profile-section">
         <h2>Защита территории</h2>
@@ -365,6 +431,17 @@ export default function ProfilePage() {
         <button type="button" className="ghost-btn" onClick={() => void logout()}>
           Выйти
         </button>
+        <p className="muted small" style={{ marginTop: 12 }}>
+          Сборка интерфейса: {__APP_BUILD__}
+          <br />
+          Источник UI: {uiOrigin || '…'}
+          {uiOrigin && uiOrigin !== 'https://localhost' && (
+            <>
+              <br />
+              <strong>Внимание:</strong> приложение грузит UI с сайта, не из APK.
+            </>
+          )}
+        </p>
       </section>
     </div>
   );

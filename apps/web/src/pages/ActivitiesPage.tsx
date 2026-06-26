@@ -7,7 +7,7 @@ import ActivityResultsModal from '../components/ActivityResultsModal';
 import FirstCaptureModal from '../components/FirstCaptureModal';
 import GameTutorialModal from '../components/GameTutorialModal';
 import { useActivityStatusPoll, type ActivityStatusResult } from '../hooks/useActivityStatusPoll';
-import { healthSync, formatHealthSyncMessage } from '../services/health-sync.service';
+import { healthSync, formatHealthSyncMessage, runHealthSyncImport } from '../services/health-sync.service';
 import { useAuth } from '../context/AuthContext';
 
 const RUN_PREVIEW_KEY = 'territory-run-run-preview';
@@ -154,6 +154,19 @@ export default function ActivitiesPage() {
     });
   }
 
+  useEffect(() => {
+    const onProcessing = (event: Event) => {
+      const detail = (event as CustomEvent<{ activityId: string }>).detail;
+      if (detail?.activityId) {
+        watchActivity(detail.activityId);
+      }
+    };
+    window.addEventListener('territory-run:activity-processing', onProcessing);
+    return () => window.removeEventListener('territory-run:activity-processing', onProcessing);
+    // watchActivity closes over latest poll/load handlers
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.stats?.gameTutorialShownAt]);
+
   function dismissResults() {
     setResultsModal(null);
     markRunPreviewAndGoToMap(navigate);
@@ -203,46 +216,43 @@ export default function ActivitiesPage() {
     setHealthSyncProgress(null);
     try {
       setHealthSyncProgress('Проверяем доступ к данным…');
-      const granted = await healthSync.requestPermissions();
-      if (!granted) {
-        const text = 'Доступ к данным здоровья не выдан. Разрешите чтение тренировок в настройках.';
-        setHealthSyncMessage(text);
-        return;
-      }
 
-      if (healthSync.isAndroid()) {
-        const samsungAvailable = await healthSync.isSamsungHealthAvailable();
-        if (!samsungAvailable && !healthSync.isExerciseRoutePluginAvailable()) {
-          const text =
-            'Плагин GPS-маршрута не установлен. Пересоберите APK: pnpm build → npx cap sync android → Build APK.';
-          setHealthSyncMessage(text);
-          return;
-        }
-
-        const preview = await healthSync.previewConsentSync(14);
-        if (!samsungAvailable && preview.pendingConsent > 0) {
-          const confirmed = window.confirm(
+      const outcome = await runHealthSyncImport({
+        days: 14,
+        onProgress: (progress) => {
+          setHealthSyncProgress(
+            progress.message ??
+              `Запрашиваем маршрут ${progress.current} из ${progress.total}…`,
+          );
+        },
+        confirmHealthConnectConsent: async () => {
+          const preview = await healthSync.previewConsentSync(14);
+          return window.confirm(
             `Найдено тренировок: ${preview.total}.\n\n` +
               `Android покажет до ${preview.pendingConsent} системных запросов на доступ к GPS-маршруту ` +
               `(по одному на тренировку). Нажимайте «Разрешить» в каждом — это разовая процедура.\n\n` +
               'Продолжить?',
           );
-          if (!confirmed) {
-            setHealthSyncMessage('Синхронизация отменена.');
-            return;
-          }
-        }
-      }
-
-      const result = await healthSync.syncWithConsentFlow(14, (progress) => {
-        setHealthSyncProgress(
-          progress.message ??
-            `Запрашиваем маршрут ${progress.current} из ${progress.total}…`,
-        );
+        },
       });
 
-      const syncText = formatHealthSyncMessage(result);
-      setHealthSyncMessage(syncText);
+      if (!outcome.ok) {
+        if (outcome.reason === 'permission_denied') {
+          setHealthSyncMessage(
+            'Доступ к данным здоровья не выдан. Разрешите чтение тренировок в настройках.',
+          );
+        } else if (outcome.reason === 'plugin_missing') {
+          setHealthSyncMessage(
+            'Плагин GPS-маршрута не установлен. Пересоберите APK: pnpm build → npx cap sync android → Build APK.',
+          );
+        } else if (outcome.reason === 'cancelled') {
+          setHealthSyncMessage('Синхронизация отменена.');
+        }
+        return;
+      }
+
+      const { result } = outcome;
+      setHealthSyncMessage(formatHealthSyncMessage(result));
 
       if (result.imported > 0) {
         await loadData();
