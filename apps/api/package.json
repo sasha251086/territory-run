@@ -12,7 +12,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "inspect:samsung-zip": "node ../../scripts/inspect-samsung-zip.mjs",
-    "seed:districts": "ts-node --transpile-only scripts/seed-districts.ts"
+    "seed:districts": "ts-node --transpile-only scripts/seed-districts.ts",
+    "backfill:activity-results": "ts-node --transpile-only scripts/backfill-activity-results.ts"
   },
   "keywords": [],
   "author": "",

@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import type { ActivityItem } from '../api/types';
 import { formatAnticheatMessage, canReprocess } from '../utils/anticheat-messages';
+import { formatCellCount } from '../utils/territory';
 
 function formatDistance(meters: number) {
   return `${(meters / 1000).toFixed(1)} км`;
@@ -21,10 +22,11 @@ function cellsCapturedLabel(item: ActivityItem) {
   if (item.status === 'processing') {
     return '…';
   }
-  if (item.cellsCaptured == null) {
+  const captured = item.cellsCaptured ?? item.cellsTouched;
+  if (captured == null) {
     return '—';
   }
-  return String(item.cellsCaptured);
+  return String(captured);
 }
 
 export default function ActivityCard({
@@ -39,7 +41,8 @@ export default function ActivityCard({
   const navigate = useNavigate();
   const cellsLabel = cellsCapturedLabel(item);
   const hexClass =
-    item.status === 'completed' && (item.cellsCaptured ?? 0) > 0
+    item.status === 'completed' &&
+    (item.cellsCaptured ?? item.cellsTouched ?? 0) > 0
       ? 'run-row__hex run-row__hex--captured'
       : item.status === 'failed'
         ? 'run-row__hex run-row__hex--failed'
@@ -61,7 +64,11 @@ export default function ActivityCard({
       <button
         type="button"
         className={hexClass}
-        aria-label={`Захвачено клеток: ${cellsLabel}`}
+        aria-label={`Захвачено: ${
+          cellsLabel === '—' || cellsLabel === '…'
+            ? cellsLabel
+            : formatCellCount(Number(cellsLabel))
+        }`}
         onClick={openOnMap}
         disabled={!canOpenOnMap}
       >

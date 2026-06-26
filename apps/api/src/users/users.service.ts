@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ApiException } from '../common/api.exception';
 import { ErrorCodes } from '../common/error-codes';
 import { FREEZE_COOLDOWN_DAYS } from '../common/constants';
+import { reverseGeocodeLabel } from '../common/geocode.util';
 
 const profileSelect = {
   id: true,
@@ -11,6 +12,7 @@ const profileSelect = {
   avatarUrl: true,
   homeLat: true,
   homeLng: true,
+  homeAreaLabel: true,
   freezeActive: true,
   freezeActivatedAt: true,
   freezeLastUsedAt: true,
@@ -40,13 +42,36 @@ export class UsersService {
       select: profileSelect,
     });
 
+    if (
+      user?.homeLat != null &&
+      user.homeLng != null &&
+      !user.homeAreaLabel
+    ) {
+      const label = await reverseGeocodeLabel(user.homeLat, user.homeLng);
+      if (label) {
+        await this.prisma.user.update({
+          where: { id },
+          data: { homeAreaLabel: label },
+        });
+        return { ...user, homeAreaLabel: label };
+      }
+    }
+
     return user;
   }
 
   async updateProfile(id: string, data: { homeLat?: number; homeLng?: number }) {
+    let homeAreaLabel: string | undefined;
+    if (data.homeLat != null && data.homeLng != null) {
+      homeAreaLabel = (await reverseGeocodeLabel(data.homeLat, data.homeLng)) ?? undefined;
+    }
+
     await this.prisma.user.update({
       where: { id },
-      data,
+      data: {
+        ...data,
+        ...(homeAreaLabel ? { homeAreaLabel } : {}),
+      },
     });
 
     if (data.homeLat != null && data.homeLng != null) {

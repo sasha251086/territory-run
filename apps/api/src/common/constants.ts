@@ -5,15 +5,18 @@ export const HOME_ZONE_RADIUS_M = 350;
 export const NEW_PLAYER_BONUS_MULTIPLIER = 1.25;
 export const NEW_PLAYER_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** Maximum allowed running speed: 40 km/h in m/s */
-export const MAX_RUN_SPEED_MS = 40 / 3.6;
+/** Maximum allowed running speed: 28 km/h in m/s */
+export const MAX_RUN_SPEED_MS = 28 / 3.6;
+
+/** Cap on stacked location × streak × soft-cap multipliers per cell visit. */
+export const MAX_INFLUENCE_GAIN_MULTIPLIER = 1.5;
 
 export const KING_CLAIM_THRESHOLD = 0.6;
 export const KING_LOSS_THRESHOLD = 0.5;
 
 /** Daily influence decay multiplier (see DecayService). */
 export const DECAY_RATE_PER_DAY = 0.98;
-export const DECAY_DELETE_AFTER_DAYS = 45;
+export const DECAY_DELETE_AFTER_DAYS = 60;
 export const DECAY_WARNING_DAYS = 7;
 export const DECAY_THREAT_DAYS = 10;
 
@@ -25,6 +28,8 @@ export const FREEZE_COOLDOWN_DAYS = 90;
 export const CAPTURE_TARGET_MAX_GAP = 15;
 export const CAPTURE_TARGET_FINISH_GAP = 5;
 export const CAPTURE_TARGET_RADIUS_M = 2000;
+/** Max neutral expand targets to suggest near player. */
+export const CAPTURE_TARGET_EXPAND_LIMIT = 5;
 
 /** Minimum valid activity distance (meters). */
 export const MIN_ACTIVITY_DISTANCE_M = 100;

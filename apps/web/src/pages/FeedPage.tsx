@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiRequest } from '../api/client';
 import type { FeedEvent } from '../api/types';
-import { formatFeedBadge, formatFeedEvent } from '../utils/feed-format';
+import { formatFeedBadge, formatFeedBadgeClass, formatFeedEvent, formatFeedRowClass } from '../utils/feed-format';
 import { useAuth } from '../context/AuthContext';
 
 type FeedTab = 'all' | 'rivals';
@@ -91,10 +91,10 @@ export default function FeedPage() {
             const mapLink = siegeMapLink(event);
 
             return (
-              <li key={event.id} className="feed-row">
+              <li key={event.id} className={formatFeedRowClass(event)}>
                 <div className="feed-row__head">
                   <strong>{event.user.nickname}</strong>
-                  {badge && <span className="wire-badge">{badge}</span>}
+                  {badge && <span className={formatFeedBadgeClass(event)}>{badge}</span>}
                 </div>
                 <p>{formatFeedEvent(event, user?.id)}</p>
                 {mapLink && (

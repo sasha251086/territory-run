@@ -1,4 +1,5 @@
 ﻿import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -13,6 +14,8 @@ type RegionalRow = {
   cellsOwned: number;
   distanceKm: number;
 };
+
+export type RegionalLeaderboardMetric = 'cells' | 'influence' | 'distance';
 
 export type RegionalLeaderboardEntry = {
   rank: number;
@@ -153,6 +156,7 @@ export class LeaderboardService {
   async getRegionalLeaderboard(
     userId: string,
     radiusKm: number = REGIONAL_DEFAULT_RADIUS_KM,
+    metric: RegionalLeaderboardMetric = 'cells',
   ): Promise<RegionalLeaderboardResult> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -167,11 +171,18 @@ export class LeaderboardService {
     const lng = user.homeLng;
     const h3Module = await import('h3-js');
     const regionKey = h3Module.latLngToCell(lat, lng, 5);
-    const cacheKey = `leaderboard:regional:${regionKey}:${Math.round(radiusKm * 10)}`;
+    const cacheKey = `leaderboard:regional:${regionKey}:${Math.round(radiusKm * 10)}:${metric}`;
     const cached = await this.redisService.get(cacheKey);
     if (cached) {
       return JSON.parse(cached) as RegionalLeaderboardResult;
     }
+
+    const orderColumn =
+      metric === 'influence'
+        ? Prisma.sql`us."totalInfluence"`
+        : metric === 'distance'
+          ? Prisma.sql`us."totalDistance"`
+          : Prisma.sql`us."cellsOwned"`;
 
     const rows = (await this.prisma.$queryRaw`
       SELECT
@@ -179,6 +190,8 @@ export class LeaderboardService {
         u.nickname,
         u."avatarUrl",
         us."cellsOwned" AS "cellsOwned",
+        us."totalInfluence" AS "totalInfluence",
+        us."totalDistance" AS "totalDistance",
         (
           6371 * acos(
             LEAST(1.0, GREATEST(-1.0,
@@ -192,7 +205,11 @@ export class LeaderboardService {
       INNER JOIN "UserStats" us ON us."userId" = u.id
       WHERE u."homeLat" IS NOT NULL
         AND u."homeLng" IS NOT NULL
-        AND us."cellsOwned" > 0
+        AND (
+          us."cellsOwned" > 0
+          OR us."totalInfluence" > 0
+          OR us."totalDistance" > 0
+        )
         AND (
           (
             6371 * acos(
@@ -205,16 +222,24 @@ export class LeaderboardService {
           ) <= ${radiusKm}
           OR u.id = ${userId}
         )
-      ORDER BY us."cellsOwned" DESC
+      ORDER BY ${orderColumn} DESC
       LIMIT ${REGIONAL_TOP_LIMIT}
-    `) as RegionalRow[];
+    `) as (RegionalRow & {
+      totalInfluence: number;
+      totalDistance: number;
+    })[];
 
     const items: RegionalLeaderboardEntry[] = rows.map((row, index) => ({
       rank: index + 1,
       userId: row.userId,
       nickname: row.nickname,
       avatarUrl: row.avatarUrl,
-      value: Number(row.cellsOwned),
+      value:
+        metric === 'influence'
+          ? Math.round(Number(row.totalInfluence) * 100) / 100
+          : metric === 'distance'
+            ? Number(row.totalDistance)
+            : Number(row.cellsOwned),
       distanceKm: Math.round(Number(row.distanceKm) * 10) / 10,
     }));
 

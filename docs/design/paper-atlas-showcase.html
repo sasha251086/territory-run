@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Territory Run — Paper Atlas Showcase</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=Fraunces:opsz,wght@9..144,600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --canvas-bg: #F7F4EE;
+      --surface: #FFFFFF;
+      --surface-muted: #F0EBE3;
+      --ink-primary: #2C2825;
+      --ink-secondary: #5C564E;
+      --ink-muted: #8A8378;
+      --line-soft: #E5DDD2;
+      --line-medium: #D4C9BA;
+      --brand-sage: #5B8A72;
+      --brand-sage-dark: #466B58;
+      --brand-sage-light: #E8F0EB;
+      --game-rival: #6B7FA3;
+      --game-contest: #C4A35A;
+      --game-contest-fill: #FBF3E0;
+      --game-danger: #B85C5C;
+      --game-danger-fill: #F9EDED;
+      --shadow-card: 0 4px 20px rgba(44, 40, 37, 0.06);
+      --shadow-celebration: 0 12px 40px rgba(44, 40, 37, 0.12);
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+      --font-display: 'Fraunces', Georgia, serif;
+      --font-body: 'DM Sans', system-ui, sans-serif;
+      --font-data: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-body);
+      background: #E8E2D8;
+      color: var(--ink-primary);
+      line-height: 1.45;
+      padding: 32px 16px 64px;
+    }
+
+    .page-header {
+      max-width: 1200px;
+      margin: 0 auto 40px;
+      text-align: center;
+    }
+
+    .page-header h1 {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .page-header p {
+      color: var(--ink-muted);
+      margin-top: 8px;
+      font-size: 0.95rem;
+    }
+
+    .showcase-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(390px, 1fr));
+      gap: 32px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .panel {
+      background: #DED8CE;
+      border-radius: 24px;
+      padding: 20px;
+    }
+
+    .panel-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin-bottom: 12px;
+      padding-left: 4px;
+    }
+
+    /* Phone frame */
+    .phone {
+      width: 390px;
+      max-width: 100%;
+      margin: 0 auto;
+      background: var(--canvas-bg);
+      border-radius: 28px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(44, 40, 37, 0.15);
+      border: 1px solid var(--line-medium);
+    }
+
+    .phone-inner {
+      padding: 16px;
+      min-height: 200px;
+    }
+
+    .phone-title {
+      font-family: var(--font-display);
+      font-size: 1.35rem;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+
+    /* Hex badge */
+    .hex-badge {
+      width: 48px;
+      height: 48px;
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+      font-family: var(--font-data);
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .hex-badge--default { background: var(--surface-muted); color: var(--ink-muted); }
+    .hex-badge--captured { background: var(--brand-sage-light); color: var(--ink-primary); outline: 1.5px solid var(--brand-sage); outline-offset: -1px; }
+    .hex-badge--failed { background: var(--game-danger-fill); color: var(--ink-muted); outline: 1.5px solid #D0A0A0; outline-offset: -1px; }
+    .hex-badge--processing { background: var(--surface-muted); color: var(--ink-muted); animation: pulse 1.2s ease-in-out infinite; }
+
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+    /* ActivityCard */
+    .activity-card {
+      display: grid;
+      grid-template-columns: 48px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px 16px;
+      background: var(--surface);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-card);
+      margin-bottom: 10px;
+    }
+
+    .activity-card__body strong {
+      display: block;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    .activity-card__body span {
+      font-size: 0.8rem;
+      color: var(--ink-muted);
+    }
+
+    .activity-card__meta {
+      font-size: 0.78rem;
+      color: var(--game-rival);
+      margin-top: 2px;
+    }
+
+    .btn-ghost {
+      font-family: var(--font-body);
+      font-size: 0.78rem;
+      font-weight: 500;
+      padding: 6px 12px;
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ink-secondary);
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      font-family: var(--font-body);
+      font-size: 0.95rem;
+      font-weight: 600;
+      padding: 14px 24px;
+      border: none;
+      border-radius: 999px;
+      background: var(--brand-sage);
+      color: #fff;
+      cursor: pointer;
+      width: 100%;
+    }
+
+    .btn-secondary {
+      font-family: var(--font-body);
+      font-size: 0.95rem;
+      font-weight: 600;
+      padding: 12px 24px;
+      border: 1px solid var(--line-medium);
+      border-radius: 999px;
+      background: var(--surface-muted);
+      color: var(--ink-primary);
+      cursor: pointer;
+      width: 100%;
+    }
+
+    /* CellPopup sheet */
+    .cell-sheet {
+      background: var(--surface);
+      border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+      box-shadow: 0 -8px 32px rgba(44, 40, 37, 0.1);
+      padding: 12px 16px 20px;
+      margin-top: 8px;
+    }
+
+    .cell-sheet__handle {
+      width: 36px;
+      height: 4px;
+      background: var(--line-medium);
+      border-radius: 999px;
+      margin: 0 auto 16px;
+    }
+
+    .cell-sheet__title {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+
+    .cell-sheet__title--contest { color: #8A6B20; }
+
+    .section-label {
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin-bottom: 8px;
+    }
+
+    .leader-row {
+      padding: 10px 12px;
+      border: 1px solid var(--line-soft);
+      border-radius: 8px;
+      margin-bottom: 6px;
+    }
+
+    .leader-row.is-me {
+      border: 1.5px solid var(--brand-sage);
+      background: #F7FBF8;
+    }
+
+    .leader-row__head {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.9rem;
+      margin-bottom: 6px;
+    }
+
+    .leader-row__head strong {
+      font-family: var(--font-data);
+      font-weight: 600;
+    }
+
+    .share-bar {
+      height: 6px;
+      background: var(--surface-muted);
+      border: 1px solid var(--line-soft);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .share-bar span {
+      display: block;
+      height: 100%;
+      border-radius: 3px;
+    }
+
+    .share-bar--sage span { background: var(--brand-sage); width: 100%; }
+    .share-bar--rival span { background: var(--game-rival); width: 71%; }
+    .share-bar--muted span { background: var(--ink-muted); width: 43%; opacity: 0.6; }
+
+    .callout {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: var(--ink-secondary);
+    }
+
+    .callout--info {
+      background: var(--canvas-bg);
+      border: 1px solid var(--line-soft);
+    }
+
+    .callout--contest {
+      background: var(--game-contest-fill);
+      border: 1px solid #E8D080;
+      color: #8A6B20;
+    }
+
+    .capture-bar {
+      height: 8px;
+      background: var(--surface-muted);
+      border: 1px solid var(--line-soft);
+      border-radius: 4px;
+      margin: 8px 0 6px;
+      overflow: hidden;
+    }
+
+    .capture-bar span {
+      display: block;
+      height: 100%;
+      background: var(--game-contest);
+      width: 68%;
+    }
+
+    .history-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      color: var(--ink-secondary);
+      padding: 8px 0;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .history-row time { color: var(--ink-muted); }
+
+    /* Feed item */
+    .feed-item {
+      padding: 16px;
+      background: var(--surface);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-card);
+      margin-bottom: 10px;
+      position: relative;
+    }
+
+    .feed-item--siege { border-left: 3px solid var(--game-contest); }
+    .feed-item--error { border-left: 3px solid var(--game-danger); }
+
+    .feed-item__head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 6px;
+    }
+
+    .feed-item__head strong { font-size: 0.95rem; font-weight: 600; }
+
+    .feed-badge {
+      font-size: 0.62rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+
+    .feed-badge--capture { background: var(--brand-sage-light); color: var(--brand-sage-dark); }
+    .feed-badge--siege { background: var(--game-contest-fill); color: #8A6B20; }
+    .feed-badge--error { background: var(--game-danger-fill); color: var(--game-danger); }
+
+    .feed-item p {
+      font-size: 0.9rem;
+      color: var(--ink-secondary);
+      margin-bottom: 8px;
+    }
+
+    .feed-item__foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .feed-item time {
+      font-size: 0.72rem;
+      color: var(--ink-muted);
+    }
+
+    /* Celebration */
+    .celebration-phone {
+      position: relative;
+      min-height: 520px;
+      background: var(--canvas-bg);
+    }
+
+    .celebration-phone::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 80% 15%, rgba(91, 138, 114, 0.08) 0%, transparent 40%),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='160' viewBox='0 0 120 160'%3E%3Cpath d='M60 10 C40 50 30 90 35 130 C45 100 75 70 85 40 C70 55 55 80 60 10Z' fill='none' stroke='%235B8A72' stroke-width='1.2' opacity='0.25'/%3E%3C/svg%3E") no-repeat 88% 8%;
+    }
+
+    .celebration-card {
+      position: relative;
+      margin: 48px 16px 16px;
+      padding: 28px 24px;
+      background: var(--surface);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-celebration);
+      text-align: center;
+    }
+
+    .celebration-card .eyebrow {
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin-bottom: 8px;
+    }
+
+    .celebration-card h2 {
+      font-family: var(--font-display);
+      font-size: 1.65rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .celebration-card .sub {
+      font-size: 0.95rem;
+      color: var(--ink-secondary);
+      margin-bottom: 20px;
+    }
+
+    .stat-chips {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .stat-chip {
+      background: var(--canvas-bg);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius-md);
+      padding: 12px 8px;
+    }
+
+    .stat-chip .val {
+      font-family: var(--font-data);
+      font-size: 1.35rem;
+      font-weight: 600;
+      color: var(--brand-sage);
+    }
+
+    .stat-chip .lbl {
+      font-size: 0.6rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin-top: 4px;
+    }
+
+    .celebration-actions {
+      display: grid;
+      gap: 10px;
+    }
+
+    /* Mini map preview in cell panel */
+    .map-preview {
+      height: 120px;
+      background: linear-gradient(180deg, #EDE8DF 0%, #E5DDD2 100%);
+      border-radius: var(--radius-md);
+      margin-bottom: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .map-preview::after {
+      content: '';
+      position: absolute;
+      inset: 20% 25%;
+      background: rgba(91, 138, 114, 0.35);
+      clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+    }
+
+    .palette {
+      max-width: 1200px;
+      margin: 48px auto 0;
+      padding: 24px;
+      background: var(--surface);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line-soft);
+    }
+
+    .palette h2 {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      margin-bottom: 16px;
+    }
+
+    .swatches {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .swatch {
+      width: 72px;
+      text-align: center;
+    }
+
+    .swatch div {
+      height: 48px;
+      border-radius: 8px;
+      border: 1px solid var(--line-soft);
+      margin-bottom: 4px;
+    }
+
+    .swatch span {
+      font-size: 0.65rem;
+      color: var(--ink-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <header class="page-header">
+    <h1>Territory Run · Paper Atlas</h1>
+    <p>Визуальный showcase компонентов — откройте этот файл в браузере</p>
+  </header>
+
+  <div class="showcase-grid">
+
+    <!-- ActivityCard -->
+    <div class="panel">
+      <p class="panel-label">ActivityCard</p>
+      <div class="phone">
+        <div class="phone-inner">
+          <h2 class="phone-title">Пробежки</h2>
+
+          <article class="activity-card">
+            <div class="hex-badge hex-badge--captured"><span>7</span></div>
+            <div class="activity-card__body">
+              <strong>1.4 км</strong>
+              <span>Сегодня</span>
+            </div>
+            <button type="button" class="btn-ghost">Карта</button>
+          </article>
+
+          <article class="activity-card">
+            <div class="hex-badge hex-badge--captured"><span>29</span></div>
+            <div class="activity-card__body">
+              <strong>10.1 км</strong>
+              <span>24 июн. 2026 г.</span>
+              <div class="activity-card__meta">PvP: 2</div>
+            </div>
+            <button type="button" class="btn-ghost">Карта</button>
+          </article>
+
+          <article class="activity-card">
+            <div class="hex-badge hex-badge--processing"><span>…</span></div>
+            <div class="activity-card__body">
+              <strong>5.2 км</strong>
+              <span>Только что</span>
+              <span>Обработка…</span>
+            </div>
+          </article>
+
+          <article class="activity-card">
+            <div class="hex-badge hex-badge--failed"><span>—</span></div>
+            <div class="activity-card__body">
+              <strong>0.1 км</strong>
+              <span>23 июн. 2026 г.</span>
+              <span style="color:#B85C5C">Слишком короткая дистанция</span>
+            </div>
+            <button type="button" class="btn-ghost">Пересчёт</button>
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <!-- CellPopup -->
+    <div class="panel">
+      <p class="panel-label">CellPopup</p>
+      <div class="phone">
+        <div class="map-preview" aria-hidden="true"></div>
+        <div class="cell-sheet">
+          <div class="cell-sheet__handle"></div>
+          <h3 class="cell-sheet__title cell-sheet__title--contest">Спорная · вы ведёте</h3>
+
+          <p class="section-label">Влияние в клетке</p>
+          <div class="leader-row is-me">
+            <div class="leader-row__head">
+              <span>1. runner_ivan (вы)</span>
+              <strong>7</strong>
+            </div>
+            <div class="share-bar share-bar--sage"><span></span></div>
+          </div>
+          <div class="leader-row">
+            <div class="leader-row__head">
+              <span>2. runner_maria</span>
+              <strong>5</strong>
+            </div>
+            <div class="share-bar share-bar--rival"><span></span></div>
+          </div>
+          <div class="leader-row">
+            <div class="leader-row__head">
+              <span>3. runner_alex</span>
+              <strong>3</strong>
+            </div>
+            <div class="share-bar share-bar--muted"><span></span></div>
+          </div>
+
+          <div class="callout callout--contest">
+            Соперник runner_maria близко · запас +2
+            <div class="capture-bar"><span></span></div>
+            <small>Ваш прогресс: 100% · удерживайте лидерство</small>
+          </div>
+
+          <p class="section-label" style="margin-top:14px">История</p>
+          <div class="history-row">
+            <span>runner_alex → runner_ivan</span>
+            <time>25.06.2026</time>
+          </div>
+          <div class="history-row">
+            <span>runner_alex</span>
+            <time>25.06.2026</time>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FeedItem -->
+    <div class="panel">
+      <p class="panel-label">FeedItem</p>
+      <div class="phone">
+        <div class="phone-inner">
+          <h2 class="phone-title">Лента</h2>
+
+          <article class="feed-item feed-item--siege">
+            <div class="feed-item__head">
+              <strong>runner_ivan</strong>
+              <span class="feed-badge feed-badge--siege">осада</span>
+            </div>
+            <p>runner_alex атакует вашу клетку — 98% до захвата</p>
+            <div class="feed-item__foot">
+              <button type="button" class="btn-ghost">На карте</button>
+              <time>25.06.2026, 19:42</time>
+            </div>
+          </article>
+
+          <article class="feed-item">
+            <div class="feed-item__head">
+              <strong>runner_ivan</strong>
+              <span class="feed-badge feed-badge--capture">+7 клеток</span>
+            </div>
+            <p>пробежал 1.4 км · захвачено 7 клеток</p>
+            <div class="feed-item__foot">
+              <time>25.06.2026, 19:42</time>
+            </div>
+          </article>
+
+          <article class="feed-item">
+            <div class="feed-item__head">
+              <strong>runner_ivan</strong>
+              <span class="feed-badge feed-badge--capture">+29 клеток</span>
+            </div>
+            <p>пробежал 10.1 км · захвачено 29 клеток (2 у соперников)</p>
+            <div class="feed-item__foot">
+              <time>25.06.2026, 17:22</time>
+            </div>
+          </article>
+
+          <article class="feed-item feed-item--error">
+            <div class="feed-item__head">
+              <strong>runner_alex</strong>
+              <span class="feed-badge feed-badge--error">ERR</span>
+            </div>
+            <p>пробежка отклонена проверкой GPS</p>
+            <div class="feed-item__foot">
+              <time>25.06.2026, 17:40</time>
+            </div>
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <!-- Celebration -->
+    <div class="panel">
+      <p class="panel-label">Celebration</p>
+      <div class="phone celebration-phone">
+        <div class="celebration-card">
+          <p class="eyebrow">Отличная пробежка!</p>
+          <h2>+7 клеток захвачено</h2>
+          <p class="sub">2 у соперников · +14 влияния</p>
+
+          <div class="stat-chips">
+            <div class="stat-chip">
+              <div class="val">7</div>
+              <div class="lbl">захват</div>
+            </div>
+            <div class="stat-chip">
+              <div class="val">2</div>
+              <div class="lbl">PvP</div>
+            </div>
+            <div class="stat-chip">
+              <div class="val">+14</div>
+              <div class="lbl">влияние</div>
+            </div>
+          </div>
+
+          <div class="celebration-actions">
+            <button type="button" class="btn-secondary">Поделиться</button>
+            <button type="button" class="btn-primary">На карту →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Color palette -->
+  <section class="palette">
+    <h2>Palette</h2>
+    <div class="swatches">
+      <div class="swatch"><div style="background:#F7F4EE"></div><span>canvas</span></div>
+      <div class="swatch"><div style="background:#2C2825"></div><span>ink</span></div>
+      <div class="swatch"><div style="background:#5B8A72"></div><span>sage</span></div>
+      <div class="swatch"><div style="background:#6B7FA3"></div><span>rival</span></div>
+      <div class="swatch"><div style="background:#C4A35A"></div><span>contest</span></div>
+      <div class="swatch"><div style="background:#B85C5C"></div><span>danger</span></div>
+      <div class="swatch"><div style="background:#E8F0EB"></div><span>sage-light</span></div>
+      <div class="swatch"><div style="background:#FBF3E0"></div><span>contest-fill</span></div>
+    </div>
+  </section>
+
+</body>
+</html>

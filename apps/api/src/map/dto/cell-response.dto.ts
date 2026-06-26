@@ -99,12 +99,18 @@ export class CaptureTargetDto {
   gap!: number;
   runsNeeded!: number;
   ownerNickname!: string | null;
-  category!: 'capture' | 'finish' | 'defend';
+  category!: 'capture' | 'finish' | 'defend' | 'expand';
 }
 
 export class CaptureTargetsResponseDto {
   targets!: CaptureTargetDto[];
   message!: string;
+}
+
+export class MissionHintDto {
+  category!: 'capture' | 'finish' | 'defend' | 'expand';
+  label!: string;
+  count!: number;
 }
 
 export class MapSummaryResponseDto {
@@ -113,4 +119,9 @@ export class MapSummaryResponseDto {
   territoryAreaM2!: number;
   cellsGainedThisWeek!: number;
   weeklyProgressPercent!: number;
+  missions!: MissionHintDto[];
+  influencePerRun!: number;
+  effectiveInfluenceMultiplier!: number;
+  influenceMultiplierCapped!: boolean;
+  atSoftCap!: boolean;
 }

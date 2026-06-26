@@ -9,6 +9,7 @@ import { ImportNativeActivityDto } from './dto/import-native-activity.dto';
 import { ApiException } from '../common/api.exception';
 import { ErrorCodes } from '../common/error-codes';
 import { sanitizeTrackPoints } from '../common/track.util';
+import { distanceMetersByH3Cell } from '../common/track-distance.util';
 import { GpxParserService, GpxParseError } from './gpx-parser.service';
 import {
   SamsungHealthParserService,
@@ -380,15 +381,25 @@ export class ActivitiesService {
       this.prisma.activity.count({ where: { userId } }),
     ]);
 
-    const enrichedItems = items.map((item) => ({
-      ...item,
-      cellsCaptured:
-        item.status === ActivityStatus.completed
-          ? (item.cellsCaptured ?? null)
-          : item.status === ActivityStatus.failed
-            ? 0
-            : null,
-    }));
+    const needsFallbackIds = items
+      .filter((item) => this.needsResultFallback(item))
+      .map((item) => item.id);
+
+    const feedByActivityId = await this.loadFeedResultsForActivities(
+      userId,
+      needsFallbackIds,
+    );
+
+    const stillMissingIds = needsFallbackIds.filter((id) => !feedByActivityId.has(id));
+    const trackByActivityId = await this.loadTrackCellCounts(stillMissingIds);
+
+    const enrichedItems = items.map((item) => {
+      const feed = feedByActivityId.get(item.id);
+      const track = trackByActivityId.get(item.id);
+      const resolved = this.resolveActivityResults(item, feed, track);
+      this.persistResolvedResultsIfNeeded(item.id, item, resolved);
+      return { ...item, ...resolved };
+    });
 
     return {
       items: enrichedItems,
@@ -460,6 +471,18 @@ export class ActivitiesService {
       );
     }
 
+    const feedFallback = this.needsResultFallback(activity)
+      ? (await this.loadFeedResultsForActivities(userId, [activityId])).get(activityId)
+      : undefined;
+
+    const trackFallback =
+      this.needsResultFallback(activity) && !feedFallback
+        ? (await this.loadTrackCellCounts([activityId])).get(activityId)
+        : undefined;
+
+    const resolved = this.resolveActivityResults(activity, feedFallback, trackFallback);
+    this.persistResolvedResultsIfNeeded(activityId, activity, resolved);
+
     return {
       status: activity.status,
       ...(activity.failureReason ? { reason: activity.failureReason } : {}),
@@ -467,11 +490,11 @@ export class ActivitiesService {
         ? {
             distanceMeters: activity.distanceMeters,
             durationSeconds: activity.durationSeconds,
-            cellsCaptured: activity.cellsCaptured ?? 0,
-            cellsTouched: activity.cellsTouched ?? 0,
+            cellsCaptured: resolved.cellsCaptured ?? 0,
+            cellsTouched: resolved.cellsTouched ?? 0,
             newCellsCaptured: activity.newCellsCaptured ?? 0,
-            pvpCaptures: activity.pvpCaptures ?? 0,
-            influenceAdded: activity.influenceAdded ?? 0,
+            pvpCaptures: resolved.pvpCaptures ?? activity.pvpCaptures ?? 0,
+            influenceAdded: resolved.influenceAdded ?? activity.influenceAdded ?? 0,
           }
         : {}),
     };
@@ -572,5 +595,213 @@ export class ActivitiesService {
     }
 
     return { requeued };
+  }
+
+  private needsResultFallback(item: {
+    status: ActivityStatus | string;
+    cellsCaptured: number | null;
+    cellsTouched: number | null;
+  }): boolean {
+    if (item.status !== ActivityStatus.completed) {
+      return false;
+    }
+    if (item.cellsCaptured == null || item.cellsTouched == null) {
+      return true;
+    }
+    return item.cellsCaptured === 0 && item.cellsTouched === 0;
+  }
+
+  private resolveActivityResults(
+    item: {
+      status: ActivityStatus | string;
+      cellsCaptured: number | null;
+      cellsTouched: number | null;
+      pvpCaptures: number | null;
+      influenceAdded: number | null;
+    },
+    feed?: {
+      cellsCaptured?: number;
+      cellsTouched?: number;
+      pvpCaptures?: number;
+      influenceAdded?: number;
+    },
+    track?: { cellsTouched: number },
+  ) {
+    if (item.status === ActivityStatus.failed) {
+      return {
+        cellsCaptured: 0,
+        cellsTouched: 0,
+        pvpCaptures: item.pvpCaptures,
+        influenceAdded: item.influenceAdded,
+      };
+    }
+    if (item.status !== ActivityStatus.completed) {
+      return {
+        cellsCaptured: null as number | null,
+        cellsTouched: null as number | null,
+        pvpCaptures: item.pvpCaptures,
+        influenceAdded: item.influenceAdded,
+      };
+    }
+
+    const feedCaptured = feed?.cellsCaptured;
+    const feedTouched = feed?.cellsTouched;
+    const trackTouched = track?.cellsTouched;
+
+    let cellsTouched = item.cellsTouched ?? feedTouched ?? trackTouched ?? null;
+    let cellsCaptured = item.cellsCaptured ?? feedCaptured ?? trackTouched ?? null;
+
+    if (feedCaptured != null && (cellsCaptured == null || cellsCaptured < feedCaptured)) {
+      cellsCaptured = feedCaptured;
+    }
+    if (feedTouched != null && (cellsTouched == null || cellsTouched < feedTouched)) {
+      cellsTouched = feedTouched;
+    }
+
+    return {
+      cellsCaptured,
+      cellsTouched,
+      pvpCaptures: item.pvpCaptures ?? feed?.pvpCaptures ?? item.pvpCaptures,
+      influenceAdded: item.influenceAdded ?? feed?.influenceAdded ?? item.influenceAdded,
+    };
+  }
+
+  private persistResolvedResultsIfNeeded(
+    activityId: string,
+    stored: {
+      cellsCaptured: number | null;
+      cellsTouched: number | null;
+      pvpCaptures: number | null;
+      influenceAdded: number | null;
+    },
+    resolved: {
+      cellsCaptured: number | null;
+      cellsTouched: number | null;
+      pvpCaptures: number | null;
+      influenceAdded: number | null;
+    },
+  ) {
+    const data: {
+      cellsCaptured?: number;
+      cellsTouched?: number;
+      pvpCaptures?: number;
+      influenceAdded?: number;
+    } = {};
+
+    if (
+      resolved.cellsCaptured != null &&
+      (stored.cellsCaptured == null || stored.cellsCaptured < resolved.cellsCaptured)
+    ) {
+      data.cellsCaptured = resolved.cellsCaptured;
+    }
+    if (
+      resolved.cellsTouched != null &&
+      (stored.cellsTouched == null || stored.cellsTouched < resolved.cellsTouched)
+    ) {
+      data.cellsTouched = resolved.cellsTouched;
+    }
+    if (
+      resolved.pvpCaptures != null &&
+      (stored.pvpCaptures == null || stored.pvpCaptures < resolved.pvpCaptures)
+    ) {
+      data.pvpCaptures = resolved.pvpCaptures;
+    }
+    if (
+      resolved.influenceAdded != null &&
+      (stored.influenceAdded == null || stored.influenceAdded < resolved.influenceAdded)
+    ) {
+      data.influenceAdded = resolved.influenceAdded;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return;
+    }
+
+    void this.prisma.activity
+      .update({ where: { id: activityId }, data })
+      .catch(() => undefined);
+  }
+
+  /** Fallback for activities processed before cellsCaptured/cellsTouched columns existed. */
+  private async loadFeedResultsForActivities(userId: string, activityIds: string[]) {
+    const map = new Map<
+      string,
+      {
+        cellsCaptured?: number;
+        cellsTouched?: number;
+        pvpCaptures?: number;
+        influenceAdded?: number;
+      }
+    >();
+
+    if (activityIds.length === 0) {
+      return map;
+    }
+
+    const wanted = new Set(activityIds);
+    const events = await this.prisma.event.findMany({
+      where: { userId, type: 'activity_completed' },
+      select: { payload: true },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
+    for (const event of events) {
+      const payload = (event.payload ?? {}) as Record<string, unknown>;
+      const activityId = payload.activityId;
+      if (typeof activityId !== 'string' || !wanted.has(activityId) || map.has(activityId)) {
+        continue;
+      }
+
+      const cellsTouched = Number(payload.cellsAffected ?? payload.cellsTouched ?? 0);
+      const cellsCapturedRaw = payload.cellsCaptured;
+      const cellsCaptured =
+        cellsCapturedRaw != null ? Number(cellsCapturedRaw) : undefined;
+
+      map.set(activityId, {
+        cellsTouched: cellsTouched > 0 ? cellsTouched : undefined,
+        cellsCaptured: cellsCaptured != null && cellsCaptured >= 0 ? cellsCaptured : undefined,
+        pvpCaptures:
+          payload.pvpCaptures != null ? Number(payload.pvpCaptures) : undefined,
+        influenceAdded:
+          payload.influenceAdded != null ? Number(payload.influenceAdded) : undefined,
+      });
+    }
+
+    return map;
+  }
+
+  private async loadTrackCellCounts(activityIds: string[]) {
+    const map = new Map<string, { cellsTouched: number }>();
+    if (activityIds.length === 0) {
+      return map;
+    }
+
+    const rows = await this.prisma.activity.findMany({
+      where: { id: { in: activityIds }, status: ActivityStatus.completed },
+      select: {
+        id: true,
+        track: { select: { route: true } },
+      },
+    });
+
+    for (const row of rows) {
+      const route = row.track?.route as
+        | { lat: number; lng: number; timestamp?: string }[]
+        | undefined;
+      if (!route?.length) {
+        continue;
+      }
+      const sanitized = sanitizeTrackPoints(route);
+      if (sanitized.length < 2) {
+        continue;
+      }
+      const count = distanceMetersByH3Cell(sanitized).size;
+      if (count > 0) {
+        map.set(row.id, { cellsTouched: count });
+      }
+    }
+
+    return map;
   }
 }

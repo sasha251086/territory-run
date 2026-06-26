@@ -16,6 +16,7 @@ export interface UserProfile {
   avatarUrl: string | null;
   homeLat: number | null;
   homeLng: number | null;
+  homeAreaLabel?: string | null;
   freezeActive: boolean;
   freezeActivatedAt: string | null;
   freezeLastUsedAt: string | null;
@@ -97,7 +98,13 @@ export interface CaptureTarget {
   gap: number;
   runsNeeded: number;
   ownerNickname: string | null;
-  category: 'capture' | 'finish' | 'defend';
+  category: 'capture' | 'finish' | 'defend' | 'expand';
+}
+
+export interface MissionHint {
+  category: 'capture' | 'finish' | 'defend' | 'expand';
+  label: string;
+  count: number;
 }
 
 export interface MapSummary {
@@ -106,6 +113,11 @@ export interface MapSummary {
   territoryAreaM2: number;
   cellsGainedThisWeek: number;
   weeklyProgressPercent: number;
+  missions?: MissionHint[];
+  influencePerRun?: number;
+  effectiveInfluenceMultiplier?: number;
+  influenceMultiplierCapped?: boolean;
+  atSoftCap?: boolean;
 }
 
 export interface RivalCell {

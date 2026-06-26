@@ -27,7 +27,6 @@ export class OwnershipService {
   async recalculateOwners(
     h3Indices: string[],
     previousOwnerByCell: Map<string, string | null> = new Map(),
-    options: { suppressCaptureFeed?: boolean } = {},
   ) {
     if (h3Indices.length === 0) {
       return [];
@@ -47,23 +46,6 @@ export class OwnershipService {
     for (const [h3Index, list] of ownershipsByCell) {
       ownershipsByCell.set(h3Index, rankCellOwnerships(list));
     }
-
-    const previousOwnerIds = new Set<string>();
-    for (const h3Index of h3Indices) {
-      const previousOwnerId = previousOwnerByCell.get(h3Index) ?? null;
-      if (previousOwnerId) {
-        previousOwnerIds.add(previousOwnerId);
-      }
-    }
-
-    const previousUsers =
-      previousOwnerIds.size > 0
-        ? await this.prisma.user.findMany({
-            where: { id: { in: [...previousOwnerIds] } },
-            select: { id: true, nickname: true },
-          })
-        : [];
-    const nickById = new Map(previousUsers.map((user) => [user.id, user.nickname]));
 
     const results = [];
 
@@ -90,19 +72,6 @@ export class OwnershipService {
           },
         });
 
-        const previousNickname = previousOwnerId
-          ? (nickById.get(previousOwnerId) ?? null)
-          : null;
-
-        if (!options.suppressCaptureFeed && previousNickname) {
-          await this.feedService.createEvent('cell_captured', newOwnerId, {
-            h3Index,
-            cellOwnerNickname: top.user.nickname,
-            previousOwnerNickname: previousNickname,
-            influence: top.influence,
-            timestamp: new Date(),
-          });
-        }
         this.logger.log({
           msg: 'Cell captured',
           h3Index,

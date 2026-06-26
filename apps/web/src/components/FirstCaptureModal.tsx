@@ -1,4 +1,5 @@
 import { apiRequest } from '../api/client';
+import { formatCellCount } from '../utils/territory';
 
 export default function FirstCaptureModal({
   cellsCaptured,
@@ -19,7 +20,7 @@ export default function FirstCaptureModal({
     <div className="modal-backdrop">
       <div className="modal-card">
         <h2>Первая территория!</h2>
-        <p>Захвачено {cellsCaptured} клеток. Продолжайте бегать и расширяйте влияние.</p>
+        <p>Захвачено {formatCellCount(cellsCaptured)}. Продолжайте бегать и расширяйте влияние.</p>
         <button type="button" className="primary-btn" onClick={() => void handleClose()}>
           Отлично
         </button>

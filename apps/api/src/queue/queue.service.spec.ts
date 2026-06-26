@@ -67,16 +67,7 @@ describe('QueueService anticheat integration', () => {
         failureReason: 'SPEED_EXCEEDED',
       }),
     });
-    expect(mockFeedService.createEvent).toHaveBeenCalledWith(
-      'activity_completed',
-      'user-1',
-      expect.objectContaining({
-        flagged: true,
-        reason: 'SPEED_EXCEEDED',
-        cellsAffected: 0,
-        cellsCaptured: 0,
-      }),
-    );
+    expect(mockFeedService.createEvent).not.toHaveBeenCalled();
   });
 
   it('should reject activities shorter than minimum distance', async () => {

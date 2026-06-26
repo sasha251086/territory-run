@@ -124,6 +124,19 @@ export default function ActivitiesPage() {
 
   const importBusy = uploading || uploadingSamsungZip || syncing || healthSyncing;
 
+  useEffect(() => {
+    if (!importMenuOpen) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setImportMenuOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [importMenuOpen]);
+
   function watchActivity(activityId: string) {
     pollActivity(activityId, {
       onComplete: async (result) => {

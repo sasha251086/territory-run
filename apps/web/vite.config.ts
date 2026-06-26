@@ -12,8 +12,8 @@ export default defineConfig({
         name: 'Territory Run',
         short_name: 'TerritoryRun',
         description: 'Бегай и захватывай территории',
-        theme_color: '#1a5f4a',
-        background_color: '#0f172a',
+        theme_color: '#5B8A72',
+        background_color: '#F7F4EE',
         display: 'standalone',
         start_url: '/',
         icons: [

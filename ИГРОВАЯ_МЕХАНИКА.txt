@@ -1,0 +1,588 @@
+================================================================================
+  TERRITORY RUN — ПОЛНОЕ ОПИСАНИЕ ИГРОВОЙ МЕХАНИКИ
+================================================================================
+
+Версия документа: 25 июня 2026
+Назначение: единый справочник для разработки, баланса и QA.
+При изменении механики — сначала править код, затем этот файл и:
+  • apps/api/src/common/constants.ts
+  • apps/web/src/constants/game.ts
+  • GAME_CONSTANTS.md (краткая таблица)
+
+================================================================================
+1. КОНЦЕПЦИЯ ИГРЫ
+================================================================================
+
+Territory Run — асинхронная GPS-игра про бег и контроль территории.
+
+Игрок загружает пробежку (GPX, Strava, Samsung Health и др.). Сервер:
+  1) проверяет трек античитом;
+  2) начисляет влияние в H3-клетках вдоль маршрута;
+  3) пересчитывает владельцев клеток;
+  4) обновляет статистику, ленту, сезонный счёт.
+
+Ключевые сущности:
+  • Клетка (Cell) — шестиугольник H3 resolution 9 (~174 м², ~0.174 км²).
+  • Влияние (CellOwnership.influence) — накопленный вклад игрока в клетке (0–100).
+  • Владелец клетки — игрок с максимальным влиянием (при равенстве — более свежая
+    активность lastActivityAt).
+  • Домашняя база — точка (homeLat/homeLng), задаётся при онбординге/в профиле.
+  • Соперник (rival) — до 3 отслеживаемых игроков, их клетки подсвечиваются на карте.
+
+Игра НЕ сбрасывает карту между сезонами. Сезон — отдельный соревновательный счёт.
+Затухание влияния — отдельная механика (60 дней без активности в клетке).
+
+================================================================================
+2. КАРТА И СЕТКА H3
+================================================================================
+
+2.1. Параметры сетки
+  • Библиотека: h3-js
+  • Разрешение: 9 (константа H3_RESOLUTION = 9 в track-distance.util.ts)
+  • Площадь клетки: h3.getHexagonAreaAvg(9, 'm2') — используется в MapSummary
+
+2.2. Загрузка клеток на карту (GET /map/cells)
+  • Bounding box: north, south, east, west (координаты округляются roundCoord)
+  • Лимит: query.limit или 1000 клеток
+  • Кэш Redis: ключ map:bbox:{n}:{s}:{e}:{w}:{limit}, TTL 45 сек
+  • Возвращаются клетки с centerLat/centerLng в bbox и все ownerships
+
+2.3. Отображение владельца (CellResponseDto)
+  • ownerId / ownerNickname / influence — лидер после rankCellOwnerships
+  • myInfluence, myRank, isOwner — данные текущего пользователя
+  • gapToLeader, runsToCapture — если пользователь не лидер, но имеет влияние
+  • decayRisk: none | warning | critical — по lastActivityAt своего влияния
+  • contested, contestGap, challengerNickname — состояние «спора» (см. §6.3)
+
+2.4. Кэш и персонализация
+  • Базовые клетки кэшируются без привязки к userId
+  • Персональные поля (myInfluence, decayRisk и т.д.) вычисляются при ответе
+
+================================================================================
+3. ПРОБЕЖКИ: ИСТОЧНИКИ И СТАТУСЫ
+================================================================================
+
+3.1. Источники (Activity.source)
+  • gpx_import — загрузка .gpx файла (макс. 5 МБ)
+  • samsung_health_zip — архив Samsung Health (макс. 350 МБ)
+  • samsung_health — нативное приложение
+  • strava — OAuth Strava
+  • internal, apple_health, health_connect — зарезервированы в DTO
+
+3.2. Статусы Activity (enum ActivityStatus)
+  • processing — в очереди BullMQ
+  • completed — успешно обработана
+  • failed — отклонена античитом или ошибка
+
+3.3. Поля результата (после обработки)
+  • cellsTouched — число уникальных H3-клеток, где начислено влияние
+  • cellsCaptured — клетки, где пользователь СТАЛ владельцем (не был владельцем до пробежки)
+  • newCellsCaptured — cellsCaptured минус pvpCaptures (захват «нейтральных»)
+  • pvpCaptures — cellsCaptured, где предыдущий владелец был другим игроком
+  • influenceAdded — суммарное добавленное влияние за пробежку
+
+3.4. Fallback для старых записей
+  • Если cellsCaptured/cellsTouched = null или 0/0 — API при чтении подтягивает
+    данные из feed-события activity_completed или пересчитывает по GPS-треку
+  • Скрипт backfill: pnpm --filter api backfill:activity-results
+
+3.5. Дедупликация внешних активностей
+  • ProcessedActivity(provider, externalActivityId) — повторный импорт блокируется
+
+3.6. Пересчёт отклонённых пробежек
+  • POST reprocess — только failureReason SPEED_EXCEEDED или GPS_ANOMALY
+  • Трек предварительно проходит sanitizeTrackPoints
+
+================================================================================
+4. PIPELINE ОБРАБОТКИ ПРОБЕЖКИ (QueueService)
+================================================================================
+
+Очередь: BullMQ «activity-processing», Redis.
+
+Порядок шагов processActivity:
+
+  1. Загрузка Activity + ActivityTrack.route (JSON массив точек lat/lng/timestamp)
+  2. sanitizeTrackPoints — удаление дубликатов, GPS-спайков
+  3. anticheatService.validateTrack
+  4. validateMinimumDistance(trackDistance, claimedDistance)
+  5. validateClaimedDistance(trackDistance, claimedDistance, tolerance=20%)
+  6. snapshotOwners — владельцы всех клеток вдоль трека ДО начисления
+  7. influenceService.processTrack — начисление влияния
+  8. ownershipService.recalculateOwners — пересчёт владельцев, осады, история
+  9. Подсчёт cellsCaptured / pvpCaptures / newCellsCaptured
+ 10. nextStreakState — обновление стрика
+ 11. userStats: totalDistance, totalRuns, currentStreak, lastRunDate
+ 12. userStats: cellsOwned, totalInfluence, seasonCellsOwned, seasonInfluence
+ 13. feedService.createEvent('activity_completed', ...)
+ 14. activity.status = completed + сохранение метрик
+
+При failActivity:
+  • status = failed, failureReason = код
+  • feed-событие НЕ создаётся
+
+================================================================================
+5. АНТИЧИТ (AnticheatService)
+================================================================================
+
+5.1. validateTrack
+  • Минимум 2 точки с валидными timestamp
+  • Для каждой пары точек с deltaSeconds >= MIN_SPEED_CHECK_INTERVAL_SECONDS (1 сек):
+      speed = distance / deltaSeconds
+      если speed > MAX_RUN_SPEED_MS → SPEED_EXCEEDED
+  • MAX_RUN_SPEED_MS = 28 / 3.6 ≈ 7.78 м/с (28 км/ч)
+  • deltaSeconds <= 0 при distance > 0 → GPS_ANOMALY
+  • Отсутствие timestamp → GPS_ANOMALY
+
+5.2. sanitizeTrackPoints (до validateTrack)
+  • Удаляет точки без timestamp, дубликаты по времени
+  • При delta >= 1 сек удаляет сегменты со speed > MAX_RUN_SPEED_MS
+  • Если после очистки < 2 точек — возвращает исходный массив
+
+5.3. validateMinimumDistance
+  • effectiveDistance = max(trackDistance, claimedDistance)
+  • effectiveDistance < MIN_ACTIVITY_DISTANCE_M (100 м) → DISTANCE_TOO_SHORT
+
+5.4. validateClaimedDistance
+  • claimedDistance <= actualDistance * (1 + tolerance), tolerance = 0.2 (20%)
+  • Иначе DISTANCE_MISMATCH
+  • Если claimed или actual <= 0 — пропускается (valid)
+
+5.5. Коды failureReason
+  • INSUFFICIENT_POINTS, SPEED_EXCEEDED, GPS_ANOMALY
+  • DISTANCE_MISMATCH, DISTANCE_TOO_SHORT
+
+================================================================================
+6. ВЛИЯНИЕ (InfluenceService)
+================================================================================
+
+6.1. Расчёт метров в клетках (distanceMetersByH3Cell)
+  • Каждый сегмент трека между точками i-1 и i:
+      - haversineDistance между точками
+      - prevCell = latLngToCell(prev), currCell = latLngToCell(curr)
+      - Если одна клетка — весь сегмент в неё
+      - Если разные — сегмент делится 50/50 между prevCell и currCell
+  • Одна точка — клетка с distance 0 (влияния не даёт: weight=0)
+
+6.2. Вес дистанции (influenceDistanceWeight)
+  • weight = min(1, metersInCell / MIN_CELL_DISTANCE_M)
+  • MIN_CELL_DISTANCE_M = 50 — нужно ≥50 м в клетке для полного +1 базового влияния
+  • weight <= 0 → клетка пропускается
+
+6.3. Формула начисления за клетку за одну пробежку
+  rawMult = locationMult × streakMult × softCapMult
+  effectiveMult = min(rawMult, MAX_INFLUENCE_GAIN_MULTIPLIER)  // cap ×1.5
+  influenceGain = BASE_INFLUENCE × effectiveMult × distanceWeight
+  // BASE_INFLUENCE = 1
+
+  Новое влияние:
+  • Если запись CellOwnership уже есть: min(old + gain, MAX_INFLUENCE_PER_CELL)
+  • Если нет: min(gain, MAX_INFLUENCE_PER_CELL)
+  • MAX_INFLUENCE_PER_CELL = 100
+
+6.4. Множители (influence-gain.util.ts)
+
+  locationInfluenceMultiplier(user, center, hasExistingOwnership):
+    • В домашней зоне (≤ HOME_ZONE_RADIUS_M = 350 м от базы): ×1.25
+    • Иначе, если нет своего влияния в клетке И аккаунт моложе 30 дней:
+      ×1.25 (NEW_PLAYER_BONUS_MULTIPLIER, NEW_PLAYER_PERIOD_MS)
+    • Иначе: ×1.0
+    • hasExistingOwnership = есть CellOwnership userId в этой клетке
+
+  streakMultiplier(currentStreak):
+    • streak >= 14 → ×1.3
+    • streak >= 7  → ×1.2
+    • streak >= 4  → ×1.1
+    • иначе        → ×1.0
+
+  softCapMultiplier(cellsOwned):
+    • cellsOwned >= SOFT_CAP_CELLS (80) → ×0.5
+    • иначе → ×1.0
+
+  capInfluenceGainMultiplier: min(raw, 1.5)
+
+  Пример максимума за визит: 1.25 × 1.3 × 0.5 = 0.8125 → cap не нужен
+  Пример с cap: 1.25 × 1.3 × 1.0 = 1.625 → effective = 1.5
+
+6.5. Побочные эффекты processTrack
+  • Создаёт Cell для новых h3Index (center, centerLat, centerLng)
+  • assignCellsToDistricts для новых клеток
+  • lastActivityAt обновляется при UPDATE существующего ownership
+
+6.6. Ранжирование владельцев (cell-ownership.util.ts)
+  • Сортировка: influence DESC, затем lastActivityAt DESC (свежее = выше)
+  • compareOwnershipRank, rankCellOwnerships
+
+6.7. Состояние «спор» (contested)
+  • contestGapThreshold(leader) = max(1, leader × 0.1)
+    // CONTEST_GAP_ABSOLUTE=1, CONTEST_GAP_RELATIVE=0.1
+  • isCellContested: challenger > 0 И gap(leader, challenger) <= threshold
+  • tiedOnInfluence: contested && gap === 0
+
+6.8. Осада (siege) — уведомление, не отдельная механика захвата
+  • Условие: ≥2 игрока с влиянием, challenger.influence >= leader × SIEGE_THRESHOLD
+  • SIEGE_THRESHOLD = 0.8 (80% от лидера)
+  • Создаётся feed-событие cell_siege для ВЛАДЕЛЬЦА (owner userId)
+  • Не чаще 1 раза в 24 ч на пару (owner, challenger, h3Index)
+    // SIEGE_EVENT_COOLDOWN_MS = 86400000
+  • payload: h3Index, challengerUserId, challengerNickname, gapPercent, influences
+  • События cell_captured в feed БОЛЬШЕ НЕ создаются
+
+================================================================================
+7. ВЛАДЕНИЕ И ЗАХВАТ (OwnershipService)
+================================================================================
+
+7.1. recalculateOwners(h3Indices, previousOwnerByCell)
+  • Для каждой клетки: rankCellOwnerships → top = владелец
+  • maybeNotifySiege
+  • Если previousOwnerId != newOwnerId:
+      - CellHistory запись (fromUserId, toUserId)
+      - лог «Cell captured»
+      - feed cell_captured НЕ создаётся
+  • districtService.recalculateForCells
+
+7.2. Определение cellsCaptured (в QueueService)
+  • cellsCaptured = клетки где result.ownerId === userId
+    И previousOwners.get(h3Index) !== userId
+  • pvpCaptures = subset где previousOwnerId != null && !== userId
+  • newCellsCaptured = cellsCaptured - pvpCaptures
+
+7.3. UserStats.cellsOwned — ВАЖНО
+  • Пересчитывается как COUNT(DISTINCT h3Index) FROM CellOwnership WHERE userId = X
+  • Это число клеток, где у игрока ЕСТЬ влияние (включая клетки, где он НЕ лидер)
+  • Для soft cap и UI «52 / 80 клеток» используется именно это значение
+  • Фактический контроль территории на карте = клетки где игрок #1 по influence
+
+7.4. UserStats.totalInfluence
+  • SUM(influence) по всем CellOwnership пользователя
+
+================================================================================
+8. ЗАТУХАНИЕ И ЗАМОРОЗКА (DecayService)
+================================================================================
+
+Cron: EVERY_DAY_AT_MIDNIGHT (00:00 UTC)
+
+8.1. Полное удаление влияния
+  • DELETE CellOwnership WHERE lastActivityAt < now - 60 дней
+    AND user.freezeActive = false
+  • DECAY_DELETE_AFTER_DAYS = 60
+
+8.2. Ежедневное затухание
+  • UPDATE CellOwnership SET influence = ROUND(influence × 0.98, 2)
+    WHERE lastActivityAt >= cutoff (ещё не «брошенные»)
+  • DECAY_RATE_PER_DAY = 0.98 (−2% в день)
+
+8.3. После decay
+  • recalculateOwners для затронутых клеток
+
+8.4. Индикаторы риска на карте (cell-decay.util.ts)
+  • daysSinceActivity = floor((now - lastActivityAt) / 1 день)
+  • warning: days >= DECAY_WARNING_DAYS (7)
+  • critical: days >= DECAY_THREAT_DAYS (10)
+  • MapSummary.cellsAtRisk — клетки с days >= 10
+
+8.5. Заморозка территории (UsersService.activateFreeze)
+  • FREEZE_DURATION_DAYS = 7 — активна 7 дней
+  • FREEZE_COOLDOWN_DAYS = 90 — повторная активация не раньше чем через 90 дней
+  • Пока freezeActive = true: decay DELETE не удаляет ownership пользователя
+  • По истечении 7 дней cron сбрасывает freezeActive = false
+  • Затухание ×0.98 всё равно применяется (freeze только блокирует DELETE)
+
+================================================================================
+9. СТРИК (streak.util.ts)
+================================================================================
+
+Обновление при каждой completed пробежке (nextStreakState):
+
+  dayGap = календарные UTC-дни между lastRunDate и finishedAt пробежки
+
+  • lastRunDate null → streak = 1
+  • dayGap <= 0 (та же календарная дата) → streak = max(current, 1), дата обновляется
+  • dayGap == 1 → streak + 1
+  • dayGap == 2 → streak БЕЗ изменений (grace day), lastRunDate обновляется
+  • dayGap >= 3 → streak = 1 (сброс)
+
+  STREAK_BREAK_DAYS = 2 в constants — grace соответствует dayGap==2
+
+================================================================================
+10. ЦЕЛИ ЗАХВАТА И МИССИИ (MapService.getCaptureTargets)
+================================================================================
+
+Параметры поиска:
+  • CAPTURE_TARGET_RADIUS_M = 2000 м от точки (lat, lng) — обычно дом или центр карты
+  • perRun = estimateInfluencePerRun с assumeHomeZone=true
+
+10.1. Категории целей
+
+  DEFEND (защита):
+    • У пользователя есть CellOwnership в клетке
+    • Пользователь — лидер (isOwner)
+    • Есть challenger (#2)
+    • contested ИЛИ challenger.influence >= leader × 0.8 (SIEGE_THRESHOLD)
+    • runsNeeded = ceil((challenger - leader + 1) / perRun)
+
+  FINISH (добить):
+    • Пользователь НЕ лидер, но имеет влияние в клетке
+    • gap = leader.influence - my.influence
+    • 0 < gap <= CAPTURE_TARGET_FINISH_GAP (5)
+
+  CAPTURE (захват):
+    • То же, но gap <= CAPTURE_TARGET_MAX_GAP (15) и gap > 5
+
+  EXPAND (расширить):
+    • Клетки в gridDisk(origin, 2) вокруг точки запроса
+    • Не в seen, не в моих ownership
+    • В радиусе 2000 м
+    • Нейтральная (нет leader) → gap=1, runsNeeded=ceil(1/perRun)
+    • С чужим leader → gap = leader.influence + 1
+    • Максимум CAPTURE_TARGET_EXPAND_LIMIT = 5 целей expand
+
+10.2. Сортировка целей
+  defend → finish → capture → expand, затем по gap ASC
+
+10.3. Миссии (MapSummary.missions)
+  • Агрегация targets по category с русскими label:
+    defend → «Защити территорию»
+    finish → «Добей захват»
+    capture → «Захвати клетки»
+    expand → «Расширь границу»
+
+10.4. runsToCapture(gap, effectiveGain)
+  • ceil(gap / effectiveGain), gap <= 0 → 0
+  • effectiveGain по умолчанию BASE_INFLUENCE = 1
+
+10.5. MapSummary (GET /map/summary)
+  • cellsAtRisk, captureTargetsNearby, territoryAreaM2
+  • cellsGainedThisWeek — sum cellsCaptured за 7 дней
+  • weeklyGoal = max(5, ceil(cellsOwned × 0.08))
+  • weeklyProgressPercent = min(100, round(cellsGainedThisWeek / weeklyGoal × 100))
+  • influencePerRun, effectiveInfluenceMultiplier, multiplierCapped, atSoftCap
+  • missions[]
+
+================================================================================
+11. РАЙОНЫ И КОРОЛИ (DistrictService)
+================================================================================
+
+  • District — полигон (GeoJSON), имя, kingUserId
+  • DistrictCell — связь district ↔ h3Index
+  • Новые клетки assignCellsToDistricts по point-in-polygon
+
+  KING_CLAIM_THRESHOLD = 0.6 (60% клеток района)
+  KING_LOSS_THRESHOLD = 0.5 (50% — потеря короны)
+
+  Логика recalculateDistrictControl:
+    • Если есть king: kingShare < 0.5 → king снимается
+    • Если нет king: игрок с share >= 0.6 становится king
+    • При новой коронации: feed district_captured
+
+================================================================================
+12. СЕЗОНЫ (SeasonService)
+================================================================================
+
+  SEASON_DURATION_DAYS = 45
+
+  • При старте API ensureActiveSeason — создаёт Season если нет active
+  • Cron 03:00 UTC checkAndRotateSeason — если endDate прошла → finishSeason
+
+  Сезонный счёт (UserStats):
+    • seasonCellsOwned += cellsCaptured (все захваты, включая PvP)
+    • seasonInfluence += influenceAdded
+
+  finishSeason:
+    • Топ-100 по seasonCellsOwned → SeasonResult
+    • season.status = finished
+    • ВСЕМ userStats: seasonCellsOwned=0, seasonInfluence=0
+    • Создаётся новый Season number+1
+    • Территория на карте НЕ сбрасывается
+
+  Leaderboard сезона: orderBy seasonCellsOwned DESC, seasonInfluence DESC
+
+================================================================================
+13. ЛЕНТА СОБЫТИЙ (FeedService)
+================================================================================
+
+13.1. Типы событий
+  • activity_completed — пробежка обработана
+  • cell_siege — осада клетки
+  • district_captured — корона района
+  • cell_captured — скрыт из ленты (shouldShowInFeed = false)
+
+13.2. Фильтрация activity_completed
+  • payload.flagged === true → скрыто
+  • distance > 0 && distance < 100 м → скрыто
+  • distance <= 0 && cells <= 0 → скрыто
+
+13.3. Дедупликация (dedupeFeedEvents)
+  • activity_completed: одно событие на activityId (новейшее первым)
+  • cell_siege: одно на (ownerUserId, h3Index, challengerUserId)
+  • Fetch limit = max(limit × 8, 80) перед dedupe
+
+13.4. Фильтр «Соперники» (rivalsOnly)
+  • Только события userId ∈ followed rivals
+
+13.5. payload activity_completed
+  activityId, distance, duration, cellsAffected (= touched),
+  cellsCaptured, newCellsCaptured, pvpCaptures, influenceAdded
+
+================================================================================
+14. СОПЕРНИКИ (RivalsService)
+================================================================================
+
+  MAX_RIVAL_FOLLOWS = 3
+  • POST /rivals/:userId — follow (нельзя себя)
+  • DELETE /rivals/:userId — unfollow
+  • GET /map/rivals/cells — все CellOwnership соперников для подсветки
+
+================================================================================
+15. РЕЙТИНГИ (LeaderboardService)
+================================================================================
+
+15.1. Глобальные (город)
+  • GET /leaderboard/cells — UserStats.cellsOwned
+  • GET /leaderboard/influence — UserStats.totalInfluence
+  • GET /leaderboard/distance — UserStats.totalDistance (метры)
+  • Кэш Redis 60 сек
+
+15.2. Региональный «Рядом»
+  • GET /leaderboard/regional?radiusKm=5&metric=cells|influence|distance
+  • Игроки с homeLat/Lng в радиусе 5 км (haversine) + всегда текущий user
+  • REGIONAL_TOP_LIMIT = 20
+  • Кэш 120 сек, ключ включает H3 region cell res 5
+
+15.3. Сезон
+  • GET /leaderboard/season — seasonCellsOwned, seasonInfluence
+  • GET /leaderboard/season/history — прошлые SeasonResult пользователя
+
+================================================================================
+16. ПОЛЬЗОВАТЕЛЬ И ПРОФИЛЬ
+================================================================================
+
+  • homeLat/homeLng — домашняя база (онбординг / «Изменить базу» на карте)
+  • homeAreaLabel — reverse geocode Nominatim OSM, async после установки базы
+  • firstCaptureShownAt — модалка «Первая территория»
+  • gameTutorialShownAt — туториал на странице «Бег»
+  • freezeActive, freezeActivatedAt, freezeLastUsedAt
+
+  UserStats:
+    totalDistance (BigInt, метры), totalRuns, cellsOwned, totalInfluence
+    currentStreak, lastRunDate
+    seasonCellsOwned, seasonInfluence
+
+================================================================================
+17. ИНТЕГРАЦИИ
+================================================================================
+
+  • Strava — OAuth, Integration model (accessToken, refreshToken, expiresAt)
+  • GPX — парсинг трека, source gpx_import
+  • Samsung Health — ZIP или native
+  • ProcessedActivity — идемпотентность импорта
+
+================================================================================
+18. КЛИЕНТ (WEB) — ОТОБРАЖЕНИЕ МЕХАНИК
+================================================================================
+
+  • Константы синхронизированы: apps/web/src/constants/game.ts
+  • Карта: легенда (своя/соперник/нейтральная/риск/критично/спор/цели)
+  • SiegeNotificationWatcher — poll feed раз в минуту для осад своих клеток
+  • ActivityResultsModal / RunCelebrationOverlay после completed
+  • share-card.ts — PNG карточка результатов
+
+  Рейтинг UI: две оси — метрика (клетки/влияние/дистанция) × охват (рядом/город/сезон)
+
+================================================================================
+19. ТАБЛИЦА КОНСТАНТ (ИСТОЧНИК ПРАВДЫ)
+================================================================================
+
+  H3 resolution                         9
+  BASE_INFLUENCE                        1
+  MAX_INFLUENCE_PER_CELL                100
+  MAX_INFLUENCE_GAIN_MULTIPLIER         1.5
+  MIN_CELL_DISTANCE_M                   50
+  MIN_ACTIVITY_DISTANCE_M               100
+  MAX_RUN_SPEED_MS                      28/3.6 m/s (~7.78 m/s)
+  MIN_SPEED_CHECK_INTERVAL_SECONDS      1
+  HOME_ZONE_RADIUS_M                    350
+  HOME_ZONE_BONUS_MULTIPLIER            1.25
+  NEW_PLAYER_BONUS_MULTIPLIER           1.25
+  NEW_PLAYER_PERIOD_MS                  30 суток
+  SOFT_CAP_CELLS                        80
+  SOFT_CAP_INFLUENCE_MULTIPLIER         0.5
+  DECAY_RATE_PER_DAY                    0.98
+  DECAY_DELETE_AFTER_DAYS               60
+  DECAY_WARNING_DAYS                    7
+  DECAY_THREAT_DAYS                     10
+  FREEZE_DURATION_DAYS                  7
+  FREEZE_COOLDOWN_DAYS                  90
+  STREAK_BREAK_DAYS                     2 (grace: dayGap==2)
+  streakMultiplier                      1.0 / 1.1 / 1.2 / 1.3 @ 4+/7+/14+ дней
+  SIEGE_THRESHOLD                       0.8
+  SIEGE_EVENT_COOLDOWN_MS               24 часа
+  CONTEST_GAP_ABSOLUTE                  1
+  CONTEST_GAP_RELATIVE                  0.1
+  CAPTURE_TARGET_RADIUS_M               2000
+  CAPTURE_TARGET_MAX_GAP                15
+  CAPTURE_TARGET_FINISH_GAP             5
+  CAPTURE_TARGET_EXPAND_LIMIT           5
+  KING_CLAIM_THRESHOLD                  0.6
+  KING_LOSS_THRESHOLD                   0.5
+  SEASON_DURATION_DAYS                  45
+  MAX_RIVAL_FOLLOWS                     3
+  REGIONAL_DEFAULT_RADIUS_KM            5
+  REGIONAL_TOP_LIMIT                    20
+  validateClaimedDistance tolerance     20%
+  MAX_GPX_FILE_BYTES                    5 MB
+  MAX_SAMSUNG_ZIP_BYTES                 350 MB
+  Map bbox cache TTL                    45 sec
+  Regional leaderboard cache TTL        120 sec
+
+================================================================================
+20. КЛЮЧЕВЫЕ ФАЙЛЫ В КОДЕ
+================================================================================
+
+  Константы:           apps/api/src/common/constants.ts
+                       apps/web/src/constants/game.ts
+
+  Влияние:             apps/api/src/territories/influence.service.ts
+                       apps/api/src/common/influence-gain.util.ts
+                       apps/api/src/common/track-distance.util.ts
+
+  Владение:            apps/api/src/territories/ownership.service.ts
+                       apps/api/src/common/cell-ownership.util.ts
+
+  Обработка пробежки:  apps/api/src/queue/queue.service.ts
+  Античит:             apps/api/src/activities/anticheat.service.ts
+                       apps/api/src/common/track.util.ts
+
+  Затухание:           apps/api/src/cron/decay.service.ts
+                       apps/api/src/common/cell-decay.util.ts
+
+  Стрик:               apps/api/src/common/streak.util.ts
+
+  Карта/цели:          apps/api/src/map/map.service.ts
+  Районы:              apps/api/src/districts/district.service.ts
+  Сезоны:              apps/api/src/cron/season.service.ts
+  Лента:               apps/api/src/feed/feed.service.ts
+  Соперники:           apps/api/src/rivals/rivals.service.ts
+  Рейтинг:             apps/api/src/leaderboard/leaderboard.service.ts
+  Активности:          apps/api/src/activities/activities.service.ts
+
+  Схема БД:            apps/api/prisma/schema.prisma
+
+  Backfill:            apps/api/scripts/backfill-activity-results.ts
+
+================================================================================
+21. ИЗВЕСТНЫЕ НЮАНСЫ И ОГРАНИЧЕНИЯ
+================================================================================
+
+  1. cellsOwned в UserStats ≠ число клеток-лидерств; это count CellOwnership.
+  2. Владелец клетки не хранится в Cell — вычисляется из CellOwnership при чтении.
+  3. Сезон (45 д) и затухание (60 д) — разные системы; не путать в UI-текстах.
+  4. Заморозка блокирует только DELETE после 60 дней, не останавливает ×0.98 decay.
+  5. Feed не показывает cell_captured (legacy spam убран).
+  6. Apple Health / Health Connect из браузера недоступны — ограничение платформы.
+  7. Web Push осад — клиентский poll (~1 мин), server push не реализован.
+  8. При правке формул влияния — обновлять describeInfluenceGain и тесты
+     influence-gain.util.spec.ts, influence.service.spec.ts, queue.service.spec.ts.
+
+================================================================================
+  КОНЕЦ ДОКУМЕНТА
+================================================================================

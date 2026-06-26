@@ -40,12 +40,20 @@ export class LeaderboardController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Regional leaderboard within radius of home base' })
   @ApiQuery({ name: 'radiusKm', required: false, example: 5 })
+  @ApiQuery({ name: 'metric', required: false, enum: ['cells', 'influence', 'distance'] })
   async getRegional(
     @Request() req: { user: { id: string } },
     @Query('radiusKm') radiusKm: string = '5',
+    @Query('metric') metric: string = 'cells',
   ) {
     const radius = parseFloat(radiusKm) || 5;
-    return this.leaderboardService.getRegionalLeaderboard(req.user.id, radius);
+    const metricValue =
+      metric === 'influence' || metric === 'distance' ? metric : 'cells';
+    return this.leaderboardService.getRegionalLeaderboard(
+      req.user.id,
+      radius,
+      metricValue,
+    );
   }
 
   @Get('season/history')

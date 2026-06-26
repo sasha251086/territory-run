@@ -26,7 +26,7 @@ describe('AnticheatService', () => {
     expect(result).toEqual({ valid: true });
   });
 
-  it('should reject a segment faster than 40 km/h', () => {
+  it('should reject a segment faster than 28 km/h', () => {
     const result = service.validateTrack([
       { lat: 56.95, lng: 24.1, timestamp: '2026-06-21T10:00:00.000Z' },
       { lat: 56.96, lng: 24.11, timestamp: '2026-06-21T10:00:05.000Z' },

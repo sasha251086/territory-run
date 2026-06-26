@@ -3,23 +3,21 @@ import * as h3 from 'h3-js';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { DistrictService } from '../districts/district.service';
-import { haversineDistance } from '../common/geo.util';
 import {
   distanceMetersByH3Cell,
   influenceDistanceWeight,
 } from '../common/track-distance.util';
 import {
   BASE_INFLUENCE,
-  HOME_ZONE_BONUS_MULTIPLIER,
-  HOME_ZONE_RADIUS_M,
   MAX_INFLUENCE_PER_CELL,
   MIN_CELL_DISTANCE_M,
-  NEW_PLAYER_BONUS_MULTIPLIER,
-  NEW_PLAYER_PERIOD_MS,
-  SOFT_CAP_CELLS,
-  SOFT_CAP_INFLUENCE_MULTIPLIER,
   streakMultiplier,
 } from '../common/constants';
+import {
+  capInfluenceGainMultiplier,
+  locationInfluenceMultiplier,
+  softCapMultiplier,
+} from '../common/influence-gain.util';
 
 export type ProcessTrackResult = {
   h3Indices: string[];
@@ -55,8 +53,7 @@ export class InfluenceService {
     const streak = user.stats?.currentStreak ?? 0;
     const streakMult = streakMultiplier(streak);
     const cellsOwned = user.stats?.cellsOwned ?? 0;
-    const softCapMult =
-      cellsOwned >= SOFT_CAP_CELLS ? SOFT_CAP_INFLUENCE_MULTIPLIER : 1;
+    const softCapMult = softCapMultiplier(cellsOwned);
 
     const [existingCells, existingOwnerships] = await Promise.all([
       this.prisma.cell.findMany({
@@ -110,9 +107,12 @@ export class InfluenceService {
       }
 
       const existing = ownershipMap.get(h3Index) ?? null;
-      const baseInfluence =
-        this.calculateInfluence(user, center, existing) * streakMult * softCapMult;
-      const influence = baseInfluence * distanceWeight;
+      const rawMult =
+        locationInfluenceMultiplier(user, center, existing != null) *
+        streakMult *
+        softCapMult;
+      const influence =
+        BASE_INFLUENCE * capInfluenceGainMultiplier(rawMult) * distanceWeight;
 
       if (influence <= 0) {
         continue;
@@ -187,35 +187,5 @@ export class InfluenceService {
       WHERE co."h3Index" = batch."h3Index"
         AND co."userId" = ${userId}
     `;
-  }
-
-  private calculateInfluence(
-    user: {
-      homeLat: number | null;
-      homeLng: number | null;
-      createdAt: Date;
-    },
-    center: { lat: number; lng: number },
-    existing: { influence: number } | null,
-  ): number {
-    const isInHomeZone =
-      user.homeLat != null &&
-      user.homeLng != null &&
-      haversineDistance(user.homeLat, user.homeLng, center.lat, center.lng) <=
-        HOME_ZONE_RADIUS_M;
-
-    if (isInHomeZone) {
-      return BASE_INFLUENCE * HOME_ZONE_BONUS_MULTIPLIER;
-    }
-
-    if (!existing && this.isNewPlayer(user.createdAt)) {
-      return BASE_INFLUENCE * NEW_PLAYER_BONUS_MULTIPLIER;
-    }
-
-    return BASE_INFLUENCE;
-  }
-
-  private isNewPlayer(createdAt: Date): boolean {
-    return Date.now() - createdAt.getTime() < NEW_PLAYER_PERIOD_MS;
   }
 }

@@ -14,15 +14,27 @@ export function formatAreaM2(m2: number): string {
 export function formatCellCount(cells: number): string {
   const rounded = Math.round(cells);
   const formatted = new Intl.NumberFormat('ru-RU').format(rounded);
+  return `${formatted} ${cellCountWord(rounded)}`;
+}
+
+export function cellCountWord(cells: number): string {
+  const rounded = Math.round(cells);
   const mod10 = rounded % 10;
   const mod100 = rounded % 100;
-  let word = 'клеток';
   if (mod10 === 1 && mod100 !== 11) {
-    word = 'клетка';
-  } else if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
-    word = 'клетки';
+    return 'клетка';
   }
-  return `${formatted} ${word}`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+    return 'клетки';
+  }
+  return 'клеток';
+}
+
+export function formatCellsCapturedBadge(cells: number): string | null {
+  if (cells <= 0) {
+    return null;
+  }
+  return `+${cells} ${cellCountWord(cells)}`;
 }
 
 export function formatCellsArea(cells: number): string {

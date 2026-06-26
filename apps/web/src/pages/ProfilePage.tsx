@@ -4,6 +4,11 @@ import { apiRequest } from '../api/client';
 import type { IntegrationInfo, RivalFollow } from '../api/types';
 import { useAuth } from '../context/AuthContext';
 import {
+  readSiegeNotificationsEnabled,
+  requestSiegeNotifications,
+  writeSiegeNotificationsEnabled,
+} from '../hooks/useSiegeNotifications';
+import {
   canActivateFreeze,
   daysUntilFreezeAvailable,
   daysUntilFreezeEnds,
@@ -12,6 +17,9 @@ import {
 import {
   softCapLabel,
   streakBonusLabel,
+  MAX_INFLUENCE_GAIN_MULTIPLIER,
+  SOFT_CAP_CELLS,
+  DECAY_DELETE_AFTER_DAYS,
 } from '../constants/game';
 
 export default function ProfilePage() {
@@ -119,6 +127,27 @@ export default function ProfilePage() {
       ? daysUntilFreezeAvailable(user.freezeLastUsedAt)
       : null;
   const showActivateFreeze = canActivateFreeze(freezeActive, user?.freezeLastUsedAt);
+  const [siegeNotifyEnabled, setSiegeNotifyEnabled] = useState(readSiegeNotificationsEnabled);
+  const [notifyMessage, setNotifyMessage] = useState<string | null>(null);
+
+  async function toggleSiegeNotifications() {
+    setNotifyMessage(null);
+    if (siegeNotifyEnabled) {
+      writeSiegeNotificationsEnabled(false);
+      setSiegeNotifyEnabled(false);
+      setNotifyMessage('Уведомления отключены');
+      return;
+    }
+    const ok = await requestSiegeNotifications();
+    setSiegeNotifyEnabled(ok);
+    if (!ok) {
+      setNotifyMessage('Разрешите уведомления в настройках браузера');
+    } else {
+      setNotifyMessage('Уведомления об осадах включены');
+    }
+  }
+
+  const notifySupported = typeof Notification !== 'undefined';
 
   return (
     <div className="page-screen">
@@ -155,6 +184,41 @@ export default function ProfilePage() {
       {currentStreak > 0 && streakBonus && (
         <p className="muted small">Бонус стрика: {streakBonus}</p>
       )}
+
+      <section className="profile-section profile-mechanics">
+        <h2>Игровые правила</h2>
+        <ul className="game-mechanics-list">
+          <li>Домашняя зона: бонус ×1.25 к влиянию в радиусе 350 м от базы.</li>
+          <li>
+            Soft cap: после {SOFT_CAP_CELLS} клеток прирост влияния ×0.5 —{' '}
+            {softCapLabel(user?.stats?.cellsOwned ?? 0)}.
+          </li>
+          <li>Потолок множителей за пробежку в клетке: ×{MAX_INFLUENCE_GAIN_MULTIPLIER}.</li>
+          <li>Затухание: −2% в день, обнуление через {DECAY_DELETE_AFTER_DAYS} дней без бега.</li>
+          <li>На карте — миссии и «Цели»: защита, добивание, захват, расширение.</li>
+        </ul>
+      </section>
+
+      <section className="profile-section">
+        <h2>Уведомления</h2>
+        {notifySupported ? (
+          <>
+            <div className="profile-notify-row">
+              <p className="muted">Осады ваших клеток (проверка раз в минуту)</p>
+              <button
+                type="button"
+                className={siegeNotifyEnabled ? 'primary-btn small-btn' : 'ghost-btn small-btn'}
+                onClick={() => void toggleSiegeNotifications()}
+              >
+                {siegeNotifyEnabled ? 'Вкл' : 'Выкл'}
+              </button>
+            </div>
+            {notifyMessage && <p className="info-box">{notifyMessage}</p>}
+          </>
+        ) : (
+          <p className="muted small">Браузер не поддерживает push-уведомления.</p>
+        )}
+      </section>
 
       <section className="profile-section">
         <h2>Защита территории</h2>
@@ -263,7 +327,9 @@ export default function ProfilePage() {
         <h2>Домашняя база</h2>
         <p className="muted">
           {user?.homeLat != null && user.homeLng != null
-            ? `Координаты: ${user.homeLat.toFixed(5)}, ${user.homeLng.toFixed(5)}`
+            ? user.homeAreaLabel
+              ? `База: ${user.homeAreaLabel} (${user.homeLat.toFixed(5)}, ${user.homeLng.toFixed(5)})`
+              : `Координаты: ${user.homeLat.toFixed(5)}, ${user.homeLng.toFixed(5)}`
             : 'Домашняя база не выбрана'}
         </p>
         <p className="muted small">

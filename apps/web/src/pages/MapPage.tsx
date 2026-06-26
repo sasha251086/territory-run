@@ -29,6 +29,7 @@ import { useAuth } from '../context/AuthContext';
 import { districtPolygonsForMap } from '../utils/district-geo';
 import {
   HOME_ZONE_RADIUS_M,
+  influenceGainHint,
   softCapLabel,
   streakBonusLabel,
 } from '../constants/game';
@@ -159,12 +160,14 @@ function HighlightPane() {
   return null;
 }
 
-const TARGET_FILL = '#F0E090';
-const TARGET_STROKE = '#C9A030';
+const TARGET_FILL = '#E8D080';
+const TARGET_STROKE = '#C4A35A';
 const TARGET_FINISH_FILL = '#F0C890';
 const TARGET_FINISH_STROKE = '#D09030';
-const TARGET_DEFEND_FILL = '#E8A8A8';
-const TARGET_DEFEND_STROKE = '#C06060';
+const TARGET_DEFEND_FILL = '#E8C4C4';
+const TARGET_DEFEND_STROKE = '#B85C5C';
+const TARGET_EXPAND_FILL = '#D4E4DC';
+const TARGET_EXPAND_STROKE = '#5B8A72';
 
 function targetPaint(category: CaptureTarget['category']) {
   if (category === 'defend') {
@@ -173,10 +176,13 @@ function targetPaint(category: CaptureTarget['category']) {
   if (category === 'finish') {
     return { fill: TARGET_FINISH_FILL, stroke: TARGET_FINISH_STROKE };
   }
+  if (category === 'expand') {
+    return { fill: TARGET_EXPAND_FILL, stroke: TARGET_EXPAND_STROKE };
+  }
   return { fill: TARGET_FILL, stroke: TARGET_STROKE };
 }
-const CONTESTED_FILL = '#F0D890';
-const CONTESTED_STROKE = '#C9A844';
+const CONTESTED_FILL = '#F5E8C8';
+const CONTESTED_STROKE = '#C4A35A';
 
 function MapSheetDismiss({
   active,
@@ -271,24 +277,24 @@ function cellPaint(
     return { fill: CONTESTED_FILL, stroke: CONTESTED_STROKE, fillOpacity: influenceOpacity };
   }
   if (rivalH3.has(cell.h3Index) && cell.ownerId !== currentUserId) {
-    return { fill: '#A8B8CC', stroke: '#7A8FA8', fillOpacity: influenceOpacity };
+    return { fill: '#6B7FA3', stroke: '#556A8A', fillOpacity: influenceOpacity };
   }
   if (cell.ownerId === currentUserId) {
     if (previewFlash) {
-      return { fill: '#9BC49B', stroke: '#6B9A6B', fillOpacity: Math.min(0.96, influenceOpacity + 0.04) };
+      return { fill: '#5B8A72', stroke: '#466B58', fillOpacity: Math.min(0.96, influenceOpacity + 0.04) };
     }
     if (cell.decayRisk === 'critical') {
-      return { fill: '#C99090', stroke: '#A86B6B', fillOpacity: influenceOpacity };
+      return { fill: '#B85C5C', stroke: '#9A4848', fillOpacity: influenceOpacity };
     }
     if (cell.decayRisk === 'warning') {
-      return { fill: '#D4B896', stroke: '#B8956A', fillOpacity: influenceOpacity };
+      return { fill: '#C4A35A', stroke: '#A88640', fillOpacity: influenceOpacity };
     }
-    return { fill: '#9BC49B', stroke: '#6B9A6B', fillOpacity: influenceOpacity };
+    return { fill: '#5B8A72', stroke: '#466B58', fillOpacity: influenceOpacity };
   }
   if (!cell.ownerId) {
-    return { fill: '#F2F2F2', stroke: '#D8D8D8', fillOpacity: 0.22 };
+    return { fill: '#E8F0EB', stroke: '#D4C9BA', fillOpacity: 0.35 };
   }
-  return { fill: '#B8A8CC', stroke: '#8A7AA8', fillOpacity: influenceOpacity };
+  return { fill: '#6B7FA3', stroke: '#556A8A', fillOpacity: influenceOpacity };
 }
 
 function resolveCellFillOpacity(
@@ -701,6 +707,7 @@ export default function MapPage() {
       setTerritoryHighlight(false);
       if (data.targets.length > 0) {
         setTargetsHighlight(true);
+        void loadSummary();
         queueFly(
           'targets',
           data.targets.map((t) => [t.lat, t.lng] as LatLngExpression),
@@ -747,19 +754,21 @@ export default function MapPage() {
   const cellsOwned = user?.stats?.cellsOwned ?? 0;
   const currentStreak = user?.stats?.currentStreak ?? 0;
   const atRisk = summary?.cellsAtRisk ?? 0;
+  const influenceHint = influenceGainHint(summary);
 
   const legendItems = [
-    { fill: '#9BC49B', stroke: '#6B9A6B', label: 'Своя' },
-    { fill: '#A8B8CC', stroke: '#7A8FA8', label: 'Соперник' },
-    { fill: '#F2F2F2', stroke: '#D8D8D8', label: 'Нейтральная' },
-    { fill: '#D4B896', stroke: '#B8956A', label: 'Риск' },
-    { fill: '#C99090', stroke: '#A86B6B', label: 'Критично' },
+    { fill: 'var(--cell-own)', stroke: 'var(--cell-own-stroke, #466B58)', label: 'Своя' },
+    { fill: 'var(--cell-rival)', stroke: 'var(--cell-rival-stroke)', label: 'Соперник' },
+    { fill: '#E8F0EB', stroke: '#D4C9BA', label: 'Нейтральная' },
+    { fill: '#C4A35A', stroke: '#A88640', label: 'Риск' },
+    { fill: '#B85C5C', stroke: '#9A4848', label: 'Критично' },
     { fill: CONTESTED_FILL, stroke: CONTESTED_STROKE, label: 'Спор' },
     ...(targetsHighlight
       ? [
           { fill: TARGET_DEFEND_FILL, stroke: TARGET_DEFEND_STROKE, label: 'Защита' },
           { fill: TARGET_FINISH_FILL, stroke: TARGET_FINISH_STROKE, label: 'Добить' },
           { fill: TARGET_FILL, stroke: TARGET_STROKE, label: 'Захват' },
+          { fill: TARGET_EXPAND_FILL, stroke: TARGET_EXPAND_STROKE, label: 'Расширить' },
         ]
       : []),
   ];
@@ -771,13 +780,27 @@ export default function MapPage() {
         <div>
           <strong>{user?.nickname || 'runner'}</strong>
           <p>
+            {user?.homeAreaLabel ? `${user.homeAreaLabel} · ` : ''}
             {softCapLabel(cellsOwned)}
             {currentStreak > 0
-              ? ` · стрик ${currentStreak} дн · влияние ${streakBonusLabel(currentStreak)}`
+              ? ` · стрик ${currentStreak} дн · ${streakBonusLabel(currentStreak)}`
               : ''}
           </p>
+          {influenceHint && <p className="muted small map-influence-hint">{influenceHint}</p>}
         </div>
       </header>
+
+      {summary?.missions && summary.missions.length > 0 && (
+        <button
+          type="button"
+          className="map-missions"
+          onClick={() => void handleFindTargets()}
+          disabled={findingTargets}
+        >
+          <strong>Миссии:</strong>{' '}
+          {summary.missions.map((m) => `${m.count} — ${m.label}`).join(' · ')}
+        </button>
+      )}
 
       <div className="map-frame">
         <MapContainer
@@ -992,6 +1015,8 @@ export default function MapPage() {
               }
             })()}
         </MapContainer>
+
+        <div className="map-parchment-overlay" aria-hidden="true" />
 
         <ul className="map-legend" aria-label="Легенда карты">
           {legendItems.map((item) => (

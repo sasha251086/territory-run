@@ -135,7 +135,6 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     const ownerResults = await this.ownershipService.recalculateOwners(
       affectedCells.h3Indices,
       previousOwners,
-      { suppressCaptureFeed: true },
     );
 
     const cellsCaptured = ownerResults.filter(
@@ -260,16 +259,6 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
         failureReason: reason,
         processedAt: new Date(),
       },
-    });
-
-    await this.feedService.createEvent('activity_completed', activity.userId, {
-      activityId: activity.id,
-      distance: activity.distanceMeters,
-      duration: activity.durationSeconds,
-      cellsAffected: 0,
-      cellsCaptured: 0,
-      flagged: true,
-      reason,
     });
 
     this.logger.warn({

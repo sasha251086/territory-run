@@ -410,6 +410,12 @@ input:focus {
   margin: 2px 0 0;
   color: var(--text-secondary);
   font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.wire-map-header .map-influence-hint {
+  margin-top: 2px;
+  font-size: 0.78rem;
 }
 
 .wire-chip {
@@ -462,20 +468,31 @@ input:focus {
   bottom: 12px;
   z-index: 500;
   margin: 0;
-  padding: 10px 12px;
+  padding: 8px 10px;
   list-style: none;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.94);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--text-secondary);
+  max-height: min(42vh, 220px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 10px;
+  max-width: calc(100% - 24px);
 }
 
 .map-legend li {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 4px 0;
+  gap: 6px;
+  margin: 2px 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .map-legend span {
@@ -1193,6 +1210,25 @@ input:focus {
   margin-bottom: 12px;
 }
 
+.leaderboard-tabs--scope {
+  margin-bottom: 8px;
+}
+
+.leaderboard-tabs--scope .tab {
+  flex: 1;
+  min-width: calc(33% - 6px);
+}
+
+.leaderboard-tabs--metric .tab {
+  flex: 1;
+  min-width: calc(33% - 6px);
+}
+
+.leaderboard-tabs .tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .leaderboard-tabs .tab {
   flex: 1;
   min-width: calc(33% - 6px);
@@ -1281,6 +1317,21 @@ input:focus {
   place-items: center;
   padding: 16px;
   background: rgba(255, 255, 255, 0.85);
+}
+
+@media (min-width: 768px) {
+  .app-nav {
+    max-width: min(960px, 100%);
+  }
+
+  .map-action-bar {
+    max-width: min(960px, 100%);
+  }
+
+  .map-floating-toast,
+  .map-targets-toast {
+    max-width: min(456px, calc(100% - 32px));
+  }
 }
 
 @media (min-width: 481px) {

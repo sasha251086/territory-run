@@ -19,7 +19,9 @@ export function decayRiskFor(lastActivityAt: Date | null | undefined): DecayRisk
   return 'none';
 }
 
-export function runsToCapture(gap: number): number {
-  if (gap <= 0) return 0;
-  return Math.ceil(gap / BASE_INFLUENCE);
+export function runsToCapture(gap: number, effectiveGain = BASE_INFLUENCE): number {
+  if (gap <= 0 || effectiveGain <= 0) {
+    return 0;
+  }
+  return Math.ceil(gap / effectiveGain);
 }

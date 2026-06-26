@@ -1,0 +1,176 @@
+/* Paper Atlas — Phase 3: atlas production polish */
+
+.app-shell:not(.map-shell) .app-main {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(91, 138, 114, 0.06) 0%, transparent 42%),
+    var(--bg);
+}
+
+.page-screen {
+  position: relative;
+}
+
+.page-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'%3E%3Cpath d='M0 120 Q60 100 120 120 T240 120' fill='none' stroke='%235B8A72' stroke-width='0.6' opacity='0.35'/%3E%3Cpath d='M0 60 Q80 40 160 60 T320 60' fill='none' stroke='%235B8A72' stroke-width='0.5' opacity='0.25'/%3E%3Cpath d='M0 180 Q80 160 160 180 T320 180' fill='none' stroke='%235B8A72' stroke-width='0.5' opacity='0.25'/%3E%3C/svg%3E");
+  background-size: 240px 240px;
+}
+
+.map-frame {
+  position: relative;
+}
+
+.map-parchment-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 350;
+  background:
+    radial-gradient(ellipse at center, transparent 55%, rgba(247, 244, 238, 0.35) 100%),
+    linear-gradient(180deg, rgba(247, 244, 238, 0.12) 0%, transparent 30%, rgba(44, 40, 37, 0.04) 100%);
+  mix-blend-mode: multiply;
+}
+
+.map-frame .leaflet-tile-pane {
+  filter: sepia(0.18) saturate(0.72) brightness(1.04) contrast(0.95);
+  opacity: 0.88;
+}
+
+.map-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 340;
+  box-shadow: inset 0 0 40px rgba(44, 40, 37, 0.08);
+}
+
+.run-row__hex {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  outline-offset: -1px;
+}
+
+.run-row__hex--captured {
+  background: #e8f0eb;
+  outline: 1.5px solid var(--cell-own);
+}
+
+.run-row__hex--failed {
+  background: #f9eded;
+  outline: 1.5px solid #d0a0a0;
+}
+
+.run-row__hex--processing {
+  animation: atlas-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes atlas-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.bottom-sheet {
+  border: 1px solid var(--border);
+  border-bottom: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 244, 238, 0.96) 100%);
+}
+
+.feed-row {
+  position: relative;
+  overflow: hidden;
+}
+
+.feed-row::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 28px;
+  height: 36px;
+  opacity: 0.12;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='36' viewBox='0 0 28 36'%3E%3Cpath d='M14 2 C8 12 6 22 8 32 C12 24 20 16 22 8 C18 12 14 18 14 2Z' fill='none' stroke='%235B8A72' stroke-width='1'/%3E%3C/svg%3E") no-repeat;
+  pointer-events: none;
+}
+
+.celebration-overlay {
+  background:
+    radial-gradient(circle at 80% 15%, rgba(91, 138, 114, 0.1) 0%, transparent 42%),
+    rgba(247, 244, 238, 0.96);
+}
+
+.celebration-card {
+  animation: celebration-pop 0.45s ease-out;
+  padding: 28px 24px;
+  max-width: 342px;
+  width: calc(100% - 32px);
+  margin: 0 auto;
+}
+
+@keyframes celebration-pop {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.celebration-stat {
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.hex-confetti {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hex-confetti__piece {
+  position: absolute;
+  top: 18%;
+  width: 14px;
+  height: 16px;
+  background: rgba(91, 138, 114, 0.55);
+  clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+  animation-name: hex-confetti-fall;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+  transform: rotate(var(--hex-rotate, 0deg));
+}
+
+@keyframes hex-confetti-fall {
+  0% {
+    opacity: 0;
+    transform: translateY(0) translateX(0) rotate(var(--hex-rotate, 0deg));
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(140px) translateX(var(--hex-drift, 0px)) rotate(calc(var(--hex-rotate, 0deg) + 120deg));
+  }
+}
+
+.app-nav {
+  box-shadow: 0 -4px 20px rgba(44, 40, 37, 0.04);
+}
+
+.nav-link.active {
+  font-weight: 600;
+}
+
+.profile-notify-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
