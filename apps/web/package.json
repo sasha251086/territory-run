@@ -12,7 +12,7 @@
     "cap:android": "cap open android",
     "cap:ios": "cap open ios",
     "mobile:build": "node ./scripts/mobile-build.mjs",
-    "mobile:build:offline": "node ./scripts/mobile-build-offline.mjs",
+    "mobile:build:offline": "node ./scripts/mobile-build-offline.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.0.0",
