@@ -3,57 +3,66 @@ import type { ActivityStatusResult } from '../hooks/useActivityStatusPoll';
 import { shareRunResults } from '../utils/share-card';
 import { useAuth } from '../context/AuthContext';
 import { cellCountWord, formatCellCount } from '../utils/territory';
+import { displayInfluence } from '../constants/game';
+import { cellsWord } from '../utils/cell-lifespan';
+import {
+  MAINTENANCE_RUN_HEADLINE,
+  MAINTENANCE_RUN_MESSAGE,
+} from '../utils/run-labels';
 
 function buildResultsMessage(result: ActivityStatusResult): string {
-  const parts: string[] = [];
   const captured = result.cellsCaptured ?? 0;
   const touched = result.cellsTouched ?? 0;
+  const stillAtRisk = result.cellsStillAtRisk ?? 0;
   const pvp = result.pvpCaptures ?? 0;
-  const influence = Math.round(result.influenceAdded ?? 0);
-  const km = (result.distanceMeters ?? 0) / 1000;
 
+  if (stillAtRisk > 0) {
+    return `${stillAtRisk} ${cellsWord(stillAtRisk)} ждут пробежки`;
+  }
+  if (captured > 0 && pvp > 0) {
+    return `+${captured} ${cellCountWord(captured)} · ${pvp} у соперников`;
+  }
   if (captured > 0) {
-    parts.push(`Захвачено ${formatCellCount(captured)}`);
-  } else if (touched > 0) {
-    parts.push(`Затронуто ${formatCellCount(touched)}`);
-  } else {
-    parts.push('Пробежка засчитана');
+    return `Захвачено ${formatCellCount(captured)}`;
   }
-
-  if (km > 0) {
-    parts.push(`${km.toFixed(1)} км`);
-  }
-
   if (pvp > 0) {
-    parts.push(`${pvp} у соперников`);
+    return `${pvp} ${pvp === 1 ? 'клетка' : pvp < 5 ? 'клетки' : 'клеток'} у соперников`;
   }
-
-  if (influence > 0) {
-    parts.push(`+${influence} влияния`);
+  if (touched > 0) {
+    return MAINTENANCE_RUN_MESSAGE;
   }
+  return 'Пробежка засчитана';
+}
 
-  return parts.join(' · ');
+function buildHeadline(result: ActivityStatusResult): string {
+  const captured = result.cellsCaptured ?? 0;
+  const pvp = result.pvpCaptures ?? 0;
+  if (captured > 0) {
+    return `+${captured} ${cellCountWord(captured)}`;
+  }
+  if (pvp > 0) {
+    return `+${pvp} у соперников`;
+  }
+  if ((result.cellsTouched ?? 0) > 0) {
+    return MAINTENANCE_RUN_HEADLINE;
+  }
+  return 'Готово';
 }
 
 function buildCelebrationStats(result: ActivityStatusResult): CelebrationStat[] {
   const captured = result.cellsCaptured ?? result.cellsTouched ?? 0;
   const km = (result.distanceMeters ?? 0) / 1000;
-  const influence = Math.round(result.influenceAdded ?? 0);
+  const influence = displayInfluence(result.influenceAdded ?? 0);
   const pvp = result.pvpCaptures ?? 0;
 
   return [
     { value: `+${captured}`, label: 'Клеток' },
-    { value: pvp > 0 ? String(pvp) : km > 0 ? `${km.toFixed(1)}` : '—', label: pvp > 0 ? 'PvP' : 'Км' },
-    { value: influence > 0 ? `+${influence}` : '—', label: 'Влияние' },
+    {
+      value: influence > 0 ? `+${influence}` : km > 0 ? `${km.toFixed(1)}` : '—',
+      label: influence > 0 ? 'Влияние' : 'Км',
+    },
+    { value: pvp > 0 ? String(pvp) : '—', label: pvp > 0 ? 'У соперников' : ' ' },
   ];
-}
-
-function buildHeadline(result: ActivityStatusResult): string {
-  const captured = result.cellsCaptured ?? result.cellsTouched ?? 0;
-  if (captured > 0) {
-    return `+${captured} ${cellCountWord(captured)} захвачено`;
-  }
-  return 'Пробежка засчитана';
 }
 
 export default function ActivityResultsModal({
@@ -69,7 +78,7 @@ export default function ActivityResultsModal({
   const message = buildResultsMessage(result);
   const captured = result.cellsCaptured ?? result.cellsTouched ?? 0;
   const km = (result.distanceMeters ?? 0) / 1000;
-  const influence = Math.round(result.influenceAdded ?? 0);
+  const influence = displayInfluence(result.influenceAdded ?? 0);
 
   async function handleShare() {
     await shareRunResults(

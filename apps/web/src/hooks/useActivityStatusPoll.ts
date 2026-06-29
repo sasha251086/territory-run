@@ -11,6 +11,7 @@ export type ActivityStatusResult = {
   newCellsCaptured?: number;
   pvpCaptures?: number;
   influenceAdded?: number;
+  cellsStillAtRisk?: number;
 };
 
 type PollOptions = {

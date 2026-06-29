@@ -10,6 +10,10 @@ import { ApiException } from '../common/api.exception';
 import { ErrorCodes } from '../common/error-codes';
 import { sanitizeTrackPoints } from '../common/track.util';
 import { distanceMetersByH3Cell } from '../common/track-distance.util';
+import {
+  downsampleRoutePoints,
+  normalizeRoutePoints,
+} from '../common/route-points.util';
 import { GpxParserService, GpxParseError } from './gpx-parser.service';
 import {
   SamsungHealthParserService,
@@ -460,6 +464,7 @@ export class ActivitiesService {
         newCellsCaptured: true,
         pvpCaptures: true,
         influenceAdded: true,
+        cellsStillAtRisk: true,
       },
     });
 
@@ -495,6 +500,7 @@ export class ActivitiesService {
             newCellsCaptured: activity.newCellsCaptured ?? 0,
             pvpCaptures: resolved.pvpCaptures ?? activity.pvpCaptures ?? 0,
             influenceAdded: resolved.influenceAdded ?? activity.influenceAdded ?? 0,
+            cellsStillAtRisk: activity.cellsStillAtRisk ?? 0,
           }
         : {}),
     };
@@ -514,13 +520,15 @@ export class ActivitiesService {
       );
     }
 
-    const route = activity.track?.route as
-      | { lat: number; lng: number }[]
-      | undefined;
+    const route = normalizeRoutePoints(activity.track?.route);
 
     let bounds: { north: number; south: number; east: number; west: number } | null =
       null;
-    if (route?.length) {
+    let h3Indices: string[] = [];
+    let routePoints: { lat: number; lng: number }[] = [];
+    if (route.length) {
+      h3Indices = [...distanceMetersByH3Cell(route).keys()];
+      routePoints = downsampleRoutePoints(route);
       let north = route[0].lat;
       let south = route[0].lat;
       let east = route[0].lng;
@@ -551,6 +559,8 @@ export class ActivitiesService {
       pvpCaptures: activity.pvpCaptures,
       influenceAdded: activity.influenceAdded,
       bounds,
+      h3Indices,
+      route: routePoints,
     };
   }
 

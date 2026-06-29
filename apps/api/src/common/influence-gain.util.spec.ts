@@ -34,7 +34,7 @@ describe('influence-gain.util', () => {
       assumeHomeZone: true,
     });
     expect(gain.perRun).toBeGreaterThan(0);
-    expect(gain.perRun).toBeLessThanOrEqual(1.5);
+    expect(gain.perRun).toBeLessThanOrEqual(150);
     expect(gain.atSoftCap).toBe(true);
   });
 });

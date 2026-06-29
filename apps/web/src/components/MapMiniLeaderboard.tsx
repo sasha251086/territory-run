@@ -34,7 +34,7 @@ export default function MapMiniLeaderboard() {
   }
 
   return (
-    <section className="map-hud map-leaderboard-panel" aria-label="Мини-рейтинг">
+    <section className="map-mini-leaderboard" aria-label="Мини-рейтинг">
       <p className="map-panel-label">Топ района</p>
       <ol>
         {items.map((item, index) => {

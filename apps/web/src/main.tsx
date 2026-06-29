@@ -3,9 +3,13 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { applyPaperAtlasTheme } from './theme/apply-paper-atlas-theme';
+/** Layout shell — theme in paper-atlas*.css */
 import './wireframe.css';
 import './paper-atlas.css';
 import './paper-atlas-phase3.css';
+import './paper-atlas-polish.css';
+import './map-immersive.css';
+import './game-hud.css';
 
 applyPaperAtlasTheme();
 

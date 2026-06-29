@@ -3,9 +3,10 @@ import { MapController } from './map.controller';
 import { MapService } from './map.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { RedisModule } from '../redis/redis.module';
+import { LeaderboardModule } from '../leaderboard/leaderboard.module';
 
 @Module({
-  imports: [PrismaModule, RedisModule],
+  imports: [PrismaModule, RedisModule, LeaderboardModule],
   controllers: [MapController],
   providers: [MapService],
 })

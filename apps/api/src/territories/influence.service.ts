@@ -11,6 +11,7 @@ import {
   BASE_INFLUENCE,
   MAX_INFLUENCE_PER_CELL,
   MIN_CELL_DISTANCE_M,
+  roundInfluence,
   streakMultiplier,
 } from '../common/constants';
 import {
@@ -34,7 +35,11 @@ export class InfluenceService {
     private districtService: DistrictService,
   ) {}
 
-  async processTrack(userId: string, track: { lat: number; lng: number }[]) {
+  async processTrack(
+    userId: string,
+    track: { lat: number; lng: number }[],
+    activityAt?: Date,
+  ) {
     const distanceByH3 = distanceMetersByH3Cell(track);
     const h3Indices = [...distanceByH3.keys()];
 
@@ -68,7 +73,7 @@ export class InfluenceService {
     const existingCellSet = new Set(existingCells.map((cell) => cell.h3Index));
     const ownershipMap = new Map(existingOwnerships.map((o) => [o.h3Index, o]));
 
-    const now = new Date();
+    const now = activityAt ?? new Date();
     let influenceAdded = 0;
 
     const cellsToCreate: Array<{
@@ -111,8 +116,9 @@ export class InfluenceService {
         locationInfluenceMultiplier(user, center, existing != null) *
         streakMult *
         softCapMult;
-      const influence =
-        BASE_INFLUENCE * capInfluenceGainMultiplier(rawMult) * distanceWeight;
+      const influence = roundInfluence(
+        BASE_INFLUENCE * capInfluenceGainMultiplier(rawMult) * distanceWeight,
+      );
 
       if (influence <= 0) {
         continue;
@@ -176,7 +182,7 @@ export class InfluenceService {
       UPDATE "CellOwnership" AS co
       SET
         influence = batch.influence,
-        "lastActivityAt" = ${lastActivityAt}
+        "lastActivityAt" = GREATEST(co."lastActivityAt", ${lastActivityAt})
       FROM (
         SELECT *
         FROM UNNEST(

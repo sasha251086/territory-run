@@ -4,11 +4,10 @@ import { apiRequest, apiUploadFile } from '../api/client';
 import type { ActivityItem, IntegrationInfo } from '../api/types';
 import ActivityCard from '../components/ActivityCard';
 import ActivityResultsModal from '../components/ActivityResultsModal';
-import FirstCaptureModal from '../components/FirstCaptureModal';
-import GameTutorialModal from '../components/GameTutorialModal';
 import { useActivityStatusPoll, type ActivityStatusResult } from '../hooks/useActivityStatusPoll';
 import { healthSync, formatHealthSyncMessage, runHealthSyncImport } from '../services/health-sync.service';
 import { useAuth } from '../context/AuthContext';
+import { savePostRunQueue, type PostRunQueue } from '../utils/post-run-queue';
 
 const RUN_PREVIEW_KEY = 'territory-run-run-preview';
 
@@ -49,14 +48,26 @@ function formatSamsungImportMessage(result: {
 }
 
 
-async function checkFirstCapture(setShow: (v: boolean) => void, setCells: (n: number) => void) {
-  const profile = await apiRequest<{ stats: { cellsOwned: number; firstCaptureShownAt: string | null } | null }>(
-    '/users/me',
-  );
-  if (!profile.stats?.firstCaptureShownAt && (profile.stats?.cellsOwned ?? 0) > 0) {
-    setCells(profile.stats?.cellsOwned ?? 0);
-    setShow(true);
+async function buildPostRunQueue(): Promise<PostRunQueue> {
+  const profile = await apiRequest<{
+    stats: {
+      cellsOwned: number;
+      firstCaptureShownAt: string | null;
+      gameTutorialShownAt?: string | null;
+    } | null;
+  }>('/users/me');
+
+  const queue: PostRunQueue = {};
+  if (!profile.stats?.gameTutorialShownAt) {
+    queue.showTutorial = true;
   }
+
+  if (!profile.stats?.firstCaptureShownAt && (profile.stats?.cellsOwned ?? 0) > 0) {
+    queue.showFirstCapture = true;
+    queue.captureCells = profile.stats?.cellsOwned ?? 0;
+  }
+
+  return queue;
 }
 
 export default function ActivitiesPage() {
@@ -73,9 +84,6 @@ export default function ActivitiesPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [healthSyncMessage, setHealthSyncMessage] = useState<string | null>(null);
-  const [showFirstCapture, setShowFirstCapture] = useState(false);
-  const [captureCells, setCaptureCells] = useState(0);
-  const [showTutorial, setShowTutorial] = useState(false);
   const [resultsModal, setResultsModal] = useState<ActivityStatusResult | null>(null);
   const [isNativeApp, setIsNativeApp] = useState(false);
   const [healthSyncing, setHealthSyncing] = useState(false);
@@ -122,6 +130,29 @@ export default function ActivitiesPage() {
     [items],
   );
 
+  type RunFilter = 'all' | 'captures' | 'pvp';
+
+  const RUN_FILTER_LABEL: Record<Exclude<RunFilter, 'all'>, string> = {
+    captures: 'С захватами',
+    pvp: 'У соперников',
+  };
+
+  const RUN_FILTER_HINT: Record<Exclude<RunFilter, 'all'>, string> = {
+    captures: 'Любые захваченные клетки — пустые и у соперников.',
+    pvp: 'Только клетки, отнятые у других игроков.',
+  };
+  const [runFilter, setRunFilter] = useState<RunFilter>('all');
+
+  const filteredItems = useMemo(() => {
+    if (runFilter === 'captures') {
+      return sortedItems.filter((item) => (item.cellsCaptured ?? 0) > 0);
+    }
+    if (runFilter === 'pvp') {
+      return sortedItems.filter((item) => (item.pvpCaptures ?? 0) > 0);
+    }
+    return sortedItems;
+  }, [sortedItems, runFilter]);
+
   const importBusy = uploading || uploadingSamsungZip || syncing || healthSyncing;
 
   useEffect(() => {
@@ -142,9 +173,9 @@ export default function ActivitiesPage() {
       onComplete: async (result) => {
         await loadData();
         await refreshProfile();
-        await checkFirstCapture(setShowFirstCapture, setCaptureCells);
-        if (!user?.stats?.gameTutorialShownAt) {
-          setShowTutorial(true);
+        const queue = await buildPostRunQueue();
+        if (queue.showTutorial || queue.showFirstCapture) {
+          savePostRunQueue(queue);
         }
         setResultsModal(result);
       },
@@ -170,16 +201,6 @@ export default function ActivitiesPage() {
   function dismissResults() {
     setResultsModal(null);
     markRunPreviewAndGoToMap(navigate);
-  }
-
-  async function dismissTutorial() {
-    setShowTutorial(false);
-    try {
-      await apiRequest('/users/me/game-tutorial-shown', { method: 'POST' });
-      await refreshProfile();
-    } catch {
-      // non-blocking
-    }
   }
 
   const loadData = useCallback(async () => {
@@ -511,20 +532,55 @@ export default function ActivitiesPage() {
       )}
 
       {totalActivities > 0 && (
+        <div className="segmented segmented--3 runs-filter">
+          <button
+            type="button"
+            className={runFilter === 'all' ? 'active' : undefined}
+            onClick={() => setRunFilter('all')}
+          >
+            Все
+          </button>
+          <button
+            type="button"
+            className={runFilter === 'captures' ? 'active' : undefined}
+            onClick={() => setRunFilter('captures')}
+          >
+            С захватами
+          </button>
+          <button
+            type="button"
+            className={runFilter === 'pvp' ? 'active' : undefined}
+            onClick={() => setRunFilter('pvp')}
+          >
+            У соперников
+          </button>
+        </div>
+      )}
+
+      {runFilter !== 'all' && (
+        <p className="muted small run-filter-hint">{RUN_FILTER_HINT[runFilter]}</p>
+      )}
+
+      {totalActivities > 0 && (
         <p className="muted small run-list-meta">
-          Показано {sortedItems.length} из {totalActivities}
+          Показано {filteredItems.length} из {totalActivities}
+          {runFilter !== 'all' ? ` · фильтр «${RUN_FILTER_LABEL[runFilter]}»` : ''}
         </p>
       )}
 
-      {sortedItems.length === 0 ? (
+      {filteredItems.length === 0 ? (
         <div className="empty-state">
-          <h3>Пока нет пробежек</h3>
-          <p className="muted">Загрузите GPX, Strava или Health — и захватите клетки на карте.</p>
+          <h3>{runFilter === 'all' ? 'Пока нет пробежек' : 'Нет подходящих пробежек'}</h3>
+          <p className="muted">
+            {runFilter === 'all'
+              ? 'Загрузите GPX, Strava или Health — и захватите клетки на карте.'
+              : 'Попробуйте другой фильтр или загрузите новую пробежку.'}
+          </p>
         </div>
       ) : (
         <div className="run-list-scroll">
           <ul className="run-list">
-            {sortedItems.map((item) => (
+            {filteredItems.map((item) => (
               <ActivityCard
                 key={item.id}
                 item={item}
@@ -535,15 +591,6 @@ export default function ActivitiesPage() {
           </ul>
         </div>
       )}
-
-      {showFirstCapture && (
-        <FirstCaptureModal
-          cellsCaptured={captureCells}
-          onClose={() => setShowFirstCapture(false)}
-        />
-      )}
-
-      {showTutorial && <GameTutorialModal onClose={() => void dismissTutorial()} />}
 
       {resultsModal && (
         <ActivityResultsModal

@@ -29,26 +29,34 @@ class ExerciseRoutePlugin : Plugin() {
 
     override fun load() {
         val ctx = context
-        if (HealthConnectClient.getSdkStatus(ctx) == HealthConnectClient.SDK_AVAILABLE) {
-            healthConnectClient = HealthConnectClient.getOrCreate(ctx)
+        try {
+            if (HealthConnectClient.getSdkStatus(ctx) == HealthConnectClient.SDK_AVAILABLE) {
+                healthConnectClient = HealthConnectClient.getOrCreate(ctx)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("ExerciseRoute", "Health Connect unavailable: ${e.message}")
         }
 
-        routeRequestLauncher = activity.registerForActivityResult(ExerciseRouteRequestContract()) { route ->
-            val call = pendingCall ?: return@registerForActivityResult
-            pendingCall = null
-            val recordId = pendingRecordId
-            pendingRecordId = null
+        try {
+            routeRequestLauncher = activity.registerForActivityResult(ExerciseRouteRequestContract()) { route ->
+                val call = pendingCall ?: return@registerForActivityResult
+                pendingCall = null
+                val recordId = pendingRecordId
+                pendingRecordId = null
 
-            if (route == null) {
-                call.reject("USER_DENIED", "User denied route access")
-                return@registerForActivityResult
+                if (route == null) {
+                    call.reject("USER_DENIED", "User denied route access")
+                    return@registerForActivityResult
+                }
+
+                val result = JSObject()
+                result.put("recordId", recordId)
+                result.put("status", "data")
+                result.put("points", routeToJsArray(route.route))
+                call.resolve(result)
             }
-
-            val result = JSObject()
-            result.put("recordId", recordId)
-            result.put("status", "data")
-            result.put("points", routeToJsArray(route.route))
-            call.resolve(result)
+        } catch (e: Exception) {
+            android.util.Log.w("ExerciseRoute", "Route launcher not registered: ${e.message}")
         }
     }
 

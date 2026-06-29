@@ -24,36 +24,22 @@
   position: relative;
 }
 
+/* Tile tone: see paper-atlas.css (.map-frame .leaflet-tile-pane) */
 .map-parchment-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 350;
-  background:
-    radial-gradient(ellipse at center, transparent 55%, rgba(247, 244, 238, 0.35) 100%),
-    linear-gradient(180deg, rgba(247, 244, 238, 0.12) 0%, transparent 30%, rgba(44, 40, 37, 0.04) 100%);
-  mix-blend-mode: multiply;
-}
-
-.map-frame .leaflet-tile-pane {
-  filter: sepia(0.18) saturate(0.72) brightness(1.04) contrast(0.95);
-  opacity: 0.88;
+  display: none;
 }
 
 .map-frame::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 340;
-  box-shadow: inset 0 0 40px rgba(44, 40, 37, 0.08);
+  content: none;
 }
 
 .run-row__hex {
   width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
+  height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   outline-offset: -1px;
 }
 
@@ -98,6 +84,28 @@
   opacity: 0.12;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='36' viewBox='0 0 28 36'%3E%3Cpath d='M14 2 C8 12 6 22 8 32 C12 24 20 16 22 8 C18 12 14 18 14 2Z' fill='none' stroke='%235B8A72' stroke-width='1'/%3E%3C/svg%3E") no-repeat;
   pointer-events: none;
+}
+
+.feed-row--group,
+.feed-row--siege {
+  overflow: visible;
+}
+
+.feed-row--group::after,
+.feed-row--siege::after {
+  display: none;
+}
+
+.feed-siege-history {
+  margin-top: 8px;
+}
+
+.feed-siege-history li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
 }
 
 .celebration-overlay {

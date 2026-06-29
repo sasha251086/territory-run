@@ -1,46 +1,82 @@
+import { useState } from 'react';
 import {
   DECAY_DELETE_AFTER_DAYS,
-  MAX_INFLUENCE_GAIN_MULTIPLIER,
+  DECAY_GRACE_DAYS,
+  DECAY_PERCENT_PER_DAY,
+  MAX_INFLUENCE_DISPLAY,
   SOFT_CAP_CELLS,
 } from '../constants/game';
 
+const STEPS = [
+  {
+    title: 'Как читать карту',
+    body: (
+      <>
+        <p>Зелёная клетка — вы лидируете, красная — соперник.</p>
+        <p>
+          Цифра на клетке — ваше влияние (0–{MAX_INFLUENCE_DISPLAY}). Чем больше, тем
+          сложнее отобрать.
+        </p>
+        <p>Пунктирная обводка — давно не бегали, влияние ослабевает.</p>
+      </>
+    ),
+  },
+  {
+    title: 'После пробежки',
+    body: (
+      <>
+        <p>Каждый проход через клетку даёт +1 влияния (если пробежали ≥50 м внутри).</p>
+        <p>Владелец клетки — игрок с максимальным влиянием. Обогнали соперника — захватили.</p>
+        <p>Домашняя зона и стрик ускоряют рост влияния.</p>
+      </>
+    ),
+  },
+  {
+    title: 'Защищай территорию',
+    body: (
+      <>
+        <p>
+          Первые {DECAY_GRACE_DAYS} дней без визита влияние не падает, затем −
+          {DECAY_PERCENT_PER_DAY}% в день. Через {DECAY_DELETE_AFTER_DAYS} дней след исчезает.
+        </p>
+        <p>Если соперник набрал 80% вашего влияния — это осада. Бегите защищать клетку.</p>
+        <p>После {SOFT_CAP_CELLS} клеток прирост ×0.5 — расширяйтесь осмысленно.</p>
+      </>
+    ),
+  },
+] as const;
+
 export default function GameTutorialModal({ onClose }: { onClose: () => void }) {
+  const [step, setStep] = useState(0);
+  const current = STEPS[step];
+  const isLast = step >= STEPS.length - 1;
+
+  function handleNext() {
+    if (isLast) {
+      onClose();
+      return;
+    }
+    setStep((value) => value + 1);
+  }
+
   return (
     <div className="celebration-overlay" role="dialog" aria-label="Как играть">
       <div className="celebration-card game-tutorial-card">
-        <p className="eyebrow">Territory Run</p>
-        <h2>Как работает игра</h2>
-        <ol className="game-tutorial-list">
-          <li>
-            <strong>Влияние.</strong> Пробежка по клетке даёт до +1 влияния (макс. 100). Чем
-            больше метров внутри клетки — тем полнее бонус. Владелец = игрок с максимальным
-            влиянием.
-          </li>
-          <li>
-            <strong>Бонусы.</strong> Домашняя зона ×1.25, стрик до ×1.3, новичок ×1.25. Общий
-            потолок множителей — ×{MAX_INFLUENCE_GAIN_MULTIPLIER} за один проход по клетке.
-          </li>
-          <li>
-            <strong>Soft cap.</strong> После {SOFT_CAP_CELLS} клеток прирост влияния снижается
-            до ×0.5 — территорию можно держать, но расширяться сложнее.
-          </li>
-          <li>
-            <strong>Затухание.</strong> Без пробежек влияние падает на 2% в день. После{' '}
-            {DECAY_DELETE_AFTER_DAYS} дней без активности клетка обнуляется.
-          </li>
-          <li>
-            <strong>Миссии на карте.</strong> Полоска «Миссии» и кнопка «Цели» подскажут:{' '}
-            <em>защитить</em> свою клетку, <em>добить</em> захват, <em>захватить</em> у соперника
-            или <em>расширить</em> границу на нейтральные клетки.
-          </li>
-          <li>
-            <strong>Лента.</strong> Одна запись на пробежку — без спама по каждой клетке. Осады
-            показывают, когда соперник близок к захвату (&gt;80% вашего влияния).
-          </li>
-        </ol>
-        <button type="button" className="primary-btn" onClick={onClose}>
-          Понятно
-        </button>
+        <p className="eyebrow">
+          Territory Run · шаг {step + 1}/{STEPS.length}
+        </p>
+        <h2>{current.title}</h2>
+        <div className="game-tutorial-steps">{current.body}</div>
+        <div className="celebration-actions">
+          {step > 0 && (
+            <button type="button" className="ghost-btn" onClick={() => setStep((value) => value - 1)}>
+              Назад
+            </button>
+          )}
+          <button type="button" className="primary-btn" onClick={handleNext}>
+            {isLast ? 'Понятно' : 'Далее'}
+          </button>
+        </div>
       </div>
     </div>
   );

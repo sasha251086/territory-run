@@ -1,23 +1,22 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
-const PROD_WEB_URL = 'https://territory-run-cjoj.onrender.com';
+/** Must match BuildConfig.LIVE_WEB_URL in android/app/build.gradle */
+const LIVE_WEB_URL = 'https://territory-run-cjoj.onrender.com/';
 
 /**
- * By default the Android app opens the deployed website (UI updates after git push).
- * Offline/bundled UI: set CAPACITOR_BUNDLED_UI=true before cap sync / mobile build.
+ * APK is a thin native shell — always loads the deployed website (same as browser PWA).
+ * Local dist is only a placeholder for cap sync; MainActivity opens LIVE_WEB_URL.
  */
-const bundledUi = process.env.CAPACITOR_BUNDLED_UI === 'true';
-
 const config: CapacitorConfig = {
   appId: 'com.territoryrun.app',
   appName: 'Territory Run',
   webDir: 'dist',
-  server: bundledUi
-    ? { androidScheme: 'https' }
-    : {
-        androidScheme: 'https',
-        url: PROD_WEB_URL,
-      },
+  server: {
+    androidScheme: 'https',
+    url: LIVE_WEB_URL,
+    cleartext: false,
+    allowNavigation: ['territory-run-cjoj.onrender.com'],
+  },
 };
 
 export default config;

@@ -48,6 +48,7 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null);
 
   async function saveHome() {
+    const isFirstSetup = user?.homeLat == null || user?.homeLng == null;
     setLoading(true);
     setError(null);
     try {
@@ -56,7 +57,11 @@ export default function OnboardingPage() {
         body: JSON.stringify({ homeLat: position[0], homeLng: position[1] }),
       });
       await refreshProfile();
-      navigate('/profile');
+      if (isFirstSetup) {
+        navigate('/', { replace: true, state: { welcome: true } });
+      } else {
+        navigate('/profile');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Не удалось сохранить домашнюю базу');
     } finally {

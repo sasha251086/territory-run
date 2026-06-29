@@ -1,0 +1,340 @@
+/**
+ * Game HUD design system — glass cards, dark nav, shared with map immersive UI.
+ */
+
+.game-shell {
+  --hud-surface: rgba(255, 252, 247, 0.94);
+  --hud-surface-strong: rgba(255, 252, 247, 0.98);
+  --hud-border: rgba(255, 255, 255, 0.72);
+  --hud-shadow: 0 8px 32px rgba(44, 40, 37, 0.12);
+  --hud-radius: 18px;
+  --hud-float-bottom: calc(var(--nav-h) + 12px + env(safe-area-inset-bottom));
+  --hud-rail-bottom: calc(var(--nav-h) + 72px + env(safe-area-inset-bottom));
+}
+
+/* ——— Dark bottom nav (all tabs) ——— */
+.game-shell .app-nav {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(44, 40, 37, 0.94);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.18);
+}
+
+.game-shell .nav-link--with-icon {
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.game-shell .nav-link.active {
+  color: #fff;
+  box-shadow: none;
+  background: transparent;
+}
+
+.game-shell .nav-link.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 20%;
+  right: 20%;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  background: #7cb892;
+}
+
+.game-shell .nav-link {
+  position: relative;
+}
+
+.game-shell .nav-link.active .nav-link__icon {
+  color: #7cb892;
+  opacity: 1;
+}
+
+.game-shell .nav-link__icon {
+  opacity: 0.85;
+}
+
+/* ——— Shell & page layout ——— */
+
+/* Tablet: единая «телефонная» колонка 480px (карта и остальные вкладки) */
+@media (min-width: 520px) and (max-width: 899px) {
+  body.paper-atlas:has(.game-shell) {
+    background: #3d3832;
+  }
+
+  #root:has(.game-shell) {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    min-height: 100dvh;
+  }
+
+  .game-shell {
+    flex: 0 1 min(100%, 480px);
+    width: 100%;
+    max-width: min(100%, 480px);
+    margin: 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 0 48px rgba(0, 0, 0, 0.22);
+  }
+
+  .game-shell .app-nav {
+    max-width: min(100%, 480px);
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
+}
+
+/* Desktop: полноэкранная оболочка на всех вкладках */
+@media (min-width: 900px) {
+  body.paper-atlas:has(.game-shell) {
+    background: #3d3832;
+  }
+
+  #root:has(.game-shell) {
+    display: block;
+    width: 100%;
+  }
+
+  .game-shell {
+    flex: none;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    border: none;
+    box-shadow: none;
+  }
+
+  .game-shell .app-nav {
+    max-width: none;
+    width: 100%;
+    left: 0;
+    right: 0;
+    transform: none;
+  }
+
+  .game-shell .app-main {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+  }
+
+  .game-shell:not(.map-shell) .app-main {
+    padding-left: max(20px, calc((100% - 960px) / 2));
+    padding-right: max(20px, calc((100% - 960px) / 2));
+  }
+
+  .game-shell:not(.map-shell) .page-screen {
+    width: 100%;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+}
+
+.game-shell:not(.map-shell) .app-main {
+  padding: 16px 16px calc(var(--nav-h) + 20px + env(safe-area-inset-bottom));
+  background:
+    radial-gradient(circle at 12% 0%, rgba(91, 138, 114, 0.08) 0%, transparent 42%),
+    var(--bg);
+}
+
+.game-shell .page-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.game-shell .page-title {
+  margin: 0 0 4px;
+  font-size: clamp(1.5rem, 4vw, 1.85rem);
+}
+
+/* ——— Glass card mixin targets ——— */
+.game-shell .feed-row,
+.game-shell .run-row,
+.game-shell .profile-section,
+.game-shell .profile-header,
+.game-shell .stats-grid div,
+.game-shell .leaderboard li,
+.game-shell .podium-slot,
+.game-shell .empty-state,
+.game-shell .weekly-report,
+.game-shell .info-box,
+.game-shell .profile-influence-hint,
+.game-shell .leaderboard-follow-hint,
+.game-shell .segmented {
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius);
+  background: var(--hud-surface);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--hud-shadow);
+}
+
+.game-shell .segmented {
+  padding: 6px;
+  gap: 4px;
+  background: rgba(255, 252, 247, 0.88);
+}
+
+.game-shell .segmented button {
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+}
+
+.game-shell .segmented button.active {
+  background: rgba(91, 138, 114, 0.16);
+  color: var(--btn-primary);
+  box-shadow: inset 0 0 0 1px rgba(91, 138, 114, 0.28);
+}
+
+.game-shell .segmented.segmented--3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+}
+
+.game-shell .segmented.segmented--3 button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: unset;
+  width: 100%;
+  min-width: 0;
+  text-align: center;
+}
+
+.game-shell .feed-row,
+.game-shell .run-row {
+  padding: 14px 16px;
+}
+
+.game-shell .run-row {
+  align-items: center;
+}
+
+.game-shell .profile-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  margin-bottom: 0;
+}
+
+.game-shell .profile-header h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+}
+
+.game-shell .profile-section {
+  padding: 16px 18px;
+  background: var(--hud-surface);
+}
+
+.game-shell .profile-section h2 {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.game-shell .stats-grid div {
+  padding: 14px 12px;
+  text-align: center;
+}
+
+.game-shell .stats-grid strong {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+}
+
+.game-shell .leaderboard li {
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  border-radius: 14px;
+}
+
+.game-shell .leaderboard li.is-you {
+  background: linear-gradient(145deg, rgba(238, 245, 240, 0.98) 0%, rgba(255, 252, 247, 0.96) 100%);
+  box-shadow: 0 4px 24px rgba(91, 138, 114, 0.15);
+}
+
+.game-shell .podium-slot {
+  padding: 14px 10px;
+}
+
+.game-shell .podium-rank-1 {
+  box-shadow: 0 12px 36px rgba(91, 138, 114, 0.2);
+}
+
+.game-shell .empty-state {
+  padding: 28px 20px;
+  text-align: center;
+}
+
+.game-shell .empty-state h3 {
+  font-family: var(--font-display);
+}
+
+.game-shell .error-banner {
+  border-radius: 14px;
+  box-shadow: var(--hud-shadow);
+}
+
+.game-shell .primary-btn {
+  box-shadow: 0 4px 20px rgba(91, 138, 114, 0.28);
+}
+
+.game-shell .runs-add-btn {
+  border-radius: 999px;
+  font-size: 1rem;
+  min-height: 48px;
+}
+
+.game-shell .bottom-sheet {
+  border-radius: 22px 22px 0 0;
+  box-shadow: 0 -12px 48px rgba(44, 40, 37, 0.18);
+}
+
+.game-shell.map-shell .app-main {
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+@media (min-width: 900px) {
+  .game-shell.map-shell .app-main {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+  }
+}
+
+.game-shell.map-shell .map-page {
+  max-height: calc(100dvh - var(--nav-h) - env(safe-area-inset-bottom));
+}
+
+.game-shell .page-screen::before {
+  opacity: 0.12;
+}
+
+.game-shell .feed-list,
+.game-shell .run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.game-shell .territory-tile {
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.game-shell .profile-territory-tiles .territory-tiles {
+  gap: 8px;
+}

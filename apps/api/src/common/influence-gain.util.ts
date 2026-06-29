@@ -5,6 +5,7 @@ import {
   MAX_INFLUENCE_GAIN_MULTIPLIER,
   NEW_PLAYER_BONUS_MULTIPLIER,
   NEW_PLAYER_PERIOD_MS,
+  roundInfluence,
   SOFT_CAP_CELLS,
   SOFT_CAP_INFLUENCE_MULTIPLIER,
   streakMultiplier,
@@ -81,7 +82,7 @@ export function describeInfluenceGain(ctx: InfluenceGainContext): InfluenceGainS
   const effectiveMultiplier = capInfluenceGainMultiplier(rawMultiplier);
 
   return {
-    perRun: BASE_INFLUENCE * effectiveMultiplier,
+    perRun: roundInfluence(BASE_INFLUENCE * effectiveMultiplier),
     rawMultiplier,
     effectiveMultiplier,
     multiplierCapped: rawMultiplier > MAX_INFLUENCE_GAIN_MULTIPLIER + 1e-6,

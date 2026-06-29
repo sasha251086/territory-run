@@ -82,7 +82,7 @@ export async function generateShareCardBlob(data: ShareCardData): Promise<Blob> 
   ctx.fillStyle = '#5C564E';
   const subParts = [
     data.km > 0 ? `${data.km.toFixed(1)} км` : null,
-    data.pvpCaptures && data.pvpCaptures > 0 ? `${data.pvpCaptures} PvP` : null,
+    data.pvpCaptures && data.pvpCaptures > 0 ? `${data.pvpCaptures} у соперников` : null,
     data.influence > 0 ? `+${data.influence} влияния` : null,
   ].filter(Boolean);
   ctx.fillText(subParts.join(' · ') || 'Пробежка засчитана', width / 2, 196);

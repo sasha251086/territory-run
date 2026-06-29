@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
   const buildStamp = `${appVersion}+${new Date().toISOString().slice(0, 19).replace('T', ' ')}`;
 
   return {
+    base: isCapacitor ? './' : '/',
     define: {
       __APP_BUILD__: JSON.stringify(buildStamp),
     },

@@ -62,7 +62,7 @@ describe('InfluenceService', () => {
     expect(mockPrisma.cellOwnership.createMany).toHaveBeenCalled();
   });
 
-  it('should cap influence at 100 when existing + gain exceeds limit', async () => {
+  it('should cap influence at 10000 when existing + gain exceeds limit', async () => {
     const track = [
       { lat: 56.95, lng: 24.1 },
       { lat: 56.951, lng: 24.1 },
@@ -79,7 +79,7 @@ describe('InfluenceService', () => {
       {
         h3Index,
         userId: 'user1',
-        influence: 99.5,
+        influence: 9950,
       },
     ]);
     mockPrisma.cellOwnership.update.mockResolvedValue({});
@@ -109,7 +109,7 @@ describe('InfluenceService', () => {
     expect(mockPrisma.cellOwnership.createMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.arrayContaining([
-          expect.objectContaining({ influence: 1.25 }),
+          expect.objectContaining({ influence: 125 }),
         ]),
       }),
     );
@@ -135,7 +135,7 @@ describe('InfluenceService', () => {
     expect(mockPrisma.cellOwnership.createMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.arrayContaining([
-          expect.objectContaining({ influence: 1.25 }),
+          expect.objectContaining({ influence: 125 }),
         ]),
       }),
     );

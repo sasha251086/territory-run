@@ -1,33 +1,4 @@
-/* Territory Run — wireframe UI (reference mockups) */
-
-:root {
-  --bg: #ffffff;
-  --surface: #f0f0f0;
-  --surface-2: #e5e5e5;
-  --border: #d0d0d0;
-  --border-strong: #1a1a1a;
-  --text: #1a1a1a;
-  --text-secondary: #5c5c5c;
-  --text-muted: #8a8a8a;
-  --btn-primary: #c8c8c8;
-  --cell-own: #9bc49b;
-  --cell-own-stroke: #6b9a6b;
-  --cell-rival: #a8b8cc;
-  --cell-rival-stroke: #7a8fa8;
-  --cell-empty: #f2f2f2;
-  --cell-empty-stroke: #d8d8d8;
-  --cell-risk: #d4b896;
-  --cell-risk-stroke: #b8956a;
-  --cell-critical: #c99090;
-  --cell-critical-stroke: #a86b6b;
-  --cell-target: #f0e090;
-  --cell-target-stroke: #c9a030;
-  --cell-other: #b8a8cc;
-  --cell-other-stroke: #8a7aa8;
-  --nav-h: 56px;
-  --radius: 14px;
-  --radius-sm: 10px;
-}
+/* Territory Run — app layout (structure only; theme in paper-atlas*.css) */
 
 *,
 *::before,
@@ -45,7 +16,6 @@ body {
   margin: 0;
   color: var(--text);
   background: var(--bg);
-  font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
   font-size: 15px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
@@ -153,26 +123,7 @@ input {
   font-size: 0.8rem;
 }
 
-/* ——— Buttons ——— */
-
-.primary-btn {
-  width: 100%;
-  min-height: 48px;
-  padding: 12px 16px;
-  border: 2px solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--btn-primary);
-  color: var(--text);
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  cursor: pointer;
-}
-
-.primary-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+/* primary-btn, ghost-btn visuals — paper-atlas.css + paper-atlas-polish.css */
 
 .ghost-btn,
 .chip-btn {
@@ -270,34 +221,7 @@ input:focus {
   font-size: 0.9rem;
 }
 
-/* ——— Tabs / segmented ——— */
-
-.segmented,
-.tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.tab,
-.segmented button {
-  min-height: 40px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  color: var(--text-secondary);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.tab.active,
-.segmented button.active {
-  background: var(--surface-2);
-  color: var(--text);
-  font-weight: 800;
-  box-shadow: inset 0 -2px 0 var(--border-strong);
-}
+/* segmented / tab pills — paper-atlas-polish.css */
 
 /* ——— Auth ——— */
 
@@ -385,7 +309,7 @@ input:focus {
 .wire-map-header {
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   gap: 12px;
   align-items: center;
   padding: 12px 16px;
@@ -545,11 +469,11 @@ input:focus {
 }
 
 .map-frame .owned-cell.territory-emphasis {
-  filter: saturate(1.15);
+  filter: none;
 }
 
 .map-frame .map-cell-selected {
-  filter: saturate(1.18) brightness(1.04);
+  filter: none;
 }
 
 .map-cell-selected-ring {
@@ -558,7 +482,7 @@ input:focus {
 }
 
 .map-frame .contested-cell {
-  filter: saturate(1.08);
+  filter: none;
 }
 
 .cell-popup-contested .cell-popup-title {
@@ -622,7 +546,6 @@ input:focus {
 
 .map-district-hud,
 .map-vignette,
-.map-hud,
 .map-capture-card,
 .map-profile-card,
 .screen-hero,

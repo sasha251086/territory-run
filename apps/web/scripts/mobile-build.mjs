@@ -1,23 +1,20 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
-const bundled = process.env.CAPACITOR_BUNDLED_UI === 'true';
+const dir = dirname(fileURLToPath(import.meta.url));
 
-function run(cmd, args) {
-  const result = spawnSync(cmd, args, { stdio: 'inherit', shell: true, env: process.env });
+function run(script) {
+  const result = spawnSync(process.execPath, [join(dir, script)], {
+    stdio: 'inherit',
+    env: process.env,
+  });
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-if (bundled) {
-  console.log('Mobile build: bundling UI into APK (CAPACITOR_BUNDLED_UI=true)');
-  run('pnpm', ['exec', 'vite', 'build', '--mode', 'capacitor']);
-} else {
-  console.log('Mobile build: APK will load UI from https://territory-run-cjoj.onrender.com');
-  if (!existsSync('dist/index.html')) {
-    console.log('Creating minimal dist placeholder for cap sync...');
-    run('pnpm', ['exec', 'vite', 'build', '--mode', 'capacitor']);
-  }
-}
+run('sync-android-shell.mjs');
+run('patch-capacitor-settings.mjs');
+run('ensure-android-resources.mjs');
+run('ensure-android-sources.mjs');
 
-run('pnpm', ['exec', 'cap', 'sync', 'android']);
-console.log('Done. Open android/ in Android Studio → Build → Build APK(s)');
+console.log('Done. Open android/ in Android Studio → Sync Gradle → Clean → Build APK(s)');

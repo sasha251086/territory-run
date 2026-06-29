@@ -83,8 +83,9 @@ model Activity {
   cellsTouched    Int?
   newCellsCaptured Int?
   pvpCaptures     Int?
-  influenceAdded  Float?
-  createdAt       DateTime       @default(now())
+  influenceAdded     Float?
+  cellsStillAtRisk   Int?
+  createdAt          DateTime       @default(now())
 
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   track           ActivityTrack?

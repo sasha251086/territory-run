@@ -2,69 +2,6 @@ apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 apply plugin: 'kotlin-parcelize'
 
-// Web UI: Gradle MUST rebuild dist from src before packaging (Studio does not run Vite by itself).
-def webRootDir = file("${projectDir}/../..")
-def webDistDir = file("${webRootDir}/dist")
-def webAssetsDir = file("${projectDir}/src/main/assets/public")
-
-tasks.register('buildWebFrontend', Exec) {
-    workingDir webRootDir
-    def isWindows = org.apache.tools.ant.taskdefs.condition.Os.isFamily(
-        org.apache.tools.ant.taskdefs.condition.Os.FAMILY_WINDOWS
-    )
-    if (isWindows) {
-        commandLine 'powershell', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/gradle-build-web.ps1'
-    } else {
-        commandLine 'sh', 'scripts/gradle-build-web.sh'
-    }
-}
-
-tasks.register('assertWebDistExists') {
-    doLast {
-        if (!file("${webDistDir}/index.html").exists()) {
-            throw new GradleException(
-                "Missing web dist. Run: cd apps/web && pnpm mobile:build"
-            )
-        }
-    }
-}
-
-tasks.register('clearStaleWebBundles') {
-    doLast {
-        delete fileTree("${webAssetsDir}/assets")
-        delete file("${webAssetsDir}/index.html")
-        delete file("${webAssetsDir}/manifest.webmanifest")
-        delete file("${webAssetsDir}/sw.js")
-        delete file("${webAssetsDir}/registerSW.js")
-        delete file("${webAssetsDir}/build-stamp.txt")
-    }
-}
-
-tasks.register('syncWebDistToAssets', Copy) {
-    dependsOn tasks.named('clearStaleWebBundles')
-    from webDistDir
-    into webAssetsDir
-    include '**/*'
-    duplicatesStrategy DuplicatesStrategy.INCLUDE
-    doLast {
-        logger.lifecycle("Packaged web UI from ${webDistDir}")
-    }
-}
-
-tasks.named('clearStaleWebBundles').configure {
-    if (project.hasProperty('skipWebBuild')) {
-        dependsOn tasks.named('assertWebDistExists')
-    } else {
-        dependsOn tasks.named('buildWebFrontend')
-    }
-}
-
-tasks.whenTaskAdded { task ->
-    if (task.name ==~ /merge.*Assets/) {
-        task.dependsOn tasks.named('syncWebDistToAssets')
-    }
-}
-
 def samsungLibsDir = file('libs')
 def samsungSdkAars = fileTree(dir: samsungLibsDir, include: ['*.aar'])
 def samsungSdkZipCandidates = fileTree(dir: samsungLibsDir, include: ['*.zip']).files
@@ -76,8 +13,69 @@ if (samsungSdkZips.isEmpty()) {
     samsungSdkZips = samsungSdkZipCandidates
 }
 
-// Samsung distributes SDK as ZIP (Libs/samsung-health-data-api-*.aar inside).
 def hasSamsungHealthSdk = !samsungSdkAars.isEmpty() || !samsungSdkZips.isEmpty()
+def liveWebUrl = 'https://territory-run-cjoj.onrender.com/'
+
+tasks.register('prepareWebAssets') {
+    doLast {
+        def publicDir = file('src/main/assets/public')
+        if (!publicDir.exists()) {
+            throw new GradleException(
+                'Missing android/app/src/main/assets/public. From apps/web run: pnpm mobile:sync'
+            )
+        }
+
+        def cfgFile = new File(publicDir, 'capacitor.config.json')
+        def remoteUrl = ''
+        if (cfgFile.exists()) {
+            def json = new groovy.json.JsonSlurper().parse(cfgFile)
+            remoteUrl = json.server?.url?.toString() ?: ''
+        }
+
+        publicDir.eachFile { f ->
+            def name = f.name
+            if (name == 'sw.js' || name.startsWith('workbox-')) {
+                delete f
+                logger.lifecycle("Removed PWA cache file: ${name}")
+            }
+        }
+
+        def bundleDir = new File(publicDir, 'assets')
+        if (bundleDir.exists()) {
+            delete bundleDir
+            logger.lifecycle('Removed bundled web UI (APK uses live site only)')
+        }
+        publicDir.eachFile { f ->
+            def name = f.name
+            if (name.endsWith('.js') || name.endsWith('.css')) {
+                delete f
+                logger.lifecycle("Removed bundled web file: ${name}")
+            }
+        }
+
+        if (!cfgFile.exists()) {
+            throw new GradleException(
+                'Missing capacitor.config.json. From apps/web run: pnpm mobile:sync'
+            )
+        }
+        if (!remoteUrl.startsWith(liveWebUrl)) {
+            throw new GradleException(
+                "server.url must start with ${liveWebUrl}, got: ${remoteUrl}. Run: pnpm mobile:sync"
+            )
+        }
+        logger.lifecycle("Android UI: live site only (${liveWebUrl})")
+
+        if (!hasSamsungHealthSdk) {
+            logger.lifecycle(
+                'WARNING: Samsung Health Data SDK missing in android/app/libs/ — ' +
+                    'APK will use SamsungHealthPluginStub (no Samsung Health import). ' +
+                    'Restore libs/ from git or add SDK ZIP. See libs/README.md'
+            )
+        } else {
+            logger.lifecycle('Samsung Health Data SDK: enabled')
+        }
+    }
+}
 
 tasks.register('extractSamsungHealthSdk') {
     onlyIf { samsungSdkAars.isEmpty() && !samsungSdkZips.isEmpty() }
@@ -98,41 +96,47 @@ tasks.register('extractSamsungHealthSdk') {
 
 tasks.named('preBuild').configure {
     dependsOn tasks.named('extractSamsungHealthSdk')
+    dependsOn tasks.named('prepareWebAssets')
 }
 
 android {
     namespace = "com.territoryrun.app"
     compileSdk = rootProject.ext.compileSdkVersion
+
     buildFeatures {
         buildConfig true
     }
+
     defaultConfig {
         applicationId "com.territoryrun.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 9
-        versionName "2.0.0"
+        versionCode 22
+        versionName "2.1.3"
+        buildConfigField "String", "LIVE_WEB_URL", "\"${liveWebUrl}\""
         buildConfigField "boolean", "HAS_SAMSUNG_HEALTH_SDK", "${hasSamsungHealthSdk}"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
-             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_21
         targetCompatibility JavaVersion.VERSION_21
     }
+
     kotlinOptions {
         jvmTarget = '21'
     }
+
     sourceSets {
         main {
             if (hasSamsungHealthSdk) {
@@ -143,7 +147,7 @@ android {
 }
 
 repositories {
-    flatDir{
+    flatDir {
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
     }
 }
@@ -170,9 +174,9 @@ apply from: 'capacitor.build.gradle'
 
 try {
     def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
+    if (servicesJSON.exists()) {
         apply plugin: 'com.google.gms.google-services'
     }
-} catch(Exception e) {
+} catch (Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }

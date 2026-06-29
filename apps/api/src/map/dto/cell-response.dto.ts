@@ -83,6 +83,12 @@ export class CellPlayersResponseDto {
   contestGap!: number | null;
   tiedOnInfluence!: boolean;
   challengerNickname!: string | null;
+  myLastActivityAt?: Date | null;
+  daysSinceMyActivity?: number | null;
+  decayRisk?: 'none' | 'warning' | 'critical';
+  freshness?: 'fresh' | 'warning' | 'critical';
+  dailyInfluenceLoss?: number;
+  daysUntilWipe?: number | null;
   history!: Array<{
     fromNickname: string | null;
     toNickname: string;
@@ -113,8 +119,21 @@ export class MissionHintDto {
   count!: number;
 }
 
+export class WeeklyReportDto {
+  cellsGained!: number;
+  weeklyGoal!: number;
+  progressPercent!: number;
+  headline!: string;
+  rivalNickname?: string | null;
+  rivalBeat?: boolean;
+}
+
 export class MapSummaryResponseDto {
   cellsAtRisk!: number;
+  cellsFresh!: number;
+  cellsWarning!: number;
+  cellsCritical!: number;
+  dailyInfluenceLoss!: number;
   captureTargetsNearby!: number;
   territoryAreaM2!: number;
   cellsGainedThisWeek!: number;
@@ -124,4 +143,8 @@ export class MapSummaryResponseDto {
   effectiveInfluenceMultiplier!: number;
   influenceMultiplierCapped!: boolean;
   atSoftCap!: boolean;
+  locationMultiplier!: number;
+  streakMultiplier!: number;
+  softCapMultiplier!: number;
+  weeklyReport!: WeeklyReportDto;
 }

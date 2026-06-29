@@ -8,5 +8,6 @@ import { RedisModule } from '../redis/redis.module';
   imports: [PrismaModule, RedisModule],
   controllers: [LeaderboardController],
   providers: [LeaderboardService],
+  exports: [LeaderboardService],
 })
 export class LeaderboardModule {}

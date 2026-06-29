@@ -55,6 +55,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message = exception.message;
     }
 
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR && exception instanceof Error && exception.stack) {
+      this.logger.error(exception.stack);
+    }
+
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       captureException(exception, {
         method: request.method,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import {
   MapContainer,
   TileLayer,
@@ -25,16 +25,48 @@ import type {
 } from '../api/types';
 import CellBottomSheet from '../components/CellBottomSheet';
 import DistrictMapPopup from '../components/DistrictMapPopup';
+import CellInfluenceLabels from '../components/CellInfluenceLabels';
+import MapCellPolygons from '../components/MapCellPolygons';
+import MapCellHatchOverlay from '../components/MapCellHatchOverlay';
+import MapHatchPatternDefs from '../components/MapHatchPatternDefs';
+import MapLegendHelpModal from '../components/MapLegendHelpModal';
+import GameTutorialModal from '../components/GameTutorialModal';
+import NewcomerGuideModal from '../components/NewcomerGuideModal';
+import FirstCaptureModal from '../components/FirstCaptureModal';
+import StreakBadge from '../components/StreakBadge';
+import WeeklyReportCard from '../components/WeeklyReportCard';
 import { useAuth } from '../context/AuthContext';
+import { hasSeenHint } from '../utils/first-time-hint';
+import { resolveWeeklyReport } from '../utils/weekly-report';
+import { enrichMapSummary } from '../utils/map-summary-enrich';
+import { streakDisplay } from '../utils/streak-display';
+import { useActiveSiege } from '../hooks/useActiveSiege';
 import { districtPolygonsForMap } from '../utils/district-geo';
+import { HOME_ZONE_RADIUS_M, SOFT_CAP_CELLS, streakMultiplier } from '../constants/game';
+import { cellsWord } from '../utils/cell-lifespan';
+import { missionTargetCount, formatTodayMissions } from '../utils/mission-format';
 import {
-  HOME_ZONE_RADIUS_M,
-  influenceGainHint,
-  softCapLabel,
-  streakBonusLabel,
-} from '../constants/game';
+  clearPostRunQueue,
+  hasPostRunQueue,
+  readPostRunQueue,
+  type PostRunQueue,
+} from '../utils/post-run-queue';
+import {
+  isStaleCell,
+  MAP_OWN_FILL,
+  MAP_OWN_STROKE,
+  MAP_RIVAL_FILL,
+  MAP_RIVAL_STROKE,
+  NEUTRAL_FILL,
+  NEUTRAL_STROKE,
+} from '../utils/map-cell-visual';
+import { targetCategoryToHatch } from '../utils/map-hatch';
+import { h3IndicesFromRoute } from '../utils/track-distance.util';
+import { ACTIVITY_FOCUS_KEY } from '../utils/activity-map-focus';
 
 const RUN_PREVIEW_KEY = 'territory-run-run-preview';
+const MAP_GUIDE_KEY = 'territory-run-map-guide-seen';
+const ACTIVITY_FOCUS_GRACE_MS = 700;
 
 function boundsToQuery(bounds: LatLngBounds) {
   return new URLSearchParams({
@@ -160,29 +192,47 @@ function HighlightPane() {
   return null;
 }
 
-const TARGET_FILL = '#E8D080';
-const TARGET_STROKE = '#C4A35A';
-const TARGET_FINISH_FILL = '#F0C890';
-const TARGET_FINISH_STROKE = '#D09030';
-const TARGET_DEFEND_FILL = '#E8C4C4';
-const TARGET_DEFEND_STROKE = '#B85C5C';
-const TARGET_EXPAND_FILL = '#D4E4DC';
-const TARGET_EXPAND_STROKE = '#5B8A72';
-
-function targetPaint(category: CaptureTarget['category']) {
-  if (category === 'defend') {
-    return { fill: TARGET_DEFEND_FILL, stroke: TARGET_DEFEND_STROKE };
-  }
-  if (category === 'finish') {
-    return { fill: TARGET_FINISH_FILL, stroke: TARGET_FINISH_STROKE };
-  }
-  if (category === 'expand') {
-    return { fill: TARGET_EXPAND_FILL, stroke: TARGET_EXPAND_STROKE };
-  }
-  return { fill: TARGET_FILL, stroke: TARGET_STROKE };
+function ActivityFocusPane() {
+  const map = useMap();
+  useEffect(() => {
+    if (!map.getPane('activityFocusPane')) {
+      map.createPane('activityFocusPane');
+      const pane = map.getPane('activityFocusPane');
+      if (pane) {
+        pane.style.zIndex = '420';
+        pane.style.pointerEvents = 'none';
+      }
+    }
+  }, [map]);
+  return null;
 }
-const CONTESTED_FILL = '#F5E8C8';
-const CONTESTED_STROKE = '#C4A35A';
+
+function LabelPane() {
+  const map = useMap();
+  useEffect(() => {
+    if (!map.getPane('labelPane')) {
+      map.createPane('labelPane');
+      const pane = map.getPane('labelPane');
+      if (pane) {
+        pane.style.zIndex = '450';
+        pane.style.pointerEvents = 'none';
+      }
+    }
+  }, [map]);
+  return null;
+}
+
+function MapZoomTracker({ onZoom }: { onZoom: (zoom: number) => void }) {
+  const map = useMap();
+  useMapEvents({
+    zoomend: () => onZoom(map.getZoom()),
+    load: () => onZoom(map.getZoom()),
+  });
+  useEffect(() => {
+    onZoom(map.getZoom());
+  }, [map, onZoom]);
+  return null;
+}
 
 function MapSheetDismiss({
   active,
@@ -238,111 +288,6 @@ function cellBoundary(h3Index: string): [number, number][] {
   return cellToBoundary(h3Index).map(([lat, lng]) => [lat, lng] as [number, number]);
 }
 
-type CellPaint = { fill: string; stroke: string; fillOpacity: number };
-
-const MAX_CELL_INFLUENCE = 100;
-/** Full saturation around this influence — matches typical per-cell values in play. */
-const VISUAL_INFLUENCE_CAP = 12;
-const MIN_INFLUENCE_FILL_OPACITY = 0.08;
-const MAX_INFLUENCE_FILL_OPACITY = 0.98;
-
-function influenceVisualStrength(influence: number): number {
-  const clamped = Math.max(0, Math.min(MAX_CELL_INFLUENCE, influence));
-  if (clamped <= 0) {
-    return 0;
-  }
-  const normalized = Math.min(1, clamped / VISUAL_INFLUENCE_CAP);
-  return Math.pow(normalized, 0.5);
-}
-
-function fillOpacityForInfluence(influence: number, min = MIN_INFLUENCE_FILL_OPACITY, max = MAX_INFLUENCE_FILL_OPACITY) {
-  const strength = influenceVisualStrength(influence);
-  return min + (max - min) * strength;
-}
-
-function cellPaint(
-  cell: MapCell,
-  currentUserId: string | undefined,
-  rivalH3: Set<string>,
-  targetH3: Set<string>,
-  previewFlash: boolean,
-): CellPaint {
-  const influence = cell.influence ?? 0;
-  const influenceOpacity = fillOpacityForInfluence(influence);
-
-  if (targetH3.has(cell.h3Index)) {
-    return { fill: TARGET_FILL, stroke: TARGET_STROKE, fillOpacity: influenceOpacity };
-  }
-  if (cell.contested) {
-    return { fill: CONTESTED_FILL, stroke: CONTESTED_STROKE, fillOpacity: influenceOpacity };
-  }
-  if (rivalH3.has(cell.h3Index) && cell.ownerId !== currentUserId) {
-    return { fill: '#6B7FA3', stroke: '#556A8A', fillOpacity: influenceOpacity };
-  }
-  if (cell.ownerId === currentUserId) {
-    if (previewFlash) {
-      return { fill: '#5B8A72', stroke: '#466B58', fillOpacity: Math.min(0.96, influenceOpacity + 0.04) };
-    }
-    if (cell.decayRisk === 'critical') {
-      return { fill: '#B85C5C', stroke: '#9A4848', fillOpacity: influenceOpacity };
-    }
-    if (cell.decayRisk === 'warning') {
-      return { fill: '#C4A35A', stroke: '#A88640', fillOpacity: influenceOpacity };
-    }
-    return { fill: '#5B8A72', stroke: '#466B58', fillOpacity: influenceOpacity };
-  }
-  if (!cell.ownerId) {
-    return { fill: '#E8F0EB', stroke: '#D4C9BA', fillOpacity: 0.35 };
-  }
-  return { fill: '#6B7FA3', stroke: '#556A8A', fillOpacity: influenceOpacity };
-}
-
-function resolveCellFillOpacity(
-  paint: CellPaint,
-  options: {
-    isSelected: boolean;
-    emphasizeMine: boolean;
-    emphasizeTarget: boolean;
-  },
-) {
-  if (options.isSelected) {
-    return Math.min(0.98, paint.fillOpacity + 0.06);
-  }
-  if (options.emphasizeTarget) {
-    return Math.min(0.96, paint.fillOpacity + 0.05);
-  }
-  if (options.emphasizeMine) {
-    return Math.min(0.96, paint.fillOpacity + 0.04);
-  }
-  return paint.fillOpacity;
-}
-
-function cellClassName(
-  cell: MapCell,
-  currentUserId: string | undefined,
-  rivalH3: Set<string>,
-  targetH3: Set<string>,
-  previewFlash: boolean,
-) {
-  const classes = ['map-cell-polygon'];
-  if (cell.contested) {
-    classes.push('contested-cell');
-  } else if (cell.ownerId === currentUserId) {
-    classes.push('owned-cell');
-    if (previewFlash) classes.push('cell-preview-flash');
-    if (cell.decayRisk === 'warning') classes.push('decay-warning');
-    if (cell.decayRisk === 'critical') classes.push('decay-critical');
-  } else if (rivalH3.has(cell.h3Index)) {
-    classes.push('rival-tracked-cell');
-  } else {
-    classes.push('rival-cell');
-  }
-  if (targetH3.has(cell.h3Index)) {
-    classes.push('capture-target-cell');
-  }
-  return classes.join(' ');
-}
-
 function mergeCells(base: MapCell[], overlay: MapCell[]) {
   const byId = new Map<string, MapCell>();
   for (const cell of base) {
@@ -366,7 +311,15 @@ function mergeCells(base: MapCell[], overlay: MapCell[]) {
 }
 
 export default function MapPage() {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
+  const location = useLocation();
+  const {
+    visible: siegeVisible,
+    gapPercent,
+    h3Index: siegeH3Index,
+    chipLabel: siegeChipLabel,
+    challengerNickname: siegeChallengerNickname,
+  } = useActiveSiege(user?.id);
   const [searchParams, setSearchParams] = useSearchParams();
   const [nearbyCells, setNearbyCells] = useState<MapCell[]>([]);
   const [myCells, setMyCells] = useState<MapCell[]>([]);
@@ -391,7 +344,20 @@ export default function MapPage() {
   const fetchFrameRef = useRef<number | null>(null);
   const [districts, setDistricts] = useState<DistrictListItem[]>([]);
   const [selectedDistrict, setSelectedDistrict] = useState<DistrictProgress | null>(null);
+  const [mapZoom, setMapZoom] = useState(13);
+  const [showStaleOnly, setShowStaleOnly] = useState(false);
+  const [showMapGuide, setShowMapGuide] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [showPostRunTutorial, setShowPostRunTutorial] = useState(false);
+  const [showPostRunFirstCapture, setShowPostRunFirstCapture] = useState(false);
+  const [postRunCaptureCells, setPostRunCaptureCells] = useState(0);
+  const [showNewcomerGuide, setShowNewcomerGuide] = useState(false);
+  const [siegeFocusActive, setSiegeFocusActive] = useState(false);
+  const [activityFocusH3, setActivityFocusH3] = useState<Set<string>>(() => new Set());
+  const [activityFocusActive, setActivityFocusActive] = useState(false);
+  const postRunQueueRef = useRef<PostRunQueue | null>(null);
   const flyTriggerRef = useRef(0);
+  const activityFocusGraceUntilRef = useRef(0);
 
   const queueFly = useCallback((mode: FlyMode, points?: LatLngExpression[]) => {
     flyTriggerRef.current += 1;
@@ -415,14 +381,128 @@ export default function MapPage() {
     setTargetsHighlight(false);
     setTargetsMessage(null);
     setTerritoryHighlight(true);
+    setShowStaleOnly(false);
     queueFly('territory');
   }, [queueFly]);
+
+  const focusStaleCells = useCallback(() => {
+    setSelectedCell(null);
+    setTargets([]);
+    setTargetsHighlight(false);
+    setTargetsMessage(null);
+    setShowStaleOnly(true);
+    setTerritoryHighlight(true);
+    const stalePoints = myCells
+      .filter((cell) => isStaleCell(cell, user?.id))
+      .map((cell) => cellCenter(cell) as LatLngExpression);
+    if (stalePoints.length > 0) {
+      queueFly('territory', stalePoints);
+    }
+  }, [myCells, queueFly, user?.id]);
 
   const dismissTargets = useCallback(() => {
     setTargets([]);
     setTargetsHighlight(false);
     setTargetsMessage(null);
   }, []);
+
+  const dismissSiegeFocus = useCallback(() => {
+    setSiegeFocusActive(false);
+  }, []);
+
+  const dismissActivityFocus = useCallback(() => {
+    if (Date.now() < activityFocusGraceUntilRef.current) {
+      return;
+    }
+    setActivityFocusActive(false);
+    setActivityFocusH3(new Set());
+  }, []);
+
+  useEffect(() => {
+    if (!siegeFocusActive) {
+      return;
+    }
+    const dismiss = () => dismissSiegeFocus();
+    const timer = window.setTimeout(() => {
+      document.addEventListener('pointerdown', dismiss, { capture: true });
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('pointerdown', dismiss, { capture: true });
+    };
+  }, [siegeFocusActive, dismissSiegeFocus]);
+
+  useEffect(() => {
+    if (!activityFocusActive) {
+      return;
+    }
+    const dismiss = () => dismissActivityFocus();
+    const timer = window.setTimeout(() => {
+      document.addEventListener('pointerdown', dismiss, { capture: true });
+    }, ACTIVITY_FOCUS_GRACE_MS);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('pointerdown', dismiss, { capture: true });
+    };
+  }, [activityFocusActive, dismissActivityFocus]);
+
+  useEffect(() => {
+    if (!targetsHighlight) {
+      return;
+    }
+    const dismiss = () => dismissTargets();
+    const timer = window.setTimeout(() => {
+      document.addEventListener('pointerdown', dismiss, { capture: true });
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('pointerdown', dismiss, { capture: true });
+    };
+  }, [targetsHighlight, dismissTargets]);
+
+  const siegeThreatH3 = useMemo(() => {
+    const set = new Set<string>();
+    for (const cell of myCells) {
+      if (cell.ownerId === user?.id && (cell.contested || cell.challengerNickname)) {
+        set.add(cell.h3Index);
+      }
+    }
+    if (siegeH3Index) {
+      set.add(siegeH3Index);
+    }
+    return set;
+  }, [myCells, siegeH3Index, user?.id]);
+
+  const focusSiegeOnMap = useCallback(() => {
+    dismissTargets();
+    dismissActivityFocus();
+    setTerritoryHighlight(false);
+    setShowStaleOnly(false);
+    setPreviewMessage(null);
+    setPreviewFlash(false);
+    setSelectedCell(null);
+    setSiegeFocusActive(true);
+
+    const points: LatLngExpression[] = [];
+    for (const cell of myCells) {
+      if (siegeThreatH3.has(cell.h3Index)) {
+        points.push(cellCenter(cell) as LatLngExpression);
+      }
+    }
+    if (points.length === 0) {
+      for (const h3Index of siegeThreatH3) {
+        try {
+          const [lat, lng] = cellToLatLng(h3Index);
+          points.push([lat, lng]);
+        } catch {
+          // skip invalid h3
+        }
+      }
+    }
+    if (points.length > 0) {
+      queueFly('targets', points);
+    }
+  }, [dismissTargets, dismissActivityFocus, myCells, queueFly, siegeThreatH3]);
 
   const dismissPreview = useCallback(() => {
     setPreviewMessage(null);
@@ -436,10 +516,27 @@ export default function MapPage() {
     if (targetsHighlight) {
       dismissTargets();
     }
+    if (siegeFocusActive) {
+      dismissSiegeFocus();
+    }
+    if (activityFocusActive) {
+      dismissActivityFocus();
+    }
     if (selectedCell) {
       closeCellSheet();
     }
-  }, [previewMessage, targetsHighlight, selectedCell, dismissPreview, dismissTargets, closeCellSheet]);
+  }, [
+    previewMessage,
+    targetsHighlight,
+    siegeFocusActive,
+    activityFocusActive,
+    selectedCell,
+    dismissPreview,
+    dismissTargets,
+    dismissSiegeFocus,
+    dismissActivityFocus,
+    closeCellSheet,
+  ]);
 
   const defaultCenter = useMemo<[number, number]>(() => {
     if (user?.homeLat != null && user.homeLng != null) {
@@ -480,6 +577,81 @@ export default function MapPage() {
     void loadSummary();
     void loadRivalCells();
   }, [loadMyCells, loadSummary, loadRivalCells, user?.stats?.cellsOwned]);
+
+  useEffect(() => {
+    if (localStorage.getItem(MAP_GUIDE_KEY) === '1') {
+      return;
+    }
+    if (hasPostRunQueue() || hasSeenHint('newcomer-guide')) {
+      return;
+    }
+    setShowMapGuide(true);
+  }, []);
+
+  useEffect(() => {
+    if (hasSeenHint('newcomer-guide') || hasPostRunQueue()) {
+      return;
+    }
+    const welcome = (location.state as { welcome?: boolean } | null)?.welcome === true;
+    const isNewPlayer =
+      (user?.stats?.totalRuns ?? 0) === 0 && (user?.stats?.cellsOwned ?? 0) === 0;
+    if (welcome || isNewPlayer) {
+      setShowNewcomerGuide(true);
+      setShowMapGuide(false);
+    }
+  }, [location.state, user?.stats?.totalRuns, user?.stats?.cellsOwned]);
+
+  const beginPostRunFirstCapture = useCallback((cells: number) => {
+    setPostRunCaptureCells(cells);
+    setShowPostRunFirstCapture(true);
+  }, []);
+
+  const processPostRunQueue = useCallback(() => {
+    const queue = readPostRunQueue();
+    if (!queue) {
+      return;
+    }
+    postRunQueueRef.current = queue;
+
+    if (queue.showTutorial) {
+      setShowPostRunTutorial(true);
+      return;
+    }
+
+    if (queue.showFirstCapture) {
+      clearPostRunQueue();
+      beginPostRunFirstCapture(queue.captureCells ?? 0);
+    }
+  }, [beginPostRunFirstCapture]);
+
+  async function dismissPostRunTutorial() {
+    setShowPostRunTutorial(false);
+    try {
+      await apiRequest('/users/me/game-tutorial-shown', { method: 'POST' });
+      await refreshProfile();
+    } catch {
+      // non-blocking
+    }
+
+    const queue = postRunQueueRef.current ?? readPostRunQueue();
+    postRunQueueRef.current = null;
+    clearPostRunQueue();
+
+    if (queue?.showFirstCapture) {
+      beginPostRunFirstCapture(queue.captureCells ?? 0);
+    }
+  }
+
+  function dismissPostRunFirstCapture() {
+    setShowPostRunFirstCapture(false);
+    postRunQueueRef.current = null;
+    clearPostRunQueue();
+  }
+
+  const dismissMapGuide = useCallback(() => {
+    localStorage.setItem(MAP_GUIDE_KEY, '1');
+    setShowMapGuide(false);
+  }, []);
 
   const loadDistricts = useCallback(async () => {
     try {
@@ -585,9 +757,13 @@ export default function MapPage() {
     setTerritoryHighlight(true);
     queueFly('territory');
 
-    const timer = window.setTimeout(() => setPreviewFlash(false), 4000);
-    return () => window.clearTimeout(timer);
-  }, [searchParams, setSearchParams, queueFly]);
+    const flashTimer = window.setTimeout(() => setPreviewFlash(false), 4000);
+    const queueTimer = window.setTimeout(() => processPostRunQueue(), 4200);
+    return () => {
+      window.clearTimeout(flashTimer);
+      window.clearTimeout(queueTimer);
+    };
+  }, [searchParams, setSearchParams, queueFly, processPostRunQueue]);
 
   useEffect(() => {
     const h3Index = searchParams.get('highlight');
@@ -596,17 +772,26 @@ export default function MapPage() {
     }
 
     setSearchParams({}, { replace: true });
+    const fromMap =
+      nearbyCells.find((cell) => cell.h3Index === h3Index) ??
+      myCells.find((cell) => cell.h3Index === h3Index) ??
+      null;
+
     try {
       const [lat, lng] = cellToLatLng(h3Index);
-      setSelectedCell({
-        h3Index,
-        lat,
-        lng,
-        ownerId: null,
-        ownerNickname: null,
-        influence: 0,
-        lastActivityAt: null,
-      });
+      const cell: MapCell =
+        fromMap ??
+        ({
+          h3Index,
+          lat,
+          lng,
+          ownerId: null,
+          ownerNickname: null,
+          influence: 0,
+          lastActivityAt: null,
+        } satisfies MapCell);
+      setSelectedCell(cell);
+      setSiegeFocusActive(false);
       setFlyRequest({
         mode: 'targets',
         trigger: ++flyTriggerRef.current,
@@ -615,31 +800,74 @@ export default function MapPage() {
     } catch {
       // invalid h3 index in URL
     }
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, nearbyCells, myCells]);
 
   useEffect(() => {
-    const activityId = searchParams.get('activity');
+    if (searchParams.get('focus') !== 'siege') {
+      return;
+    }
+    setSearchParams({}, { replace: true });
+    focusSiegeOnMap();
+  }, [searchParams, setSearchParams, focusSiegeOnMap]);
+
+  useEffect(() => {
+    const activityId =
+      searchParams.get('activity') ?? sessionStorage.getItem(ACTIVITY_FOCUS_KEY);
     if (!activityId) {
       return;
     }
 
+    sessionStorage.removeItem(ACTIVITY_FOCUS_KEY);
+
     let cancelled = false;
     void apiRequest<{
       bounds: { north: number; south: number; east: number; west: number } | null;
+      h3Indices?: string[];
+      route?: { lat: number; lng: number }[];
     }>(`/activities/${activityId}`)
       .then((activity) => {
-        if (cancelled || !activity.bounds) {
+        if (cancelled) {
           return;
         }
-        const { north, south, east, west } = activity.bounds;
-        setFlyRequest({
-          mode: 'targets',
-          trigger: ++flyTriggerRef.current,
-          points: [
+
+        dismissTargets();
+        dismissSiegeFocus();
+        setTerritoryHighlight(false);
+        setPreviewMessage(null);
+        setPreviewFlash(false);
+        setSelectedCell(null);
+
+        const h3List = h3IndicesFromRoute(activity.route, activity.h3Indices);
+        const h3Set = new Set(h3List);
+        setActivityFocusH3(h3Set);
+        setActivityFocusActive(h3Set.size > 0);
+        if (h3Set.size > 0) {
+          activityFocusGraceUntilRef.current = Date.now() + ACTIVITY_FOCUS_GRACE_MS;
+        }
+
+        const points: LatLngExpression[] = [];
+        for (const h3Index of h3Set) {
+          try {
+            const [lat, lng] = cellToLatLng(h3Index);
+            points.push([lat, lng]);
+          } catch {
+            // skip invalid h3
+          }
+        }
+        if (points.length === 0 && activity.bounds) {
+          const { north, south, east, west } = activity.bounds;
+          points.push(
             [north, west],
             [south, east],
-          ],
-        });
+          );
+        }
+        if (points.length > 0) {
+          setFlyRequest({
+            mode: 'targets',
+            trigger: ++flyTriggerRef.current,
+            points,
+          });
+        }
         setSearchParams({}, { replace: true });
       })
       .catch(() => {
@@ -651,7 +879,7 @@ export default function MapPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, dismissTargets, dismissSiegeFocus]);
 
   useEffect(() => {
     if (!previewMessage) {
@@ -666,8 +894,24 @@ export default function MapPage() {
     [myCells, nearbyCells],
   );
 
+  const visibleCells = useMemo(() => {
+    if (!showStaleOnly) {
+      return displayCells;
+    }
+    return displayCells.filter((cell) => isStaleCell(cell, user?.id));
+  }, [displayCells, showStaleOnly, user?.id]);
+
+  const visibleH3 = useMemo(() => new Set(visibleCells.map((cell) => cell.h3Index)), [visibleCells]);
+
   const rivalH3 = useMemo(() => new Set(rivalCells.map((c) => c.h3Index)), [rivalCells]);
   const targetH3 = useMemo(() => new Set(targets.map((t) => t.h3Index)), [targets]);
+  const targetCategoryByH3 = useMemo(() => {
+    const map = new Map<string, CaptureTarget['category']>();
+    for (const target of targets) {
+      map.set(target.h3Index, target.category);
+    }
+    return map;
+  }, [targets]);
 
   const territoryPoints = useMemo(
     () => myCells.map((cell) => cellCenter(cell) as LatLngExpression),
@@ -705,6 +949,8 @@ export default function MapPage() {
       setTargets(data.targets);
       setTargetsMessage(data.message);
       setTerritoryHighlight(false);
+      setSiegeFocusActive(false);
+      dismissActivityFocus();
       if (data.targets.length > 0) {
         setTargetsHighlight(true);
         void loadSummary();
@@ -753,55 +999,122 @@ export default function MapPage() {
 
   const cellsOwned = user?.stats?.cellsOwned ?? 0;
   const currentStreak = user?.stats?.currentStreak ?? 0;
-  const atRisk = summary?.cellsAtRisk ?? 0;
-  const influenceHint = influenceGainHint(summary);
+  const enrichedSummary = useMemo(
+    () => (summary ? enrichMapSummary(summary, myCells, cellsOwned) : null),
+    [summary, myCells, cellsOwned],
+  );
+  const cellsNeedingRun =
+    (enrichedSummary?.cellsWarning ?? 0) + (enrichedSummary?.cellsCritical ?? 0);
+  const atSoftCap = cellsOwned >= SOFT_CAP_CELLS;
 
-  const legendItems = [
-    { fill: 'var(--cell-own)', stroke: 'var(--cell-own-stroke, #466B58)', label: 'Своя' },
-    { fill: 'var(--cell-rival)', stroke: 'var(--cell-rival-stroke)', label: 'Соперник' },
-    { fill: '#E8F0EB', stroke: '#D4C9BA', label: 'Нейтральная' },
-    { fill: '#C4A35A', stroke: '#A88640', label: 'Риск' },
-    { fill: '#B85C5C', stroke: '#9A4848', label: 'Критично' },
-    { fill: CONTESTED_FILL, stroke: CONTESTED_STROKE, label: 'Спор' },
-    ...(targetsHighlight
-      ? [
-          { fill: TARGET_DEFEND_FILL, stroke: TARGET_DEFEND_STROKE, label: 'Защита' },
-          { fill: TARGET_FINISH_FILL, stroke: TARGET_FINISH_STROKE, label: 'Добить' },
-          { fill: TARGET_FILL, stroke: TARGET_STROKE, label: 'Захват' },
-          { fill: TARGET_EXPAND_FILL, stroke: TARGET_EXPAND_STROKE, label: 'Расширить' },
-        ]
-      : []),
+  const legendItems: Array<
+    | { fill: string; stroke: string; label: string; dash?: false; split?: false }
+    | { dash: true; stroke: string; label: string; fill?: undefined; split?: false }
+    | { split: true; label: string; fill?: undefined; dash?: false; stroke?: undefined }
+  > = [
+    { fill: MAP_OWN_FILL, stroke: MAP_OWN_STROKE, label: 'Своя' },
+    { fill: MAP_RIVAL_FILL, stroke: MAP_RIVAL_STROKE, label: 'Соперник' },
+    { fill: NEUTRAL_FILL, stroke: NEUTRAL_STROKE, label: 'Пустая' },
+    { split: true, label: 'Спорная' },
+    { dash: true, stroke: '#C4A35A', label: 'Давно не бегали' },
   ];
+
+  const streakInfo = streakDisplay(currentStreak);
+  const weeklyReport = resolveWeeklyReport(enrichedSummary);
+  const missionCount = enrichedSummary?.missions ? missionTargetCount(enrichedSummary.missions) : 0;
+  const todayMissionsLine =
+    enrichedSummary?.missions && enrichedSummary.missions.length > 0
+      ? formatTodayMissions(enrichedSummary.missions)
+      : null;
+  const targetsButtonLabel = findingTargets
+    ? 'Поиск…'
+    : missionCount > 0
+      ? `Цели (${missionCount})`
+      : 'Цели';
 
   return (
     <div className="map-page">
-      <header className="wire-map-header">
+      <header className="wire-map-header wire-map-header--mobile">
         <div className="wire-avatar" aria-hidden="true" />
-        <div>
+        <div className="wire-map-header-main">
           <strong>{user?.nickname || 'runner'}</strong>
-          <p>
-            {user?.homeAreaLabel ? `${user.homeAreaLabel} · ` : ''}
-            {softCapLabel(cellsOwned)}
-            {currentStreak > 0
-              ? ` · стрик ${currentStreak} дн · ${streakBonusLabel(currentStreak)}`
-              : ''}
-          </p>
-          {influenceHint && <p className="muted small map-influence-hint">{influenceHint}</p>}
+          <div className="map-header-stats map-header-stats--mobile">
+            <p>
+              {cellsOwned} {cellsWord(cellsOwned)}
+              {atSoftCap ? ' · лимит' : ''}
+            </p>
+            {currentStreak > 0 && (
+              <div className="map-header-streak">
+                <StreakBadge streak={currentStreak} compact />
+                {streakInfo.nextMilestone != null && streakInfo.tier === 'none' && (
+                  <span className="muted small map-header-streak__hint">
+                    до ×{streakMultiplier(streakInfo.nextMilestone).toFixed(1)} —{' '}
+                    {streakInfo.nextMilestone} дн
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="map-header-chips map-header-chips--mobile">
+          {siegeVisible && siegeChipLabel && (
+            <button
+              type="button"
+              className={`map-siege-chip${gapPercent != null && gapPercent >= 80 ? ' map-siege-chip--urgent' : ''}`}
+              onClick={focusSiegeOnMap}
+            >
+              {gapPercent != null && gapPercent >= 80 ? '⚠ ' : ''}
+              {siegeChipLabel}
+            </button>
+          )}
+          {cellsNeedingRun > 0 && (
+            <button type="button" className="map-alert-chip" onClick={focusStaleCells}>
+              ⚠ {cellsNeedingRun}
+            </button>
+          )}
         </div>
       </header>
 
-      {summary?.missions && summary.missions.length > 0 && (
-        <button
-          type="button"
-          className="map-missions"
-          onClick={() => void handleFindTargets()}
-          disabled={findingTargets}
-        >
-          <strong>Миссии:</strong>{' '}
-          {summary.missions.map((m) => `${m.count} — ${m.label}`).join(' · ')}
-        </button>
+      {todayMissionsLine && (
+        <div className="map-today-bar map-today-bar--mobile">
+          <span className="map-today-bar__label">Сегодня</span>
+          <span className="map-today-bar__text">{todayMissionsLine}</span>
+          <button
+            type="button"
+            className="ghost-btn small-btn map-today-bar__action"
+            onClick={() => void handleFindTargets()}
+            disabled={findingTargets}
+          >
+            {findingTargets ? 'Поиск…' : 'На карте'}
+          </button>
+        </div>
       )}
 
+      {showStaleOnly && (
+        <div className="map-filter-bar">
+          <span>Только клетки без пробежки</span>
+          <button type="button" className="ghost-btn small-btn" onClick={() => setShowStaleOnly(false)}>
+            Показать все
+          </button>
+        </div>
+      )}
+
+      {showMapGuide && <MapLegendHelpModal onClose={dismissMapGuide} />}
+      {showNewcomerGuide && (
+        <NewcomerGuideModal onClose={() => setShowNewcomerGuide(false)} />
+      )}
+      {showPostRunTutorial && (
+        <GameTutorialModal onClose={() => void dismissPostRunTutorial()} />
+      )}
+      {showPostRunFirstCapture && (
+        <FirstCaptureModal
+          cellsCaptured={postRunCaptureCells}
+          onClose={dismissPostRunFirstCapture}
+        />
+      )}
+
+      <div className="map-page-body">
+        <div className="map-page-main">
       <div className="map-frame">
         <MapContainer
           key={`${defaultCenter[0]}-${defaultCenter[1]}`}
@@ -814,14 +1127,24 @@ export default function MapPage() {
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+            url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
           />
           <MapControlBridge onMap={handleMapInstance} />
           <DistrictPane />
           <HighlightPane />
+          <ActivityFocusPane />
+          <LabelPane />
+          <MapHatchPatternDefs />
+          <MapZoomTracker onZoom={setMapZoom} />
           <MapEvents onMove={queueNearbyCellsLoad} />
           <MapSheetDismiss
-            active={targetsHighlight || selectedCell != null || previewMessage != null}
+            active={
+              targetsHighlight ||
+              selectedCell != null ||
+              previewMessage != null ||
+              siegeFocusActive ||
+              activityFocusActive
+            }
             onDismiss={dismissMapOverlay}
           />
           <MapFlyController
@@ -831,42 +1154,56 @@ export default function MapPage() {
           />
 
           {targetsHighlight &&
-            targets.map((target) => {
-              const paint = targetPaint(target.category);
+            targets
+              .filter((target) => !visibleH3.has(target.h3Index))
+              .map((target) => {
+                try {
+                  const boundary = cellBoundary(target.h3Index);
+                  return (
+                    <MapCellHatchOverlay
+                      key={`target-hatch-${target.h3Index}`}
+                      h3Index={target.h3Index}
+                      boundary={boundary}
+                      kind={targetCategoryToHatch(target.category)}
+                    />
+                  );
+                } catch {
+                  return null;
+                }
+              })}
+
+          {siegeFocusActive &&
+            Array.from(siegeThreatH3)
+              .filter((h3Index) => !visibleH3.has(h3Index))
+              .map((h3Index) => {
+                try {
+                  return (
+                    <MapCellHatchOverlay
+                      key={`siege-hatch-${h3Index}`}
+                      h3Index={h3Index}
+                      boundary={cellBoundary(h3Index)}
+                      kind="siege"
+                    />
+                  );
+                } catch {
+                  return null;
+                }
+              })}
+
+          {activityFocusActive &&
+            Array.from(activityFocusH3).map((h3Index) => {
               try {
-                const boundary = cellBoundary(target.h3Index);
                 return (
-                  <Polygon
-                    key={`target-${target.h3Index}`}
-                    positions={boundary}
-                    pane="highlightPane"
-                    pathOptions={{
-                      color: paint.stroke,
-                      fillColor: paint.fill,
-                      fillOpacity: 0.92,
-                      opacity: 1,
-                      weight: 3.5,
-                      lineJoin: 'round',
-                      className: 'capture-target-cell capture-target-emphasis',
-                    }}
+                  <MapCellHatchOverlay
+                    key={`run-hatch-${h3Index}`}
+                    h3Index={h3Index}
+                    boundary={cellBoundary(h3Index)}
+                    kind="run"
+                    pane="activityFocusPane"
                   />
                 );
               } catch {
-                return (
-                  <Circle
-                    key={`target-fallback-${target.h3Index}`}
-                    center={[target.lat, target.lng]}
-                    radius={95}
-                    pane="highlightPane"
-                    pathOptions={{
-                      color: paint.stroke,
-                      fillColor: paint.fill,
-                      fillOpacity: 0.5,
-                      weight: 3,
-                      className: 'capture-target-cell capture-target-emphasis',
-                    }}
-                  />
-                );
+                return null;
               }
             })}
 
@@ -930,52 +1267,33 @@ export default function MapPage() {
             </>
           )}
 
-          {displayCells.map((cell) => {
+          {visibleCells.map((cell) => {
             try {
               const boundary = cellBoundary(cell.h3Index);
-              const paint = cellPaint(cell, user?.id, rivalH3, targetH3, previewFlash);
               const isMine = cell.ownerId === user?.id;
               const isTarget = targetH3.has(cell.h3Index);
               const isSelected = selectedCell?.h3Index === cell.h3Index;
               const emphasizeMine = isMine && territoryHighlight;
               const emphasizeTarget = isTarget && targetsHighlight;
-              const fillOpacity = resolveCellFillOpacity(paint, {
-                isSelected,
-                emphasizeMine,
-                emphasizeTarget,
-              });
-              const strokeOpacity = 0.35 + 0.65 * influenceVisualStrength(cell.influence ?? 0);
+              const emphasizeSiege = siegeFocusActive && siegeThreatH3.has(cell.h3Index);
+              const emphasizeRun = activityFocusActive && activityFocusH3.has(cell.h3Index);
+
               return (
-                <Polygon
+                <MapCellPolygons
                   key={cell.h3Index}
-                  positions={boundary}
-                  pathOptions={{
-                    color: isSelected
-                      ? '#1A1A1A'
-                      : emphasizeMine
-                        ? '#4A7A4A'
-                        : emphasizeTarget
-                          ? TARGET_STROKE
-                          : paint.stroke,
-                    fillColor: paint.fill,
-                    fillOpacity,
-                    opacity: strokeOpacity,
-                    weight: isSelected ? 4.5 : emphasizeMine || emphasizeTarget ? 3.5 : 2,
-                    lineJoin: 'round',
-                    className: [
-                      cellClassName(cell, user?.id, rivalH3, targetH3, previewFlash),
-                      emphasizeMine ? 'territory-emphasis' : '',
-                      isSelected ? 'map-cell-selected' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' '),
-                  }}
-                  eventHandlers={{
-                    click: (event) => {
-                      L.DomEvent.stopPropagation(event.originalEvent);
-                      setSelectedCell(cell);
-                    },
-                  }}
+                  cell={cell}
+                  boundary={boundary}
+                  userId={user?.id}
+                  rivalH3={rivalH3}
+                  targetH3={targetH3}
+                  targetCategoryByH3={targetCategoryByH3}
+                  previewFlash={previewFlash}
+                  isSelected={isSelected}
+                  emphasizeMine={emphasizeMine}
+                  emphasizeTarget={emphasizeTarget}
+                  emphasizeSiege={emphasizeSiege}
+                  emphasizeRun={emphasizeRun}
+                  onSelect={setSelectedCell}
                 />
               );
             } catch {
@@ -983,45 +1301,41 @@ export default function MapPage() {
             }
           })}
 
-          {selectedCell &&
-            (() => {
-              try {
-                const paint = cellPaint(
-                  selectedCell,
-                  user?.id,
-                  rivalH3,
-                  targetH3,
-                  previewFlash,
-                );
-                return (
-                  <Polygon
-                    key={`selected-${selectedCell.h3Index}`}
-                    positions={cellBoundary(selectedCell.h3Index)}
-                    pane="highlightPane"
-                    pathOptions={{
-                      color: '#1A1A1A',
-                      fillColor: paint.fill,
-                      fillOpacity: 0,
-                      weight: 5,
-                      opacity: 1,
-                      lineJoin: 'round',
-                      interactive: false,
-                      className: 'map-cell-selected-ring',
-                    }}
-                  />
-                );
-              } catch {
-                return null;
-              }
-            })()}
+          <CellInfluenceLabels
+            cells={visibleCells}
+            zoom={mapZoom}
+            userId={user?.id}
+          />
+
         </MapContainer>
 
-        <div className="map-parchment-overlay" aria-hidden="true" />
+        <div className="map-chrome">
+        <div className="map-float-identity">
+          <div className="wire-avatar" />
+          <div className="map-float-identity__copy">
+            <strong>{user?.nickname || 'runner'}</strong>
+            {atSoftCap && <span className="map-float-identity__cap">лимит</span>}
+          </div>
+        </div>
 
-        <ul className="map-legend" aria-label="Легенда карты">
+        <ul
+          className={`map-legend${legendOpen ? ' is-open' : ''}`}
+          aria-label="Легенда карты"
+        >
           {legendItems.map((item) => (
             <li key={item.label}>
-              <span style={{ background: item.fill, borderColor: item.stroke }} />
+              {item.split ? (
+                <span className="map-legend-swatch map-legend-swatch--split" />
+              ) : (
+                <span
+                  className={item.dash ? 'map-legend-swatch map-legend-swatch--dash' : 'map-legend-swatch'}
+                  style={
+                    item.dash
+                      ? { borderColor: item.stroke }
+                      : { background: item.fill, borderColor: item.stroke }
+                  }
+                />
+              )}
               {item.label}
             </li>
           ))}
@@ -1036,7 +1350,7 @@ export default function MapPage() {
           </div>
         )}
 
-        {loading && displayCells.length === 0 && (
+        {loading && visibleCells.length === 0 && (
           <div className="map-overlay map-overlay--full">
             Загружаем карту…
           </div>
@@ -1044,43 +1358,165 @@ export default function MapPage() {
 
         {refreshing && <div className="map-sync-indicator" aria-hidden="true" />}
 
-        {initialLoadDone && myCells.length === 0 && displayCells.length === 0 && (
+        {initialLoadDone &&
+          myCells.length === 0 &&
+          visibleCells.length === 0 &&
+          cellsOwned === 0 && (
           <div className="map-empty-state">
             <p><strong>У тебя пока нет клеток</strong></p>
             <p>Загрузи первую пробежку на вкладке «Бег».</p>
           </div>
         )}
-      </div>
 
-      {previewMessage && (
-        <p className="map-floating-toast" role="status">
-          {previewMessage}
-        </p>
-      )}
-
-      {targetsHighlight && targetsMessage && (
-        <p className="map-floating-toast" role="status">
-          {targetsMessage}
-        </p>
-      )}
-
-      <div className="map-action-bar" aria-label="Быстрые действия карты">
-        <button type="button" onClick={flyTerritory} disabled={myCells.length === 0}>
-          Моя территория
-        </button>
-        {atRisk > 0 && (
-          <button type="button" onClick={flyTerritory}>⚠ {atRisk} клетки</button>
+        {initialLoadDone &&
+          myCells.length === 0 &&
+          visibleCells.length === 0 &&
+          cellsOwned > 0 &&
+          !error && (
+          <div className="map-empty-state">
+            <p><strong>Клетки не загрузились</strong></p>
+            <p>Проверьте, что API и Postgres запущены, затем обновите страницу.</p>
+          </div>
         )}
-        <button type="button" onClick={flyHome} disabled={homeCenter == null}>
-          Дом
-        </button>
-        <button
-          type="button"
-          onClick={() => void handleFindTargets()}
-          disabled={findingTargets}
-        >
-          {findingTargets ? 'Поиск…' : 'Цели'}
-        </button>
+
+        {previewMessage && (
+          <div className="map-focus-banner map-focus-banner--targets" role="status">
+            <span>{previewMessage}</span>
+            <button type="button" className="ghost-btn small-btn" onClick={dismissPreview}>
+              Закрыть
+            </button>
+          </div>
+        )}
+
+        {targetsHighlight && targetsMessage && (
+          <div
+            className="map-focus-banner map-focus-banner--targets map-focus-banner--passive"
+            role="status"
+          >
+            <span>{targetsMessage}</span>
+          </div>
+        )}
+
+        {siegeFocusActive && (
+          <div
+            className="map-focus-banner map-focus-banner--siege map-focus-banner--passive"
+            role="status"
+          >
+            <span>
+              {siegeThreatH3.size > 1
+                ? `${siegeThreatH3.size} ${cellsWord(siegeThreatH3.size)} под атакой`
+                : `Клетка под атакой${siegeChallengerNickname ? ` от ${siegeChallengerNickname}` : ''}`}
+            </span>
+          </div>
+        )}
+
+        {activityFocusActive && activityFocusH3.size > 0 && (
+          <div
+            className="map-focus-banner map-focus-banner--run map-focus-banner--passive"
+            role="status"
+          >
+            <span>
+              {activityFocusH3.size} {cellsWord(activityFocusH3.size)} на маршруте пробежки
+            </span>
+          </div>
+        )}
+
+        <div className="map-action-dock" aria-label="Быстрые действия карты">
+          <button
+            type="button"
+            className="map-action-dock__icon"
+            aria-label="Справка по карте"
+            onClick={() => setShowMapGuide(true)}
+          >
+            ?
+          </button>
+          <button
+            type="button"
+            className={legendOpen ? 'is-active' : undefined}
+            aria-label={legendOpen ? 'Скрыть легенду' : 'Показать легенду'}
+            aria-pressed={legendOpen}
+            onClick={() => setLegendOpen((open) => !open)}
+          >
+            Цвета
+          </button>
+          <span className="map-action-dock__sep" aria-hidden="true" />
+          <button type="button" onClick={flyTerritory} disabled={myCells.length === 0}>
+            Территория
+          </button>
+          <button type="button" onClick={flyHome} disabled={homeCenter == null}>
+            Дом
+          </button>
+          <button
+            type="button"
+            className={missionCount > 0 ? 'map-action-dock__primary' : undefined}
+            onClick={() => void handleFindTargets()}
+            disabled={findingTargets}
+          >
+            {targetsButtonLabel}
+          </button>
+        </div>
+
+        <aside className="map-desktop-rail" aria-label="Задачи и статус">
+          {siegeVisible && siegeChipLabel && (
+            <button
+              type="button"
+              className={`map-rail-alert map-rail-alert--siege${gapPercent != null && gapPercent >= 80 ? ' map-rail-alert--urgent' : ''}`}
+              onClick={focusSiegeOnMap}
+            >
+              <span className="map-rail-alert__icon" aria-hidden="true">
+                ⚠
+              </span>
+              <span className="map-rail-alert__text">{siegeChipLabel}</span>
+            </button>
+          )}
+
+          <div className="map-rail-hero">
+            <p className="map-rail-hero__stat">
+              <span className="map-rail-hero__value">{cellsOwned}</span>
+              <span className="map-rail-hero__label">{cellsWord(cellsOwned)}</span>
+            </p>
+            {currentStreak > 0 && (
+              <div className="map-rail-hero__streak">
+                <StreakBadge streak={currentStreak} />
+                {streakInfo.nextMilestone != null && streakInfo.tier === 'none' && (
+                  <span className="map-rail-hero__streak-hint">
+                    ×{streakMultiplier(streakInfo.nextMilestone).toFixed(1)} через{' '}
+                    {streakInfo.nextMilestone - currentStreak} дн
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {todayMissionsLine && (
+            <div className="map-rail-mission">
+              <span className="map-rail-mission__label">Сегодня</span>
+              <p className="map-rail-mission__text">{todayMissionsLine}</p>
+              <button
+                type="button"
+                className="primary-btn small-btn map-rail-mission__cta"
+                onClick={() => void handleFindTargets()}
+                disabled={findingTargets}
+              >
+                {findingTargets ? 'Поиск…' : 'На карте'}
+              </button>
+            </div>
+          )}
+
+          {weeklyReport && <WeeklyReportCard report={weeklyReport} compact />}
+
+          {cellsNeedingRun > 0 && (
+            <button type="button" className="map-rail-alert map-rail-alert--decay" onClick={focusStaleCells}>
+              <span className="map-rail-alert__icon" aria-hidden="true">
+                ⏱
+              </span>
+              <span className="map-rail-alert__text">
+                {cellsNeedingRun} {cellsWord(cellsNeedingRun)} без пробежки
+              </span>
+            </button>
+          )}
+        </aside>
+        </div>
       </div>
 
       {error && (
@@ -1096,6 +1532,8 @@ export default function MapPage() {
           Клетки далеко от базы — нажмите «Моя территория».
         </p>
       )}
+        </div>
+      </div>
 
       <CellBottomSheet cell={selectedCell} onClose={closeCellSheet} />
     </div>

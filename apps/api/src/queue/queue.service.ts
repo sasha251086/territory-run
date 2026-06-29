@@ -12,6 +12,7 @@ import { sanitizeTrackPoints } from '../common/track.util';
 import { haversineDistance } from '../common/geo.util';
 import { captureException } from '../common/sentry.util';
 import { nextStreakState } from '../common/streak.util';
+import { DECAY_GRACE_DAYS } from '../common/constants';
 
 @Injectable()
 export class QueueService implements OnModuleInit, OnModuleDestroy {
@@ -131,7 +132,11 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     const previewIndices = [...previewCells];
     const previousOwners = await this.ownershipService.snapshotOwners(previewIndices);
 
-    const affectedCells = await this.influenceService.processTrack(activity.userId, track);
+    const affectedCells = await this.influenceService.processTrack(
+      activity.userId,
+      track,
+      activity.finishedAt,
+    );
     const ownerResults = await this.ownershipService.recalculateOwners(
       affectedCells.h3Indices,
       previousOwners,
@@ -189,6 +194,16 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       WHERE "userId" = ${activity.userId}
     `) as { cells: bigint; influence: number }[];
 
+    const graceCutoff = new Date();
+    graceCutoff.setDate(graceCutoff.getDate() - DECAY_GRACE_DAYS);
+    const cellsStillAtRisk = await this.prisma.cellOwnership.count({
+      where: {
+        userId: activity.userId,
+        h3Index: { notIn: affectedCells.h3Indices },
+        lastActivityAt: { lt: graceCutoff },
+      },
+    });
+
     await this.prisma.userStats.update({
       where: { userId: activity.userId },
       data: {
@@ -207,7 +222,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       cellsCaptured,
       newCellsCaptured,
       pvpCaptures,
-      influenceAdded: Math.round(affectedCells.influenceAdded * 10) / 10,
+      influenceAdded: Math.round(affectedCells.influenceAdded),
     });
 
     await this.prisma.activity.update({
@@ -219,7 +234,8 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
         cellsTouched: affectedCells.h3Indices.length,
         newCellsCaptured,
         pvpCaptures,
-        influenceAdded: affectedCells.influenceAdded,
+        influenceAdded: Math.round(affectedCells.influenceAdded),
+        cellsStillAtRisk,
       },
     });
 

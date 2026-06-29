@@ -11,23 +11,29 @@ import {
 } from './dto/cell-response.dto';
 import { haversineDistance, roundCoord } from '../common/geo.util';
 import {
+  BASE_INFLUENCE,
   CAPTURE_TARGET_EXPAND_LIMIT,
   CAPTURE_TARGET_FINISH_GAP,
   CAPTURE_TARGET_MAX_GAP,
   CAPTURE_TARGET_RADIUS_M,
-  DECAY_THREAT_DAYS,
   SIEGE_THRESHOLD,
 } from '../common/constants';
 import {
+  dailyDecayLoss,
   daysSinceActivity,
   decayRiskFor,
+  describeCellLifespan,
+  freshnessStatus,
   runsToCapture,
+  coerceActivityDate,
 } from '../common/cell-decay.util';
 import { estimateInfluencePerRun, describeInfluenceGain } from '../common/influence-gain.util';
 import {
   getCellContestState,
   rankCellOwnerships,
 } from '../common/cell-ownership.util';
+import { LeaderboardService } from '../leaderboard/leaderboard.service';
+import type { WeeklyReportDto } from './dto/cell-response.dto';
 
 type OwnershipWithUser = {
   userId: string;
@@ -41,6 +47,7 @@ export class MapService {
   constructor(
     private prisma: PrismaService,
     private redisService: RedisService,
+    private leaderboardService: LeaderboardService,
   ) {}
 
   async getCells(query: MapQueryDto, userId: string): Promise<CellResponseDto[]> {
@@ -154,6 +161,11 @@ export class MapService {
     });
     const nickById = new Map(users.map((u) => [u.id, u.nickname]));
 
+    const myLastActivityAt = coerceActivityDate(myOwnership?.lastActivityAt);
+    const lifespan = myOwnership
+      ? describeCellLifespan(myOwnership.influence, myLastActivityAt)
+      : null;
+
     return {
       h3Index,
       players: allRanked.slice(0, 5),
@@ -169,6 +181,12 @@ export class MapService {
       contestGap: contest.contested ? contest.contestGap : null,
       tiedOnInfluence: contest.tiedOnInfluence,
       challengerNickname: contest.contested ? second?.user.nickname ?? null : null,
+      myLastActivityAt,
+      daysSinceMyActivity: lifespan?.daysSinceActivity ?? null,
+      decayRisk: lifespan?.decayRisk ?? 'none',
+      freshness: lifespan?.freshness ?? undefined,
+      dailyInfluenceLoss: lifespan?.dailyLossInternal ?? 0,
+      daysUntilWipe: lifespan?.daysUntilWipe ?? null,
       history: historyRows.map((row) => ({
         fromNickname: row.fromUserId ? nickById.get(row.fromUserId) ?? null : null,
         toNickname: nickById.get(row.toUserId) ?? 'Игрок',
@@ -307,13 +325,30 @@ export class MapService {
 
     const myOwnerships = await this.prisma.cellOwnership.findMany({
       where: { userId },
-      select: { lastActivityAt: true },
+      select: { lastActivityAt: true, influence: true },
     });
 
-    const cellsAtRisk = myOwnerships.filter((o) => {
-      const days = daysSinceActivity(o.lastActivityAt);
-      return days != null && days >= DECAY_THREAT_DAYS;
-    }).length;
+    let cellsFresh = 0;
+    let cellsWarning = 0;
+    let cellsCritical = 0;
+    let dailyInfluenceLossInternal = 0;
+
+    for (const ownership of myOwnerships) {
+      const freshness = freshnessStatus(ownership.lastActivityAt);
+      if (freshness === 'fresh') {
+        cellsFresh += 1;
+      } else if (freshness === 'warning') {
+        cellsWarning += 1;
+      } else {
+        cellsCritical += 1;
+      }
+      dailyInfluenceLossInternal += dailyDecayLoss(
+        ownership.influence,
+        ownership.lastActivityAt,
+      );
+    }
+
+    const cellsAtRisk = cellsCritical;
 
     let captureTargetsNearby = 0;
     let missions: MapSummaryResponseDto['missions'] = [];
@@ -322,9 +357,16 @@ export class MapService {
       include: { stats: true },
     });
     if (user?.homeLat != null && user.homeLng != null) {
-      const { targets } = await this.getCaptureTargets(userId, user.homeLat, user.homeLng);
-      captureTargetsNearby = targets.length;
-      missions = this.buildMissionHints(targets);
+      try {
+        const { targets } = await this.getCaptureTargets(userId, user.homeLat, user.homeLng);
+        captureTargetsNearby = targets.length;
+        missions = this.buildMissionHints(targets);
+      } catch (err) {
+        console.error(
+          '[MapService.getMapSummary] getCaptureTargets failed:',
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
 
     const weekAgo = new Date();
@@ -359,17 +401,114 @@ export class MapService {
         })
       : null;
 
+    const weeklyReport = await this.buildWeeklyReport(
+      userId,
+      cellsGainedThisWeek,
+      weeklyGoal,
+      weeklyProgressPercent,
+    );
+
     return {
       cellsAtRisk,
+      cellsFresh,
+      cellsWarning,
+      cellsCritical,
+      dailyInfluenceLoss: dailyInfluenceLossInternal,
       captureTargetsNearby,
       territoryAreaM2,
       cellsGainedThisWeek,
       weeklyProgressPercent,
       missions,
-      influencePerRun: influenceGain?.perRun ?? 1,
+      influencePerRun: influenceGain?.perRun ?? BASE_INFLUENCE,
       effectiveInfluenceMultiplier: influenceGain?.effectiveMultiplier ?? 1,
       influenceMultiplierCapped: influenceGain?.multiplierCapped ?? false,
       atSoftCap: influenceGain?.atSoftCap ?? false,
+      locationMultiplier: influenceGain?.locationMultiplier ?? 1,
+      streakMultiplier: influenceGain?.streakMultiplier ?? 1,
+      softCapMultiplier: influenceGain?.softCapMultiplier ?? 1,
+      weeklyReport,
+    };
+  }
+
+  private cellsWordRu(count: number): string {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    if (mod10 === 1 && mod100 !== 11) return 'клетка';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'клетки';
+    return 'клеток';
+  }
+
+  private async buildWeeklyReport(
+    userId: string,
+    cellsGainedThisWeek: number,
+    weeklyGoal: number,
+    weeklyProgressPercent: number,
+  ): Promise<WeeklyReportDto> {
+    const regional = await this.leaderboardService.getRegionalLeaderboard(userId, 5, 'cells');
+    let rivalNickname: string | null = null;
+    let rivalBeat = false;
+    let bestInArea = false;
+
+    if (!regional.noHomeBase && regional.items.length > 0) {
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const userIds = regional.items.map((item) => item.userId);
+      const weeklyGains = await this.prisma.activity.groupBy({
+        by: ['userId'],
+        where: {
+          userId: { in: userIds },
+          status: 'completed',
+          processedAt: { gte: weekAgo },
+        },
+        _sum: { cellsCaptured: true },
+      });
+      const gainByUser = new Map(
+        weeklyGains.map((row) => [row.userId, row._sum.cellsCaptured ?? 0]),
+      );
+
+      const myIndex = regional.items.findIndex((item) => item.userId === userId);
+      const myGain = cellsGainedThisWeek;
+
+      if (myIndex === 0 && regional.items.length > 1 && myGain > 0) {
+        const maxOther = Math.max(
+          ...regional.items
+            .filter((item) => item.userId !== userId)
+            .map((item) => gainByUser.get(item.userId) ?? 0),
+        );
+        if (myGain >= maxOther) {
+          bestInArea = true;
+        }
+      } else if (myIndex > 0) {
+        const above = regional.items[myIndex - 1]!;
+        const theirGain = gainByUser.get(above.userId) ?? 0;
+        if (myGain > theirGain) {
+          rivalNickname = above.nickname;
+          rivalBeat = true;
+        }
+      }
+    }
+
+    const headlineParts: string[] = [];
+    if (cellsGainedThisWeek > 0) {
+      headlineParts.push(
+        `+${cellsGainedThisWeek} ${this.cellsWordRu(cellsGainedThisWeek)} за неделю`,
+      );
+    } else {
+      headlineParts.push('Пока без новых клеток за неделю');
+    }
+    if (bestInArea) {
+      headlineParts.push('лучший темп в районе');
+    } else if (rivalNickname && rivalBeat) {
+      headlineParts.push(`обгоняете ${rivalNickname}`);
+    }
+
+    return {
+      cellsGained: cellsGainedThisWeek,
+      weeklyGoal,
+      progressPercent: weeklyProgressPercent,
+      headline: headlineParts.join(' · '),
+      rivalNickname,
+      rivalBeat,
     };
   }
 
@@ -445,7 +584,7 @@ export class MapService {
     const center = cell.center as { lat: number; lng: number } | null;
     const myOwnership = ranked.find((o) => o.userId === userId);
     const myInfluence = myOwnership?.influence;
-    const myLastActivityAt = myOwnership?.lastActivityAt ?? null;
+    const myLastActivityAt = coerceActivityDate(myOwnership?.lastActivityAt);
     const isOwner = topOwner?.userId === userId;
 
     let gapToLeader: number | undefined;
@@ -472,7 +611,7 @@ export class MapService {
       ownerId: topOwner?.userId || null,
       ownerNickname: topOwner?.user?.nickname || null,
       influence: topOwner?.influence || 0,
-      lastActivityAt: topOwner?.lastActivityAt || null,
+      lastActivityAt: coerceActivityDate(topOwner?.lastActivityAt),
       lat: center?.lat ?? cell.centerLat ?? null,
       lng: center?.lng ?? cell.centerLng ?? null,
       myInfluence,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { apiRequest } from '../api/client';
 import type { FeedEvent } from '../api/types';
-import { formatFeedEvent } from '../utils/feed-format';
+import { buildSiegeNotificationText } from '../utils/siege-notification';
 
 const STORAGE_KEY = 'tr_siege_notifications';
 const POLL_MS = 60_000;
@@ -24,7 +24,11 @@ export async function requestSiegeNotifications(): Promise<boolean> {
   return granted;
 }
 
-export function useSiegeNotificationPolling(userId?: string) {
+export function useSiegeNotificationPolling(
+  userId?: string,
+  homeLat?: number | null,
+  homeLng?: number | null,
+) {
   const seenRef = useRef<Set<string>>(new Set());
   const initializedRef = useRef(false);
 
@@ -49,8 +53,13 @@ export function useSiegeNotificationPolling(userId?: string) {
         if (!initializedRef.current) {
           continue;
         }
-        const body = formatFeedEvent(event, userId);
-        new Notification('Territory Run · Осада', {
+        const { title, body } = buildSiegeNotificationText(
+          event,
+          userId,
+          homeLat,
+          homeLng,
+        );
+        new Notification(title, {
           body,
           tag: `siege-${event.id}`,
         });
@@ -59,7 +68,7 @@ export function useSiegeNotificationPolling(userId?: string) {
     } catch {
       // ignore polling errors
     }
-  }, [userId]);
+  }, [userId, homeLat, homeLng]);
 
   useEffect(() => {
     if (!userId || !readSiegeNotificationsEnabled()) {

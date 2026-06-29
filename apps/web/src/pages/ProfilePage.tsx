@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiRequest } from '../api/client';
-import type { IntegrationInfo, RivalFollow } from '../api/types';
+import type {
+  IntegrationInfo,
+  MapCell,
+  MapSummary,
+  RegionalLeaderboardResponse,
+  RivalFollow,
+} from '../api/types';
 import { useAuth } from '../context/AuthContext';
 import {
   readSiegeNotificationsEnabled,
@@ -19,13 +25,22 @@ import {
   daysUntilFreezeAvailable,
   daysUntilFreezeEnds,
 } from '../utils/freeze';
+import { hasSeenHint, markHintSeen } from '../utils/first-time-hint';
+import { resolveWeeklyReport } from '../utils/weekly-report';
+import { enrichMapSummary } from '../utils/map-summary-enrich';
+import { streakDisplay } from '../utils/streak-display';
 
+import GameTutorialModal from '../components/GameTutorialModal';
+import StreakBadge from '../components/StreakBadge';
+import WeeklyReportCard from '../components/WeeklyReportCard';
 import {
-  softCapLabel,
-  streakBonusLabel,
-  MAX_INFLUENCE_GAIN_MULTIPLIER,
-  SOFT_CAP_CELLS,
+  displayInfluence,
+  influenceGainHint,
+  streakMultiplier,
   DECAY_DELETE_AFTER_DAYS,
+  DECAY_PERCENT_PER_DAY,
+  DECAY_GRACE_DAYS,
+  SOFT_CAP_CELLS,
 } from '../constants/game';
 
 export default function ProfilePage() {
@@ -40,6 +55,14 @@ export default function ProfilePage() {
   const [freezeLoading, setFreezeLoading] = useState(false);
   const [freezeMessage, setFreezeMessage] = useState<string | null>(null);
   const [uiOrigin, setUiOrigin] = useState('');
+  const [mapSummary, setMapSummary] = useState<MapSummary | null>(null);
+  const [regionalLeaderboard, setRegionalLeaderboard] =
+    useState<RegionalLeaderboardResponse | null>(null);
+  const [showRules, setShowRules] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [showInfluenceHint, setShowInfluenceHint] = useState(
+    () => !hasSeenHint('influence'),
+  );
 
   useEffect(() => {
     setUiOrigin(window.location.origin);
@@ -47,15 +70,24 @@ export default function ProfilePage() {
 
   useEffect(() => {
     async function load() {
-      const [integrationsData, rivalsData] = await Promise.all([
-        apiRequest<IntegrationInfo[]>('/integrations'),
-        apiRequest<RivalFollow[]>('/rivals'),
-      ]);
+      const [integrationsData, rivalsData, summaryData, mineData, regionalData] =
+        await Promise.all([
+          apiRequest<IntegrationInfo[]>('/integrations'),
+          apiRequest<RivalFollow[]>('/rivals'),
+          apiRequest<MapSummary>('/map/summary'),
+          apiRequest<{ cells: MapCell[] }>('/map/cells/mine'),
+          apiRequest<RegionalLeaderboardResponse>('/leaderboard/regional?metric=cells').catch(
+            () => null,
+          ),
+        ]);
       setIntegrations(integrationsData);
       setRivals(rivalsData);
+      const owned = user?.stats?.cellsOwned ?? 0;
+      setMapSummary(enrichMapSummary(summaryData, mineData.cells, owned));
+      setRegionalLeaderboard(regionalData);
     }
     void load();
-  }, []);
+  }, [user?.stats?.cellsOwned]);
 
   async function connectStrava() {
     setLoading(true);
@@ -85,7 +117,11 @@ export default function ProfilePage() {
   );
 
   const currentStreak = user?.stats?.currentStreak ?? 0;
-  const streakBonus = streakBonusLabel(currentStreak);
+  const streakInfo = streakDisplay(currentStreak);
+  const weeklyReport = resolveWeeklyReport(mapSummary, {
+    userId: user?.id,
+    regional: regionalLeaderboard,
+  });
 
   async function handleRefreshProfile() {
     setRefreshing(true);
@@ -195,6 +231,14 @@ export default function ProfilePage() {
 
   const notifySupported = typeof Notification !== 'undefined';
 
+  const cellsOwned = user?.stats?.cellsOwned ?? 0;
+  const atSoftCap = cellsOwned >= SOFT_CAP_CELLS;
+
+  function dismissInfluenceHint() {
+    markHintSeen('influence');
+    setShowInfluenceHint(false);
+  }
+
   return (
     <div className="page-screen">
       <header className="profile-header">
@@ -203,7 +247,7 @@ export default function ProfilePage() {
           <h1>{user?.nickname}</h1>
           <p>{user?.email}</p>
         </div>
-        <span className="wire-chip">{softCapLabel(user?.stats?.cellsOwned ?? 0)}</span>
+        {atSoftCap && <span className="wire-chip wire-chip--warn">лимит клеток</span>}
       </header>
 
       <div className="stats-grid">
@@ -212,45 +256,97 @@ export default function ProfilePage() {
           <strong>{user?.stats?.cellsOwned ?? 0}</strong>
         </div>
         <div>
-          <span>Влияние</span>
-          <strong>{Math.round(user?.stats?.totalInfluence ?? 0)}</strong>
+          <span>Сила клеток</span>
+          <strong>{displayInfluence(user?.stats?.totalInfluence ?? 0)}</strong>
         </div>
         <div>
           <span>Пробежки</span>
           <strong>{user?.stats?.totalRuns ?? 0}</strong>
         </div>
-        <div>
+        <div className="stats-grid__streak">
           <span>Стрик</span>
-          <strong>
-            {currentStreak > 0 ? `${currentStreak} дн · ${streakBonusLabel(currentStreak)}` : '—'}
-          </strong>
+          {currentStreak > 0 ? (
+            <>
+              <StreakBadge streak={currentStreak} />
+              {streakInfo.nextMilestone != null && (
+                <p className="muted small stats-grid__streak-hint">
+                  Ещё {streakInfo.nextMilestone - currentStreak} дн до ×
+                  {streakMultiplier(streakInfo.nextMilestone).toFixed(1)}
+                </p>
+              )}
+            </>
+          ) : (
+            <strong>—</strong>
+          )}
         </div>
       </div>
 
-      {currentStreak > 0 && streakBonus && (
-        <p className="muted small">Бонус стрика: {streakBonus}</p>
+      {showInfluenceHint && (
+        <div className="info-box profile-influence-hint">
+          <p>
+            <strong>Сила клетки (0–100)</strong> — насколько вы контролируете клетку. Чем выше число,
+            тем сложнее её отнять. Пробежка через клетку добавляет силу.
+          </p>
+          <button type="button" className="ghost-btn small-btn" onClick={dismissInfluenceHint}>
+            Понятно
+          </button>
+        </div>
       )}
 
-      <section className="profile-section profile-mechanics">
-        <h2>Игровые правила</h2>
-        <ul className="game-mechanics-list">
-          <li>Домашняя зона: бонус ×1.25 к влиянию в радиусе 350 м от базы.</li>
-          <li>
-            Soft cap: после {SOFT_CAP_CELLS} клеток прирост влияния ×0.5 —{' '}
-            {softCapLabel(user?.stats?.cellsOwned ?? 0)}.
-          </li>
-          <li>Потолок множителей за пробежку в клетке: ×{MAX_INFLUENCE_GAIN_MULTIPLIER}.</li>
-          <li>Затухание: −2% в день, обнуление через {DECAY_DELETE_AFTER_DAYS} дней без бега.</li>
-          <li>На карте — миссии и «Цели»: защита, добивание, захват, расширение.</li>
-        </ul>
+      {weeklyReport && (
+        <section className="profile-section">
+          <WeeklyReportCard report={weeklyReport} />
+        </section>
+      )}
+
+      <section className="profile-section profile-territory-tiles">
+        <h2>Территория</h2>
+        {mapSummary ? (
+          <>
+            <div className="territory-tiles">
+              <div className="territory-tile territory-tile--fresh">
+                <strong>{mapSummary.cellsFresh ?? 0}</strong>
+                <span>В порядке</span>
+              </div>
+              <div className="territory-tile territory-tile--warning">
+                <strong>{mapSummary.cellsWarning ?? 0}</strong>
+                <span>Нужна пробежка</span>
+              </div>
+              <div className="territory-tile territory-tile--critical">
+                <strong>{mapSummary.cellsCritical ?? 0}</strong>
+                <span>Срочно</span>
+              </div>
+            </div>
+            {(mapSummary.dailyInfluenceLoss ?? 0) > 0 && (
+              <p className="muted small">
+                Следующее ослабление: −{displayInfluence(mapSummary.dailyInfluenceLoss)} влияния
+              </p>
+            )}
+            {influenceGainHint(mapSummary) && showRules && (
+              <p className="muted small">{influenceGainHint(mapSummary)}</p>
+            )}
+          </>
+        ) : (
+          <p className="muted small">Загрузка…</p>
+        )}
+        <div className="profile-territory-actions">
+          <Link to="/map" className="ghost-btn small-btn">
+            На карту
+          </Link>
+          <button type="button" className="ghost-btn small-btn" onClick={() => setShowRules(true)}>
+            Правила
+          </button>
+        </div>
       </section>
+
+      {showRules && <GameTutorialModal onClose={() => setShowRules(false)} />}
 
       <section className="profile-section">
         <h2>Уведомления</h2>
         {notifySupported ? (
           <>
             <div className="profile-notify-row">
-              <p className="muted">Осады ваших клеток (проверка раз в минуту)</p>
+              <p className="muted">Осады ваших клеток с расстоянием от дома (проверка раз в минуту)</p>
               <button
                 type="button"
                 className={siegeNotifyEnabled ? 'primary-btn small-btn' : 'ghost-btn small-btn'}
@@ -267,22 +363,106 @@ export default function ProfilePage() {
       </section>
 
       {showSamsungSettings && (
-        <section className="profile-section">
-          <h2>Samsung Health</h2>
-          <p className="muted small">
-            На Samsung с APK импорт идёт через Samsung Health Data SDK (GPS-маршруты). Ручная синхронизация — на
-            вкладке <Link to="/activities">Пробежки</Link>.
-          </p>
-          <label className="profile-notify-row" style={{ cursor: 'pointer' }}>
-            <span>Автоматически загружать новые пробежки</span>
-            <input
-              type="checkbox"
-              checked={samsungAutoSync}
-              onChange={() => void toggleSamsungAutoSync()}
-              aria-label="Автоматически загружать пробежки из Samsung Health"
-            />
-          </label>
-          {samsungAutoSyncMessage && <p className="info-box">{samsungAutoSyncMessage}</p>}
+        <section className="profile-section profile-section--collapsed">
+          <button
+            type="button"
+            className="profile-section-toggle"
+            onClick={() => setConnectionsOpen((open) => !open)}
+            aria-expanded={connectionsOpen}
+          >
+            <h2>Подключения</h2>
+            <span className="muted small">{connectionsOpen ? 'Свернуть' : 'Strava · Samsung · GPX'}</span>
+          </button>
+
+          {connectionsOpen && (
+            <div className="profile-connections">
+              <div className="profile-connections-block">
+                <h3>Загрузить пробежку</h3>
+                <p className="muted small">
+                  Самый простой способ — GPX на вкладке{' '}
+                  <Link to="/activities">Пробежки</Link> («Загрузить трек»).
+                </p>
+              </div>
+
+              <div className="profile-connections-block">
+                <h3>Strava</h3>
+                <p className="muted small">Автосинхронизация вместо ручной загрузки файлов.</p>
+                <div className="integration-row">
+                  <div>
+                    <strong>Strava</strong>
+                    <p>{stravaConnected ? 'Подключено' : 'Не подключено'}</p>
+                  </div>
+                  {!stravaConnected && (
+                    <button type="button" className="primary-btn" onClick={connectStrava} disabled={loading}>
+                      Подключить
+                    </button>
+                  )}
+                </div>
+                <p className="muted small">
+                  Apple Health и Health Connect недоступны из браузера.
+                </p>
+                {message && <p className="error-banner">{message}</p>}
+              </div>
+
+              <div className="profile-connections-block">
+                <h3>Samsung Health</h3>
+                <p className="muted small">
+                  На Samsung с APK — импорт через Samsung Health Data SDK. Ручная синхронизация на{' '}
+                  <Link to="/activities">Пробежках</Link>.
+                </p>
+                <label className="profile-notify-row" style={{ cursor: 'pointer' }}>
+                  <span>Автоматически загружать новые пробежки</span>
+                  <input
+                    type="checkbox"
+                    checked={samsungAutoSync}
+                    onChange={() => void toggleSamsungAutoSync()}
+                    aria-label="Автоматически загружать пробежки из Samsung Health"
+                  />
+                </label>
+                {samsungAutoSyncMessage && <p className="info-box">{samsungAutoSyncMessage}</p>}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {!showSamsungSettings && (
+        <section className="profile-section profile-section--collapsed">
+          <button
+            type="button"
+            className="profile-section-toggle"
+            onClick={() => setConnectionsOpen((open) => !open)}
+            aria-expanded={connectionsOpen}
+          >
+            <h2>Подключения</h2>
+            <span className="muted small">{connectionsOpen ? 'Свернуть' : 'Strava · GPX'}</span>
+          </button>
+
+          {connectionsOpen && (
+            <div className="profile-connections">
+              <div className="profile-connections-block">
+                <h3>Загрузить пробежку</h3>
+                <p className="muted small">
+                  GPX на вкладке <Link to="/activities">Пробежки</Link>.
+                </p>
+              </div>
+              <div className="profile-connections-block">
+                <h3>Strava</h3>
+                <div className="integration-row">
+                  <div>
+                    <strong>Strava</strong>
+                    <p>{stravaConnected ? 'Подключено' : 'Не подключено'}</p>
+                  </div>
+                  {!stravaConnected && (
+                    <button type="button" className="primary-btn" onClick={connectStrava} disabled={loading}>
+                      Подключить
+                    </button>
+                  )}
+                </div>
+                {message && <p className="error-banner">{message}</p>}
+              </div>
+            </div>
+          )}
         </section>
       )}
 
@@ -295,7 +475,8 @@ export default function ProfilePage() {
               {freezeDaysLeft === 1 ? 'день' : freezeDaysLeft < 5 ? 'дня' : 'дней'}
             </p>
             <p className="muted small">
-              Клетки не удаляются, пока заморозка активна. Влияние по-прежнему медленно угасает.
+              Обнуление через {DECAY_DELETE_AFTER_DAYS} дней приостановлено. Ослабление −
+              {DECAY_PERCENT_PER_DAY}%/день в клетках без визита {DECAY_GRACE_DAYS}+ дн. продолжается.
             </p>
             <button
               type="button"
@@ -357,39 +538,6 @@ export default function ProfilePage() {
       </section>
 
       <section className="profile-section">
-        <h2>Загрузить пробежку</h2>
-        <p className="muted">
-          Самый простой способ — загрузить GPX-файл на вкладке{' '}
-          <Link to="/activities">Пробежки</Link> (кнопка «Загрузить трек» вверху страницы).
-        </p>
-      </section>
-
-      <section className="profile-section">
-        <h2>Strava</h2>
-        <p className="muted">
-          Можно подключить Strava для автоматической синхронизации вместо ручной загрузки файлов.
-        </p>
-
-        <div className="integration-row">
-          <div>
-            <strong>Strava</strong>
-            <p>{stravaConnected ? 'Подключено' : 'Не подключено'}</p>
-          </div>
-          {!stravaConnected && (
-            <button type="button" className="primary-btn" onClick={connectStrava} disabled={loading}>
-              Подключить Strava
-            </button>
-          )}
-        </div>
-
-        <p className="muted small">
-          Apple Health и Health Connect недоступны из браузера — это ограничение iOS/Android, не приложения.
-        </p>
-
-        {message && <p className="error-banner">{message}</p>}
-      </section>
-
-      <section className="profile-section">
         <h2>Домашняя база</h2>
         <p className="muted">
           {user?.homeLat != null && user.homeLng != null
@@ -431,17 +579,25 @@ export default function ProfilePage() {
         <button type="button" className="ghost-btn" onClick={() => void logout()}>
           Выйти
         </button>
-        <p className="muted small" style={{ marginTop: 12 }}>
-          Сборка интерфейса: {__APP_BUILD__}
-          <br />
-          Источник UI: {uiOrigin || '…'}
-          {uiOrigin && uiOrigin !== 'https://localhost' && (
-            <>
-              <br />
-              <strong>Внимание:</strong> приложение грузит UI с сайта, не из APK.
-            </>
-          )}
-        </p>
+        {import.meta.env.DEV && (
+          <p className="muted small" style={{ marginTop: 12 }}>
+            Сборка интерфейса: {__APP_BUILD__}
+            <br />
+            Источник UI: {uiOrigin || '…'}
+            {uiOrigin.includes('territory-run-cjoj.onrender.com') && (
+              <>
+                <br />
+                UI с сайта Render (как в браузере / PWA).
+              </>
+            )}
+            {uiOrigin === 'https://localhost' && (
+              <>
+                <br />
+                <strong>Внимание:</strong> UI из APK, не с сайта. Запустите pnpm mobile:sync и пересоберите APK.
+              </>
+            )}
+          </p>
+        )}
       </section>
     </div>
   );

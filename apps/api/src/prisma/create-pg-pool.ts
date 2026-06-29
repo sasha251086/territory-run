@@ -28,10 +28,28 @@ export function createPgPool(connectionString = process.env.DATABASE_URL): Pool 
     throw new Error('DATABASE_URL is not set');
   }
 
-  const config: PoolConfig = { connectionString };
+  const config: PoolConfig = {
+    connectionString,
+    idleTimeoutMillis: 30_000,
+    max: 10,
+  };
   if (needsSsl(connectionString)) {
     config.ssl = { rejectUnauthorized: false };
   }
 
-  return new Pool(config);
+  const pool = new Pool(config);
+
+  pool.on('error', (err) => {
+    console.error('[postgres] idle client error:', err.message);
+  });
+
+  return pool;
+}
+
+export function describeDatabaseTarget(connectionString = process.env.DATABASE_URL): string {
+  if (!connectionString) {
+    return '(DATABASE_URL not set)';
+  }
+  const host = parseDatabaseHost(connectionString);
+  return host ?? '(invalid DATABASE_URL)';
 }

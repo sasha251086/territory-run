@@ -86,6 +86,12 @@ export interface CellPlayersResponse {
   contestGap: number | null;
   tiedOnInfluence: boolean;
   challengerNickname: string | null;
+  myLastActivityAt?: string | null;
+  daysSinceMyActivity?: number | null;
+  decayRisk?: DecayRisk;
+  freshness?: 'fresh' | 'warning' | 'critical';
+  dailyInfluenceLoss?: number;
+  daysUntilWipe?: number | null;
   history: CellHistoryEntry[];
 }
 
@@ -107,8 +113,21 @@ export interface MissionHint {
   count: number;
 }
 
+export interface WeeklyReport {
+  cellsGained: number;
+  weeklyGoal: number;
+  progressPercent: number;
+  headline: string;
+  rivalNickname?: string | null;
+  rivalBeat?: boolean;
+}
+
 export interface MapSummary {
   cellsAtRisk: number;
+  cellsFresh: number;
+  cellsWarning: number;
+  cellsCritical: number;
+  dailyInfluenceLoss: number;
   captureTargetsNearby: number;
   territoryAreaM2: number;
   cellsGainedThisWeek: number;
@@ -118,6 +137,10 @@ export interface MapSummary {
   effectiveInfluenceMultiplier?: number;
   influenceMultiplierCapped?: boolean;
   atSoftCap?: boolean;
+  locationMultiplier?: number;
+  streakMultiplier?: number;
+  softCapMultiplier?: number;
+  weeklyReport?: WeeklyReport;
 }
 
 export interface RivalCell {

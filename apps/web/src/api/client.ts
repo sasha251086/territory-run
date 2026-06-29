@@ -1,4 +1,5 @@
 import type { ApiResponse, AuthTokens } from './types';
+import { apiRequestFinished, apiRequestStarted } from './loading';
 
 const PRODUCTION_API_URL = 'https://territory-run-api-erbs.onrender.com';
 
@@ -49,6 +50,7 @@ export async function apiRequest<T>(
   };
 
   try {
+    apiRequestStarted();
     let response = await fetch(`${API_URL}${path}`, fetchOptions);
 
     if (response.status === 401 && auth) {
@@ -75,11 +77,17 @@ export async function apiRequest<T>(
     }
     if (error instanceof TypeError && error.message === 'Failed to fetch') {
       throw new Error(
-        'Не удалось связаться с сервером. Подождите ~30 сек (Render просыпается) и попробуйте снова.',
+        'Не удалось связаться с сервером. Запустите API (localhost:3000) или подождите ~30 сек, если Render просыпается.',
+      );
+    }
+    if (error instanceof Error && /connection terminated unexpectedly/i.test(error.message)) {
+      throw new Error(
+        'База данных недоступна. Запустите Postgres (docker compose up postgres redis) и API: pnpm --filter api start:dev',
       );
     }
     throw error;
   } finally {
+    apiRequestFinished();
     clearTimeout(timeoutId);
   }
 }

@@ -10,9 +10,11 @@ import type {
   SeasonLeaderboardEntry,
   SeasonLeaderboardResponse,
 } from '../api/types';
-import { DECAY_DELETE_AFTER_DAYS, SEASON_DURATION_DAYS } from '../constants/game';
+import { DECAY_DELETE_AFTER_DAYS, SEASON_DURATION_DAYS, displayInfluence } from '../constants/game';
 import { formatCellCount } from '../utils/territory';
+import { shareAppInvite } from '../utils/share-invite';
 import { useAuth } from '../context/AuthContext';
+import LeaderboardPodium from '../components/LeaderboardPodium';
 
 type Metric = 'cells' | 'influence' | 'distance';
 type Scope = 'nearby' | 'city' | 'season';
@@ -30,6 +32,7 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [followLoading, setFollowLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!scopeInitialized && user) {
@@ -136,9 +139,59 @@ export default function LeaderboardPage() {
       return formatCellCount(value);
     }
     if (metric === 'influence') {
-      return `${Math.round(value)} влияния`;
+      return `${displayInfluence(value)} влияния`;
     }
     return `${(value / 1000).toFixed(1)} км`;
+  }
+
+  function leaderGapLabel(): string | null {
+    if (displayItems.length < 2 || !user) {
+      return null;
+    }
+    const leader = displayItems[0];
+    const runnerUp = displayItems[1];
+    if (leader.userId !== user.id) {
+      return null;
+    }
+    const gap = Math.round(leader.value - runnerUp.value);
+    if (gap <= 0) {
+      return null;
+    }
+    if (metric === 'cells' || scope === 'season') {
+      return `+${formatCellCount(gap)} впереди`;
+    }
+    if (metric === 'influence') {
+      return `+${displayInfluence(gap)} влияния впереди`;
+    }
+    return `+${(gap / 1000).toFixed(1)} км впереди`;
+  }
+
+  const leaderGap = leaderGapLabel();
+  const podiumItems = displayItems.slice(0, 3).map((item) => ({
+    userId: item.userId,
+    nickname: item.nickname,
+    value: item.value,
+  }));
+  const showPodium =
+    !loading && scope !== 'nearby' && displayItems.length >= 3;
+  const listItems = showPodium ? displayItems.slice(3) : displayItems;
+  const soloInLeaderboard =
+    !loading &&
+    displayItems.length === 1 &&
+    displayItems[0]?.userId === user?.id &&
+    (scope === 'city' || scope === 'season');
+  const emptyLeaderboard = !loading && displayItems.length === 0 && scope !== 'nearby';
+
+  async function handleShareInvite() {
+    setInviteMessage(null);
+    const result = await shareAppInvite();
+    if (result === 'shared') {
+      setInviteMessage('Приглашение отправлено');
+    } else if (result === 'copied') {
+      setInviteMessage('Ссылка скопирована — отправьте друзьям');
+    } else {
+      setInviteMessage('Не удалось поделиться');
+    }
   }
 
   const heroText =
@@ -147,17 +200,17 @@ export default function LeaderboardPage() {
           metric === 'cells' ? 'контроль территории' : metric === 'influence' ? 'влияние' : 'дистанцию'
         } с соседями.`
       : scope === 'season'
-        ? `Сезонный рейтинг: новые захваты за ${SEASON_DURATION_DAYS} дней. Территория на карте не сбрасывается (затухание — отдельно, через ${DECAY_DELETE_AFTER_DAYS} дн. без бега).`
+        ? `Сезонный рейтинг: новые захваты за ${SEASON_DURATION_DAYS} дней. Территория не сбрасывается (след в клетке исчезает через ${DECAY_DELETE_AFTER_DAYS} дн. без пробежки через неё).`
         : 'Сравните контроль зон, влияние и дистанцию с другими бегунами города.';
 
   return (
     <div className="page-screen">
       <h1 className="page-title">Рейтинг</h1>
 
-      <div className="leaderboard-tabs leaderboard-tabs--metric">
+      <div className="segmented segmented--3">
         <button
           type="button"
-          className={metric === 'cells' ? 'tab active' : 'tab'}
+          className={metric === 'cells' ? 'active' : undefined}
           onClick={() => setMetric('cells')}
           disabled={scope === 'season'}
         >
@@ -165,7 +218,7 @@ export default function LeaderboardPage() {
         </button>
         <button
           type="button"
-          className={metric === 'influence' ? 'tab active' : 'tab'}
+          className={metric === 'influence' ? 'active' : undefined}
           onClick={() => setMetric('influence')}
           disabled={scope === 'season'}
         >
@@ -173,7 +226,7 @@ export default function LeaderboardPage() {
         </button>
         <button
           type="button"
-          className={metric === 'distance' ? 'tab active' : 'tab'}
+          className={metric === 'distance' ? 'active' : undefined}
           onClick={() => setMetric('distance')}
           disabled={scope === 'season'}
         >
@@ -181,24 +234,24 @@ export default function LeaderboardPage() {
         </button>
       </div>
 
-      <div className="leaderboard-tabs leaderboard-tabs--scope">
+      <div className="segmented segmented--3">
         <button
           type="button"
-          className={scope === 'nearby' ? 'tab active' : 'tab'}
+          className={scope === 'nearby' ? 'active' : undefined}
           onClick={() => setScope('nearby')}
         >
           Рядом
         </button>
         <button
           type="button"
-          className={scope === 'city' ? 'tab active' : 'tab'}
+          className={scope === 'city' ? 'active' : undefined}
           onClick={() => setScope('city')}
         >
           Город
         </button>
         <button
           type="button"
-          className={scope === 'season' ? 'tab active' : 'tab'}
+          className={scope === 'season' ? 'active' : undefined}
           onClick={() => setScope('season')}
         >
           Сезон
@@ -228,8 +281,46 @@ export default function LeaderboardPage() {
         </div>
       )}
 
-      {scope === 'nearby' && regional && !regional.noHomeBase && regional.items.length < 3 && (
-        <p className="muted">Пока мало игроков рядом.</p>
+      {scope === 'nearby' && regional && !regional.noHomeBase && regional.items.length === 1 && (
+        <p className="muted">Пока только вы в радиусе 5 км — пригласите друзей.</p>
+      )}
+
+      {scope === 'nearby' && regional && !regional.noHomeBase && regional.items.length === 2 && (
+        <p className="muted small">Мало игроков рядом — добавьте соперников из списка ниже.</p>
+      )}
+
+      {(soloInLeaderboard || emptyLeaderboard) && (
+        <div className="empty-state">
+          <p className="empty-state__icon" aria-hidden="true">👋</p>
+          <h3>
+            {scope === 'season'
+              ? 'В сезоне пока только вы'
+              : emptyLeaderboard
+                ? 'В городе пока никого'
+                : 'Пока только вы в городе'}
+          </h3>
+          <p className="muted">
+            {scope === 'season'
+              ? 'Загрузите пробежку — или пригласите друзей соревноваться в захватах.'
+              : 'Пригласите друзей — вместе интереснее захватывать клетки.'}
+          </p>
+          <button type="button" className="primary-btn" onClick={() => void handleShareInvite()}>
+            Поделиться
+          </button>
+          {inviteMessage && <p className="info-box">{inviteMessage}</p>}
+        </div>
+      )}
+
+      {leaderGap && !showPodium && !soloInLeaderboard && !emptyLeaderboard && (
+        <p className="info-box">{leaderGap}</p>
+      )}
+
+      {showPodium && (
+        <LeaderboardPodium
+          items={podiumItems}
+          currentUserId={user?.id}
+          valueLabel={valueLabel}
+        />
       )}
 
       <section>
@@ -237,7 +328,9 @@ export default function LeaderboardPage() {
           <p className="muted">Загрузка...</p>
         ) : scope === 'nearby' && regional?.noHomeBase ? (
           <p className="muted">Нужна домашняя база для регионального рейтинга.</p>
-        ) : displayItems.length === 0 ? (
+        ) : soloInLeaderboard || emptyLeaderboard ? null : listItems.length === 0 && showPodium ? (
+          <p className="muted small">Остальные игроки появятся по мере роста базы.</p>
+        ) : listItems.length === 0 ? (
           <div className="empty-state">
             <p className="empty-state__icon" aria-hidden="true">🏆</p>
             <h3>{scope === 'season' ? 'Сезон только начался' : 'Рейтинг пуст'}</h3>
@@ -249,10 +342,10 @@ export default function LeaderboardPage() {
           </div>
         ) : (
           <ol className="leaderboard">
-            {displayItems.map((item, index) => {
+            {listItems.map((item, index) => {
               const isMe = item.userId === user?.id;
               const isFollowed = followedIds.has(item.userId);
-              const rank = item.rank ?? index + 1;
+              const rank = item.rank ?? (showPodium ? index + 4 : index + 1);
               const distanceKm =
                 scope === 'nearby' ? (item as RegionalLeaderboardEntry).distanceKm : null;
               const seasonInfluence =
@@ -307,7 +400,7 @@ export default function LeaderboardPage() {
               <li key={`${entry.seasonNumber}-${entry.rank}`} className="list-item">
                 <strong>Сезон {entry.seasonNumber}</strong>
                 <span>
-                  #{entry.rank} · {entry.cellsOwned} захватов · {Math.round(entry.totalInfluence)} влияния
+                  #{entry.rank} · {entry.cellsOwned} захватов · {displayInfluence(entry.totalInfluence)} влияния
                 </span>
               </li>
             ))}

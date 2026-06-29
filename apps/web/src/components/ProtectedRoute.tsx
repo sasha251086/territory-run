@@ -8,7 +8,7 @@ export default function ProtectedRoute() {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return <div className="page-center">Загрузка...</div>;
+    return <div className="page-center">Подключаемся…</div>;
   }
 
   if (!user) {
