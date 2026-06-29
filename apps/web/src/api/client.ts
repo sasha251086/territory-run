@@ -1,11 +1,7 @@
 import type { ApiResponse, AuthTokens } from './types';
 import { apiRequestFinished, apiRequestStarted } from './loading';
 
-const PRODUCTION_API_URL = 'https://territory-run-api-erbs.onrender.com';
-
-const API_URL =
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.PROD ? PRODUCTION_API_URL : 'http://localhost:3000');
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
 type TokenGetter = () => string | null;
 type TokenRefresher = () => Promise<string | null>;

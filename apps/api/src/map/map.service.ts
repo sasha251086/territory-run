@@ -51,6 +51,7 @@ export class MapService {
   ) {}
 
   async getCells(query: MapQueryDto, userId: string): Promise<CellResponseDto[]> {
+    // Requires @@index([centerLat, centerLng]) on Cell model for performance
     const limit = Number(query.limit) || 1000;
     const north = roundCoord(query.north);
     const south = roundCoord(query.south);
@@ -358,9 +359,17 @@ export class MapService {
     });
     if (user?.homeLat != null && user.homeLng != null) {
       try {
-        const { targets } = await this.getCaptureTargets(userId, user.homeLat, user.homeLng);
-        captureTargetsNearby = targets.length;
-        missions = this.buildMissionHints(targets);
+        const targetsCacheKey = `targets:${userId}:${Math.round(user.homeLat * 1000)}:${Math.round(user.homeLng * 1000)}`;
+        const cachedTargets = await this.redisService.get(targetsCacheKey);
+        let targetsResult: { targets: CaptureTargetDto[]; message: string };
+        if (cachedTargets) {
+          targetsResult = JSON.parse(cachedTargets);
+        } else {
+          targetsResult = await this.getCaptureTargets(userId, user.homeLat, user.homeLng);
+          await this.redisService.set(targetsCacheKey, JSON.stringify(targetsResult), 120);
+        }
+        captureTargetsNearby = targetsResult.targets.length;
+        missions = this.buildMissionHints(targetsResult.targets);
       } catch (err) {
         console.error(
           '[MapService.getMapSummary] getCaptureTargets failed:',

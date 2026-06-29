@@ -60,6 +60,21 @@ export function softCapLabel(cellsOwned: number): string {
   return `${cellsOwned} / ${SOFT_CAP_CELLS} клеток`;
 }
 
+export const NEW_PLAYER_BONUS_MULTIPLIER = 1.25;
+export const NEW_PLAYER_PERIOD_DAYS = 30;
+export const NEW_PLAYER_PERIOD_MS = NEW_PLAYER_PERIOD_DAYS * 24 * 60 * 60 * 1000;
+
+export function isNewPlayer(createdAt: string | Date): boolean {
+  const ms = Date.now() - new Date(createdAt).getTime();
+  return ms < NEW_PLAYER_PERIOD_MS;
+}
+
+export function newPlayerDaysLeft(createdAt: string | Date): number {
+  const ms = Date.now() - new Date(createdAt).getTime();
+  const daysElapsed = Math.floor(ms / (1000 * 60 * 60 * 24));
+  return Math.max(0, NEW_PLAYER_PERIOD_DAYS - daysElapsed);
+}
+
 export function influenceGainHint(summary: {
   influencePerRun?: number;
   effectiveInfluenceMultiplier?: number;

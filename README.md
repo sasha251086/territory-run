@@ -17,6 +17,14 @@ cd apps/api
 pnpm start:dev
 ```
 
+## Environment variables (web)
+
+| Variable | Description |
+|----------|-------------|
+| `VITE_API_URL` | API base URL (required in production builds; defaults to `http://localhost:3000` in dev) |
+
+Copy `apps/web/.env.production.example` when configuring Render or other static hosts.
+
 ## Scripts (repository root)
 
 | Command         | Description                          |

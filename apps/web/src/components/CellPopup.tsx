@@ -154,7 +154,13 @@ export default function CellPopupContent({ cell }: { cell: MapCell }) {
   }, [cell.h3Index]);
 
   if (loading) {
-    return <p className="cell-popup-loading">Загрузка…</p>;
+    return (
+      <div className="cell-popup-skeleton" aria-busy="true" aria-label="Загрузка">
+        <div className="skel-line skel-line--title" />
+        <div className="skel-line skel-line--body" />
+        <div className="skel-line skel-line--body skel-line--short" />
+      </div>
+    );
   }
 
   if (error || !data) {

@@ -25,7 +25,6 @@ import {
   daysUntilFreezeAvailable,
   daysUntilFreezeEnds,
 } from '../utils/freeze';
-import { hasSeenHint, markHintSeen } from '../utils/first-time-hint';
 import { resolveWeeklyReport } from '../utils/weekly-report';
 import { enrichMapSummary } from '../utils/map-summary-enrich';
 import { streakDisplay } from '../utils/streak-display';
@@ -41,6 +40,9 @@ import {
   DECAY_PERCENT_PER_DAY,
   DECAY_GRACE_DAYS,
   SOFT_CAP_CELLS,
+  isNewPlayer,
+  newPlayerDaysLeft,
+  NEW_PLAYER_BONUS_MULTIPLIER,
 } from '../constants/game';
 
 export default function ProfilePage() {
@@ -60,9 +62,7 @@ export default function ProfilePage() {
     useState<RegionalLeaderboardResponse | null>(null);
   const [showRules, setShowRules] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
-  const [showInfluenceHint, setShowInfluenceHint] = useState(
-    () => !hasSeenHint('influence'),
-  );
+  const [freezeConfirm, setFreezeConfirm] = useState(false);
 
   useEffect(() => {
     setUiOrigin(window.location.origin);
@@ -234,11 +234,6 @@ export default function ProfilePage() {
   const cellsOwned = user?.stats?.cellsOwned ?? 0;
   const atSoftCap = cellsOwned >= SOFT_CAP_CELLS;
 
-  function dismissInfluenceHint() {
-    markHintSeen('influence');
-    setShowInfluenceHint(false);
-  }
-
   return (
     <div className="page-screen">
       <header className="profile-header">
@@ -250,46 +245,59 @@ export default function ProfilePage() {
         {atSoftCap && <span className="wire-chip wire-chip--warn">лимит клеток</span>}
       </header>
 
-      <div className="stats-grid">
-        <div>
-          <span>Клетки</span>
-          <strong>{user?.stats?.cellsOwned ?? 0}</strong>
-        </div>
-        <div>
-          <span>Сила клеток</span>
-          <strong>{displayInfluence(user?.stats?.totalInfluence ?? 0)}</strong>
-        </div>
-        <div>
-          <span>Пробежки</span>
-          <strong>{user?.stats?.totalRuns ?? 0}</strong>
-        </div>
-        <div className="stats-grid__streak">
-          <span>Стрик</span>
-          {currentStreak > 0 ? (
-            <>
-              <StreakBadge streak={currentStreak} />
-              {streakInfo.nextMilestone != null && (
-                <p className="muted small stats-grid__streak-hint">
-                  Ещё {streakInfo.nextMilestone - currentStreak} дн до ×
-                  {streakMultiplier(streakInfo.nextMilestone).toFixed(1)}
-                </p>
-              )}
-            </>
-          ) : (
-            <strong>—</strong>
+      {user?.createdAt && isNewPlayer(user.createdAt) && (
+        <span className="new-player-badge">
+          🚀 Новичок · ×{NEW_PLAYER_BONUS_MULTIPLIER} бонус · осталось{' '}
+          {newPlayerDaysLeft(user.createdAt)} дн
+        </span>
+      )}
+
+      <div className="profile-hero-stat">
+        <div className="profile-hero-stat__primary">
+          <span className="profile-hero-stat__value">{cellsOwned}</span>
+          <span className="profile-hero-stat__label">клеток</span>
+          {atSoftCap && (
+            <span className="profile-hero-stat__cap">лимит {SOFT_CAP_CELLS}</span>
           )}
+        </div>
+        <div className="profile-hero-stat__secondaries">
+          <div
+            className="profile-secondary-stat"
+            title="Насколько сложно отнять клетку. Максимум 100."
+          >
+            <span>{displayInfluence(user?.stats?.totalInfluence ?? 0)}</span>
+            <small>сила ⓘ</small>
+          </div>
+          <div className="profile-secondary-stat">
+            <span>{user?.stats?.totalRuns ?? 0}</span>
+            <small>пробежек</small>
+          </div>
+          <div className="profile-secondary-stat">
+            <span>{((Number(user?.stats?.totalDistance ?? 0)) / 1000).toFixed(0)} км</span>
+            <small>всего</small>
+          </div>
         </div>
       </div>
 
-      {showInfluenceHint && (
-        <div className="info-box profile-influence-hint">
-          <p>
-            <strong>Сила клетки (0–100)</strong> — насколько вы контролируете клетку. Чем выше число,
-            тем сложнее её отнять. Пробежка через клетку добавляет силу.
-          </p>
-          <button type="button" className="ghost-btn small-btn" onClick={dismissInfluenceHint}>
-            Понятно
-          </button>
+      {currentStreak > 0 && (
+        <div className="profile-streak-card">
+          <StreakBadge streak={currentStreak} />
+          <div className="profile-streak-card__text">
+            <strong>
+              {currentStreak}{' '}
+              {currentStreak === 1 ? 'день' : currentStreak < 5 ? 'дня' : 'дней'} подряд
+            </strong>
+            {streakInfo.nextMilestone != null ? (
+              <p className="muted small">
+                До бонуса ×{streakMultiplier(streakInfo.nextMilestone).toFixed(1)} — ещё{' '}
+                {streakInfo.nextMilestone - currentStreak} дн
+              </p>
+            ) : (
+              <p className="muted small">
+                Бонус ×{streakMultiplier(currentStreak).toFixed(1)} активен
+              </p>
+            )}
+          </div>
         </div>
       )}
 
@@ -300,7 +308,17 @@ export default function ProfilePage() {
       )}
 
       <section className="profile-section profile-territory-tiles">
-        <h2>Территория</h2>
+        <h2>
+          Территория
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setShowRules(true)}
+            aria-label="Правила игры"
+          >
+            ?
+          </button>
+        </h2>
         {mapSummary ? (
           <>
             <div className="territory-tiles">
@@ -317,6 +335,23 @@ export default function ProfilePage() {
                 <span>Срочно</span>
               </div>
             </div>
+            {mapSummary && (() => {
+              const total =
+                (mapSummary.cellsFresh ?? 0) +
+                (mapSummary.cellsWarning ?? 0) +
+                (mapSummary.cellsCritical ?? 0);
+              if (total === 0) return null;
+              const freshPct = Math.round(((mapSummary.cellsFresh ?? 0) / total) * 100);
+              const warnPct = Math.round(((mapSummary.cellsWarning ?? 0) / total) * 100);
+              const critPct = 100 - freshPct - warnPct;
+              return (
+                <div className="territory-health-bar" aria-label="Состояние территории" role="img">
+                  <div className="territory-health-bar__fresh" style={{ width: `${freshPct}%` }} />
+                  <div className="territory-health-bar__warn" style={{ width: `${warnPct}%` }} />
+                  <div className="territory-health-bar__crit" style={{ width: `${critPct}%` }} />
+                </div>
+              );
+            })()}
             {(mapSummary.dailyInfluenceLoss ?? 0) > 0 && (
               <p className="muted small">
                 Следующее ослабление: −{displayInfluence(mapSummary.dailyInfluenceLoss)} влияния
@@ -330,17 +365,52 @@ export default function ProfilePage() {
           <p className="muted small">Загрузка…</p>
         )}
         <div className="profile-territory-actions">
-          <Link to="/map" className="ghost-btn small-btn">
+          <Link to="/" className="ghost-btn small-btn">
             На карту
           </Link>
-          <button type="button" className="ghost-btn small-btn" onClick={() => setShowRules(true)}>
-            Правила
-          </button>
         </div>
       </section>
 
-      {showRules && <GameTutorialModal onClose={() => setShowRules(false)} />}
+      <section className="profile-section">
+        <h2>Соперники</h2>
+        <p className="muted">
+          До 3 соперников — их клетки подсвечиваются на карте. Добавьте из{' '}
+          <Link to="/leaderboard">рейтинга</Link>.
+        </p>
+        {rivals.length === 0 ? (
+          <p className="muted">Соперников пока нет.</p>
+        ) : (
+          <ul className="list" style={{ listStyle: 'none', padding: 0 }}>
+            {rivals.map((rival) => (
+              <li key={rival.userId} className="rival-item">
+                <div className="rival-item__info">
+                  <strong>{rival.nickname}</strong>
+                  {rival.cellsOwned != null && (
+                    <span className="muted small">{rival.cellsOwned} клеток</span>
+                  )}
+                </div>
+                <div className="rival-item__actions">
+                  <Link to="/leaderboard" className="ghost-btn small-btn">
+                    Рейтинг
+                  </Link>
+                  <button
+                    type="button"
+                    className="ghost-btn small-btn"
+                    onClick={() => void unfollowRival(rival.userId)}
+                    aria-label="Отписаться"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
+      <details className="profile-extras">
+        <summary className="profile-extras__toggle">Настройки и подключения</summary>
+        <div className="profile-extras__inner">
       <section className="profile-section">
         <h2>Уведомления</h2>
         {notifySupported ? (
@@ -495,11 +565,31 @@ export default function ProfilePage() {
             <button
               type="button"
               className="primary-btn"
-              onClick={() => void handleActivateFreeze()}
+              onClick={() => setFreezeConfirm(true)}
               disabled={freezeLoading}
             >
               {freezeLoading ? '…' : 'Заморозить на 7 дней'}
             </button>
+            {freezeConfirm && (
+              <div className="freeze-confirm-dialog" role="alertdialog">
+                <p>Использовать заморозку? Следующая будет доступна через 90 дней.</p>
+                <div className="freeze-confirm-dialog__actions">
+                  <button type="button" className="ghost-btn" onClick={() => setFreezeConfirm(false)}>
+                    Отмена
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    onClick={() => {
+                      setFreezeConfirm(false);
+                      void handleActivateFreeze();
+                    }}
+                  >
+                    Заморозить
+                  </button>
+                </div>
+              </div>
+            )}
             <p className="muted small">Клетки не удаляются 7 дней. Доступно раз в 90 дней.</p>
           </>
         ) : freezeCooldownDays != null ? (
@@ -509,32 +599,6 @@ export default function ProfilePage() {
           </p>
         ) : null}
         {freezeMessage && <p className="info-box">{freezeMessage}</p>}
-      </section>
-
-      <section className="profile-section">
-        <h2>Соперники</h2>
-        <p className="muted">
-          До 3 соперников — их клетки подсвечиваются на карте. Добавьте из{' '}
-          <Link to="/leaderboard">рейтинга</Link>.
-        </p>
-        {rivals.length === 0 ? (
-          <p className="muted">Соперников пока нет.</p>
-        ) : (
-          <ul className="list">
-            {rivals.map((rival) => (
-              <li key={rival.userId} className="list-item">
-                <strong>{rival.nickname}</strong>
-                <button
-                  type="button"
-                  className="ghost-btn small-btn"
-                  onClick={() => void unfollowRival(rival.userId)}
-                >
-                  Отписаться
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
 
       <section className="profile-section">
@@ -599,6 +663,10 @@ export default function ProfilePage() {
           </p>
         )}
       </section>
+        </div>
+      </details>
+
+      {showRules && <GameTutorialModal onClose={() => setShowRules(false)} />}
     </div>
   );
 }

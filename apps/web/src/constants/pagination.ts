@@ -1,0 +1,2 @@
+export const ACTIVITIES_PAGE_SIZE = 100;
+export const LEADERBOARD_PAGE_SIZE = 50;

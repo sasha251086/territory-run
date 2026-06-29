@@ -1065,6 +1065,9 @@ export default function MapPage() {
             >
               {gapPercent != null && gapPercent >= 80 ? '⚠ ' : ''}
               {siegeChipLabel}
+              {siegeThreatH3.size > 1 && (
+                <span className="chip-count">+{siegeThreatH3.size - 1}</span>
+              )}
             </button>
           )}
           {cellsNeedingRun > 0 && (
@@ -1116,6 +1119,12 @@ export default function MapPage() {
       <div className="map-page-body">
         <div className="map-page-main">
       <div className="map-frame">
+        {!initialLoadDone && (
+          <div className="map-skeleton" aria-label="Загрузка карты" aria-live="polite">
+            <div className="map-skeleton__pulse" />
+            <p className="map-skeleton__text">Загружаем территорию…</p>
+          </div>
+        )}
         <MapContainer
           key={`${defaultCenter[0]}-${defaultCenter[1]}`}
           center={defaultCenter}
@@ -1466,7 +1475,12 @@ export default function MapPage() {
               <span className="map-rail-alert__icon" aria-hidden="true">
                 ⚠
               </span>
-              <span className="map-rail-alert__text">{siegeChipLabel}</span>
+              <span className="map-rail-alert__text">
+                {siegeChipLabel}
+                {siegeThreatH3.size > 1 && (
+                  <span className="chip-count">+{siegeThreatH3.size - 1}</span>
+                )}
+              </span>
             </button>
           )}
 

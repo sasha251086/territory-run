@@ -11,10 +11,13 @@ import type {
   SeasonLeaderboardResponse,
 } from '../api/types';
 import { DECAY_DELETE_AFTER_DAYS, SEASON_DURATION_DAYS, displayInfluence } from '../constants/game';
+import { LEADERBOARD_PAGE_SIZE } from '../constants/pagination';
 import { formatCellCount } from '../utils/territory';
 import { shareAppInvite } from '../utils/share-invite';
+import { hasSeenHint, markHintSeen } from '../utils/first-time-hint';
 import { useAuth } from '../context/AuthContext';
 import LeaderboardPodium from '../components/LeaderboardPodium';
+import SkeletonList from '../components/SkeletonList';
 
 type Metric = 'cells' | 'influence' | 'distance';
 type Scope = 'nearby' | 'city' | 'season';
@@ -33,6 +36,7 @@ export default function LeaderboardPage() {
   const [followLoading, setFollowLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+  const [myEntry, setMyEntry] = useState<LeaderboardEntry | null>(null);
 
   useEffect(() => {
     if (!scopeInitialized && user) {
@@ -73,12 +77,31 @@ export default function LeaderboardPage() {
           }
         } else {
           const leaderboard = await apiRequest<LeaderboardEntry[]>(
-            `/leaderboard/${metric}?limit=50`,
+            `/leaderboard/${metric}?limit=${LEADERBOARD_PAGE_SIZE}`,
           );
           if (!cancelled) {
             setItems(leaderboard);
             setRegional(null);
             setSeason(null);
+            const me = leaderboard.find((item) => item.userId === user?.id) ?? null;
+            setMyEntry(me);
+            if (!me && user) {
+              const myData = await apiRequest<{
+                rank: number;
+                value: number;
+                nickname: string;
+                cellsOwned: number;
+              } | null>(`/leaderboard/${metric}/me`).catch(() => null);
+              if (myData && !cancelled) {
+                setMyEntry({
+                  userId: user.id,
+                  nickname: myData.nickname,
+                  value: myData.value,
+                  rank: myData.rank,
+                  avatarUrl: null,
+                });
+              }
+            }
           }
         }
       } finally {
@@ -92,7 +115,7 @@ export default function LeaderboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [metric, scope]);
+  }, [metric, scope, user?.id]);
 
   const followedIds = new Set(rivals.map((r) => r.userId));
   const displayItems: Array<LeaderboardEntry | RegionalLeaderboardEntry | SeasonLeaderboardEntry> =
@@ -115,6 +138,7 @@ export default function LeaderboardPage() {
         setRivals((prev) => prev.filter((r) => r.userId !== entry.userId));
       } else {
         await apiRequest(`/rivals/${entry.userId}`, { method: 'POST' });
+        markHintSeen('rival-follow-hint');
         setRivals((prev) => [
           ...prev,
           {
@@ -207,32 +231,31 @@ export default function LeaderboardPage() {
     <div className="page-screen">
       <h1 className="page-title">Рейтинг</h1>
 
-      <div className="segmented segmented--3">
-        <button
-          type="button"
-          className={metric === 'cells' ? 'active' : undefined}
-          onClick={() => setMetric('cells')}
-          disabled={scope === 'season'}
-        >
-          Клетки
-        </button>
-        <button
-          type="button"
-          className={metric === 'influence' ? 'active' : undefined}
-          onClick={() => setMetric('influence')}
-          disabled={scope === 'season'}
-        >
-          Влияние
-        </button>
-        <button
-          type="button"
-          className={metric === 'distance' ? 'active' : undefined}
-          onClick={() => setMetric('distance')}
-          disabled={scope === 'season'}
-        >
-          Дистанция
-        </button>
-      </div>
+      {scope !== 'season' && (
+        <div className="segmented segmented--3">
+          <button
+            type="button"
+            className={metric === 'cells' ? 'active' : undefined}
+            onClick={() => setMetric('cells')}
+          >
+            Клетки
+          </button>
+          <button
+            type="button"
+            className={metric === 'influence' ? 'active' : undefined}
+            onClick={() => setMetric('influence')}
+          >
+            Влияние
+          </button>
+          <button
+            type="button"
+            className={metric === 'distance' ? 'active' : undefined}
+            onClick={() => setMetric('distance')}
+          >
+            Дистанция
+          </button>
+        </div>
+      )}
 
       <div className="segmented segmented--3">
         <button
@@ -262,12 +285,28 @@ export default function LeaderboardPage() {
 
       {message && <p className="error-banner">{message}</p>}
 
-      {scope === 'season' && season?.season && (
-        <p className="info-box">
-          Сезон {season.season.number} · осталось {season.season.daysLeft}{' '}
-          {season.season.daysLeft === 1 ? 'день' : season.season.daysLeft < 5 ? 'дня' : 'дней'}
-        </p>
-      )}
+      {scope === 'season' && season?.season && (() => {
+        const total = SEASON_DURATION_DAYS;
+        const left = season.season.daysLeft;
+        const pct = Math.round(((total - left) / total) * 100);
+        return (
+          <div className="season-progress">
+            <div className="season-progress__header">
+              <span>Сезон {season.season.number}</span>
+              <span className="muted small">осталось {left} дн</span>
+            </div>
+            <div
+              className="season-progress__bar"
+              role="progressbar"
+              aria-valuenow={pct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div className="season-progress__fill" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        );
+      })()}
 
       {scope === 'nearby' && regional?.noHomeBase && (
         <div>
@@ -325,7 +364,7 @@ export default function LeaderboardPage() {
 
       <section>
         {loading ? (
-          <p className="muted">Загрузка...</p>
+          <SkeletonList rows={6} />
         ) : scope === 'nearby' && regional?.noHomeBase ? (
           <p className="muted">Нужна домашняя база для регионального рейтинга.</p>
         ) : soloInLeaderboard || emptyLeaderboard ? null : listItems.length === 0 && showPodium ? (
@@ -350,46 +389,92 @@ export default function LeaderboardPage() {
                 scope === 'nearby' ? (item as RegionalLeaderboardEntry).distanceKm : null;
               const seasonInfluence =
                 scope === 'season' ? (item as SeasonLeaderboardEntry).seasonInfluence : null;
+              const above = index > 0 ? listItems[index - 1] : null;
+              const gap =
+                isMe && above ? Math.round(above.value - item.value) : 0;
+              const gapPct =
+                isMe && above && above.value > 0
+                  ? Math.min(100, Math.round((item.value / above.value) * 100))
+                  : 0;
 
               return (
                 <li key={item.userId} className={isMe ? 'is-you' : undefined}>
-                  <span className="rank">{rank}</span>
-                  <span className="name">
-                    {item.nickname}
-                    {isMe ? ' (вы)' : ''}
-                  </span>
-                  <span className="value">
-                    {valueLabel(Math.round(item.value))}
-                    {distanceKm != null && (
-                      <span className="muted small" style={{ display: 'block' }}>
-                        {distanceKm.toFixed(1)} км
-                      </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
+                    <span className="rank">{rank}</span>
+                    <span className="name">
+                      {item.nickname}
+                      {isMe ? ' (вы)' : ''}
+                    </span>
+                    <span className="value" style={{ marginLeft: 'auto' }}>
+                      {valueLabel(Math.round(item.value))}
+                      {distanceKm != null && (
+                        <span className="muted small" style={{ display: 'block' }}>
+                          {distanceKm.toFixed(1)} км
+                        </span>
+                      )}
+                      {seasonInfluence != null && (
+                        <span className="muted small" style={{ display: 'block' }}>
+                          +{seasonInfluence} влияния
+                        </span>
+                      )}
+                    </span>
+                    {!isMe && scope !== 'season' && (
+                      <button
+                        type="button"
+                        className={`ghost-btn small-btn follow-btn ${isFollowed ? 'is-followed' : ''}`}
+                        title="Клетки этого игрока подсветятся на карте"
+                        onClick={() => void toggleFollow(item)}
+                        disabled={followLoading === item.userId}
+                      >
+                        {followLoading === item.userId
+                          ? '...'
+                          : isFollowed
+                            ? '✓ Слежу'
+                            : '+ Следить'}
+                      </button>
                     )}
-                    {seasonInfluence != null && (
-                      <span className="muted small" style={{ display: 'block' }}>
-                        +{seasonInfluence} влияния
-                      </span>
+                  </div>
+                  {!hasSeenHint('rival-follow-hint') &&
+                    index === 0 &&
+                    !isMe &&
+                    !isFollowed &&
+                    scope !== 'season' && (
+                      <p className="leaderboard-follow-hint muted small">
+                        Клетки соперника появятся на карте
+                      </p>
                     )}
-                  </span>
-                  {!isMe && scope !== 'season' && (
-                    <button
-                      type="button"
-                      className={`ghost-btn small-btn follow-btn ${isFollowed ? 'is-followed' : ''}`}
-                      onClick={() => void toggleFollow(item)}
-                      disabled={followLoading === item.userId}
-                    >
-                      {followLoading === item.userId
-                        ? '...'
-                        : isFollowed
-                          ? 'Отписаться'
-                          : 'Следить'}
-                    </button>
+                  {isMe && gap > 0 && above && (
+                    <div className="leaderboard-gap">
+                      <div className="leaderboard-gap__bar">
+                        <div
+                          className="leaderboard-gap__fill"
+                          style={{ width: `${gapPct}%` }}
+                        />
+                      </div>
+                      <span className="leaderboard-gap__label">
+                        −{valueLabel(gap)} до #{above.rank ?? index}
+                      </span>
+                    </div>
                   )}
                 </li>
               );
             })}
           </ol>
         )}
+        {scope === 'city' &&
+          myEntry &&
+          !listItems.some((i) => i.userId === user?.id) &&
+          !displayItems.some((i) => i.userId === user?.id) && (
+            <div className="leaderboard-my-row">
+              <span className="rank">#{myEntry.rank ?? '?'}</span>
+              <span className="name">
+                {myEntry.nickname} <em>(вы)</em>
+              </span>
+              <span className="value" style={{ marginLeft: 'auto' }}>
+                {valueLabel(Math.round(myEntry.value))}
+              </span>
+            </div>
+          )}
       </section>
 
       {scope === 'season' && seasonHistory.length > 0 && (

@@ -36,6 +36,27 @@ export class LeaderboardController {
     return this.leaderboardService.getTopByDistance(limitNum);
   }
 
+  @Get('cells/me')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Current user rank by cells owned' })
+  async getMyCellsRank(@Request() req: { user: { id: string } }) {
+    return this.leaderboardService.getMyRank(req.user.id, 'cells');
+  }
+
+  @Get('influence/me')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Current user rank by influence' })
+  async getMyInfluenceRank(@Request() req: { user: { id: string } }) {
+    return this.leaderboardService.getMyRank(req.user.id, 'influence');
+  }
+
+  @Get('distance/me')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Current user rank by distance' })
+  async getMyDistanceRank(@Request() req: { user: { id: string } }) {
+    return this.leaderboardService.getMyRank(req.user.id, 'distance');
+  }
+
   @Get('regional')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Regional leaderboard within radius of home base' })

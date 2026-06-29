@@ -8,6 +8,7 @@ import { useActivityStatusPoll, type ActivityStatusResult } from '../hooks/useAc
 import { healthSync, formatHealthSyncMessage, runHealthSyncImport } from '../services/health-sync.service';
 import { useAuth } from '../context/AuthContext';
 import { savePostRunQueue, type PostRunQueue } from '../utils/post-run-queue';
+import { ACTIVITIES_PAGE_SIZE } from '../constants/pagination';
 
 const RUN_PREVIEW_KEY = 'territory-run-run-preview';
 
@@ -93,8 +94,6 @@ export default function ActivitiesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const samsungZipInputRef = useRef<HTMLInputElement>(null);
 
-  const PAGE_SIZE = 100;
-
   const loadActivities = useCallback(async () => {
     let page = 1;
     let allItems: ActivityItem[] = [];
@@ -106,7 +105,7 @@ export default function ActivitiesPage() {
         total: number;
         page: number;
         totalPages: number;
-      }>(`/activities?page=${page}&limit=${PAGE_SIZE}`);
+      }>(`/activities?page=${page}&limit=${ACTIVITIES_PAGE_SIZE}`);
 
       total = response.total;
       allItems = [...allItems, ...response.items];

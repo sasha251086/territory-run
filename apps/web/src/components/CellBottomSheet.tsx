@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import CellPopupContent from './CellPopup';
 import type { MapCell } from '../api/types';
 
@@ -9,6 +9,8 @@ export default function CellBottomSheet({
   cell: MapCell | null;
   onClose: () => void;
 }) {
+  const touchStartY = useRef(0);
+
   useEffect(() => {
     if (!cell) {
       return;
@@ -37,6 +39,15 @@ export default function CellBottomSheet({
         role="dialog"
         aria-label="Информация о клетке"
         onClick={(event) => event.stopPropagation()}
+        onTouchStart={(e) => {
+          touchStartY.current = e.touches[0].clientY;
+        }}
+        onTouchEnd={(e) => {
+          const delta = e.changedTouches[0].clientY - touchStartY.current;
+          if (delta > 60) {
+            onClose();
+          }
+        }}
       >
         <div className="bottom-sheet-handle" aria-hidden="true" />
         <CellPopupContent cell={cell} />

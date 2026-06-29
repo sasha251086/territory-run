@@ -14,6 +14,7 @@ export type AnticheatFailureReason =
   | 'SPEED_EXCEEDED'
   | 'GPS_ANOMALY'
   | 'DISTANCE_MISMATCH'
+  | 'DISTANCE_UNDERREPORTED'
   | 'DISTANCE_TOO_SHORT';
 
 export type AnticheatResult =
@@ -80,7 +81,7 @@ export class AnticheatService {
   validateClaimedDistance(
     actualDistanceMeters: number,
     claimedDistanceMeters: number,
-    tolerance = 0.2,
+    tolerance = 0.1,
   ): AnticheatResult {
     if (claimedDistanceMeters <= 0 || actualDistanceMeters <= 0) {
       return { valid: true };
@@ -89,6 +90,13 @@ export class AnticheatService {
     const maxAllowed = actualDistanceMeters * (1 + tolerance);
     if (claimedDistanceMeters > maxAllowed) {
       return { valid: false, reason: 'DISTANCE_MISMATCH' };
+    }
+
+    if (
+      actualDistanceMeters > 500 &&
+      claimedDistanceMeters < actualDistanceMeters * 0.5
+    ) {
+      return { valid: false, reason: 'DISTANCE_UNDERREPORTED' };
     }
 
     return { valid: true };

@@ -10,6 +10,7 @@ import './paper-atlas-phase3.css';
 import './paper-atlas-polish.css';
 import './map-immersive.css';
 import './game-hud.css';
+import './page-polish.css';
 
 applyPaperAtlasTheme();
 

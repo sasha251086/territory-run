@@ -93,7 +93,15 @@ export default function ActivityCard({
         <strong>{formatDistance(item.distanceMeters)}</strong>
         <span>{formatDate(item.startedAt)}</span>
         {item.status === 'processing' && (
-          <span className="muted small">Обработка…</span>
+          <>
+            <span className="muted small">Обработка…</span>
+            <div className="activity-processing-bar" aria-label="Обработка пробежки">
+              <div className="activity-processing-bar__fill" />
+            </div>
+            <span className="activity-processing-bar__label">
+              Считаем клетки… обычно &lt;30 сек
+            </span>
+          </>
         )}
         {item.status === 'failed' && (
           <span className="muted small">{formatAnticheatMessage(item.failureReason)}</span>

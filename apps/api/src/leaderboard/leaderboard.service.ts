@@ -153,6 +153,56 @@ export class LeaderboardService {
     return formatted;
   }
 
+  async getMyRank(
+    userId: string,
+    metric: RegionalLeaderboardMetric,
+  ): Promise<{ rank: number; value: number; nickname: string; cellsOwned: number } | null> {
+    const stats = await this.prisma.userStats.findUnique({
+      where: { userId },
+      include: { user: { select: { nickname: true } } },
+    });
+    if (!stats) {
+      return null;
+    }
+
+    let value: number;
+    if (metric === 'influence') {
+      value = stats.totalInfluence;
+      const higher = await this.prisma.userStats.count({
+        where: { totalInfluence: { gt: value } },
+      });
+      return {
+        rank: higher + 1,
+        value,
+        nickname: stats.user.nickname,
+        cellsOwned: stats.cellsOwned,
+      };
+    }
+    if (metric === 'distance') {
+      value = Number(stats.totalDistance);
+      const higher = await this.prisma.userStats.count({
+        where: { totalDistance: { gt: value } },
+      });
+      return {
+        rank: higher + 1,
+        value,
+        nickname: stats.user.nickname,
+        cellsOwned: stats.cellsOwned,
+      };
+    }
+
+    value = stats.cellsOwned;
+    const higher = await this.prisma.userStats.count({
+      where: { cellsOwned: { gt: value } },
+    });
+    return {
+      rank: higher + 1,
+      value,
+      nickname: stats.user.nickname,
+      cellsOwned: stats.cellsOwned,
+    };
+  }
+
   async getRegionalLeaderboard(
     userId: string,
     radiusKm: number = REGIONAL_DEFAULT_RADIUS_KM,

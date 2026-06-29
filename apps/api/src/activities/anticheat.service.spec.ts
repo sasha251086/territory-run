@@ -53,12 +53,17 @@ describe('AnticheatService', () => {
   });
 
   it('should reject inflated claimed distance', () => {
-    const result = service.validateClaimedDistance(1000, 1500, 0.2);
+    const result = service.validateClaimedDistance(1000, 1200, 0.1);
     expect(result).toEqual({ valid: false, reason: 'DISTANCE_MISMATCH' });
   });
 
   it('should accept claimed distance within tolerance', () => {
-    const result = service.validateClaimedDistance(1000, 1150, 0.2);
+    const result = service.validateClaimedDistance(1000, 1080, 0.1);
     expect(result).toEqual({ valid: true });
+  });
+
+  it('should reject severely underreported distance on long tracks', () => {
+    const result = service.validateClaimedDistance(2000, 800, 0.1);
+    expect(result).toEqual({ valid: false, reason: 'DISTANCE_UNDERREPORTED' });
   });
 });
