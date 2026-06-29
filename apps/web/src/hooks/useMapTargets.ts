@@ -5,11 +5,14 @@ import type { CaptureTarget } from '../api/types';
 
 type UserHome = { homeLat?: number | null; homeLng?: number | null } | null | undefined;
 
+import type { FlyMode } from '../hooks/useMapFocus';
+
 type FocusActions = {
   dismissActivityFocus: () => void;
   dismissSiegeFocus: () => void;
   setTerritoryHighlight: (value: boolean) => void;
-  queueFly: (mode: 'targets', points?: LatLngExpression[]) => void;
+  queueFly: (mode: FlyMode, points?: LatLngExpression[]) => void;
+  setError: (message: string | null) => void;
 };
 
 export function useMapTargets(
@@ -40,6 +43,7 @@ export function useMapTargets(
 
   const handleFindTargets = useCallback(async () => {
     setFindingTargets(true);
+    focusActions.setError(null);
     try {
       let lat = user?.homeLat;
       let lng = user?.homeLng;
@@ -72,11 +76,15 @@ export function useMapTargets(
         );
       } else {
         setTargetsHighlight(false);
+        focusActions.setError('Рядом нет клеток для захвата — пробегитесь по новому маршруту.');
       }
-    } catch {
-      setTargets([]);
+    } catch (err) {
       setTargetsHighlight(false);
+      setTargets([]);
       setTargetsMessage(null);
+      focusActions.setError(
+        err instanceof Error ? err.message : 'Не удалось найти цели. Укажите домашнюю базу на карте.',
+      );
     } finally {
       setFindingTargets(false);
     }

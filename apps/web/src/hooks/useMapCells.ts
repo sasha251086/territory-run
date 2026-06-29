@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LatLngBounds } from 'leaflet';
 import L from 'leaflet';
+import { cellToLatLng } from 'h3-js';
 import { apiRequest } from '../api/client';
 import type { MapCell, RivalCell } from '../api/types';
 import { isStaleCell } from '../utils/map-cell-visual';
@@ -47,8 +48,6 @@ function expandBounds(bounds: LatLngBounds, paddingRatio = 0.4): LatLngBounds {
   return L.latLngBounds([south - latPad, west - lngPad], [north + latPad, east + lngPad]);
 }
 
-import { cellToLatLng } from 'h3-js';
-
 function cellCenter(cell: MapCell): [number, number] {
   if (cell.lat != null && cell.lng != null) {
     return [cell.lat, cell.lng];
@@ -79,7 +78,8 @@ function pruneCellsAwayFromBounds(
   });
 }
 
-export function useMapCells(userId: string | undefined, showStaleOnly: boolean) {
+export function useMapCells(userId: string | undefined, cellsOwned?: number) {
+  const [showStaleOnly, setShowStaleOnly] = useState(false);
   const [nearbyCells, setNearbyCells] = useState<MapCell[]>([]);
   const [myCells, setMyCells] = useState<MapCell[]>([]);
   const [rivalCells, setRivalCells] = useState<RivalCell[]>([]);
@@ -182,7 +182,7 @@ export function useMapCells(userId: string | undefined, showStaleOnly: boolean) 
   useEffect(() => {
     void loadMyCells();
     void loadRivalCells();
-  }, [loadMyCells, loadRivalCells, userId]);
+  }, [loadMyCells, loadRivalCells, userId, cellsOwned]);
 
   useEffect(() => {
     return () => {
@@ -222,5 +222,8 @@ export function useMapCells(userId: string | undefined, showStaleOnly: boolean) 
     queueNearbyCellsLoad,
     handleMapInstance,
     setMyCells,
+    setError,
+    showStaleOnly,
+    setShowStaleOnly,
   };
 }

@@ -16,12 +16,10 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { apiRequest } from '../api/client';
 import type {
-  CaptureTarget,
   DistrictListItem,
   DistrictProgress,
   MapCell,
   MapSummary,
-  RivalCell,
 } from '../api/types';
 import CellBottomSheet from '../components/CellBottomSheet';
 import DistrictMapPopup from '../components/DistrictMapPopup';
@@ -41,6 +39,9 @@ import { resolveWeeklyReport } from '../utils/weekly-report';
 import { enrichMapSummary } from '../utils/map-summary-enrich';
 import { streakDisplay } from '../utils/streak-display';
 import { useActiveSiege } from '../hooks/useActiveSiege';
+import { useMapCells } from '../hooks/useMapCells';
+import { ACTIVITY_FOCUS_GRACE_MS, useMapFocus, type FlyRequest } from '../hooks/useMapFocus';
+import { useMapTargets } from '../hooks/useMapTargets';
 import { districtPolygonsForMap } from '../utils/district-geo';
 import { HOME_ZONE_RADIUS_M, SOFT_CAP_CELLS, streakMultiplier } from '../constants/game';
 import { cellsWord } from '../utils/cell-lifespan';
@@ -52,7 +53,6 @@ import {
   type PostRunQueue,
 } from '../utils/post-run-queue';
 import {
-  isStaleCell,
   MAP_OWN_FILL,
   MAP_OWN_STROKE,
   MAP_RIVAL_FILL,
@@ -66,49 +66,6 @@ import { ACTIVITY_FOCUS_KEY } from '../utils/activity-map-focus';
 
 const RUN_PREVIEW_KEY = 'territory-run-run-preview';
 const MAP_GUIDE_KEY = 'territory-run-map-guide-seen';
-const ACTIVITY_FOCUS_GRACE_MS = 700;
-
-function boundsToQuery(bounds: LatLngBounds) {
-  return new URLSearchParams({
-    north: bounds.getNorth().toFixed(6),
-    south: bounds.getSouth().toFixed(6),
-    east: bounds.getEast().toFixed(6),
-    west: bounds.getWest().toFixed(6),
-    limit: '500',
-  });
-}
-
-function expandBounds(bounds: LatLngBounds, paddingRatio = 0.4): LatLngBounds {
-  const north = bounds.getNorth();
-  const south = bounds.getSouth();
-  const east = bounds.getEast();
-  const west = bounds.getWest();
-  const latPad = (north - south) * paddingRatio;
-  const lngPad = (east - west) * paddingRatio;
-  return L.latLngBounds([south - latPad, west - lngPad], [north + latPad, east + lngPad]);
-}
-
-function pruneCellsAwayFromBounds(
-  cells: MapCell[],
-  bounds: LatLngBounds,
-  paddingRatio = 0.65,
-): MapCell[] {
-  const north = bounds.getNorth();
-  const south = bounds.getSouth();
-  const east = bounds.getEast();
-  const west = bounds.getWest();
-  const latPad = (north - south) * paddingRatio;
-  const lngPad = (east - west) * paddingRatio;
-  const minLat = south - latPad;
-  const maxLat = north + latPad;
-  const minLng = west - lngPad;
-  const maxLng = east + lngPad;
-
-  return cells.filter((cell) => {
-    const [lat, lng] = cellCenter(cell);
-    return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
-  });
-}
 
 function MapEvents({ onMove }: { onMove: (bounds: LatLngBounds) => void }) {
   const map = useMapEvents({
@@ -117,14 +74,6 @@ function MapEvents({ onMove }: { onMove: (bounds: LatLngBounds) => void }) {
   });
   return null;
 }
-
-type FlyMode = 'home' | 'territory' | 'targets';
-
-type FlyRequest = {
-  mode: FlyMode;
-  trigger: number;
-  points?: LatLngExpression[];
-};
 
 function cellCenter(cell: MapCell): [number, number] {
   if (cell.lat != null && cell.lng != null) {
@@ -288,28 +237,6 @@ function cellBoundary(h3Index: string): [number, number][] {
   return cellToBoundary(h3Index).map(([lat, lng]) => [lat, lng] as [number, number]);
 }
 
-function mergeCells(base: MapCell[], overlay: MapCell[]) {
-  const byId = new Map<string, MapCell>();
-  for (const cell of base) {
-    byId.set(cell.h3Index, cell);
-  }
-  for (const cell of overlay) {
-    const existing = byId.get(cell.h3Index);
-    if (!existing) {
-      byId.set(cell.h3Index, cell);
-      continue;
-    }
-    byId.set(cell.h3Index, {
-      ...existing,
-      ...cell,
-      contested: Boolean(existing.contested || cell.contested),
-      contestGap: cell.contestGap ?? existing.contestGap,
-      challengerNickname: cell.challengerNickname ?? existing.challengerNickname,
-    });
-  }
-  return Array.from(byId.values());
-}
-
 export default function MapPage() {
   const { user, refreshProfile } = useAuth();
   const location = useLocation();
@@ -321,102 +248,134 @@ export default function MapPage() {
     challengerNickname: siegeChallengerNickname,
   } = useActiveSiege(user?.id);
   const [searchParams, setSearchParams] = useSearchParams();
-  const [nearbyCells, setNearbyCells] = useState<MapCell[]>([]);
-  const [myCells, setMyCells] = useState<MapCell[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [initialLoadDone, setInitialLoadDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const cells = useMapCells(user?.id, user?.stats?.cellsOwned);
+  const {
+    nearbyCells,
+    myCells,
+    visibleCells,
+    visibleH3,
+    rivalH3,
+    loading,
+    refreshing,
+    initialLoadDone,
+    error,
+    setError,
+    loadMyCells,
+    queueNearbyCellsLoad,
+    handleMapInstance,
+    showStaleOnly,
+    setShowStaleOnly,
+  } = cells;
+
   const [selectedCell, setSelectedCell] = useState<MapCell | null>(null);
-  const [flyRequest, setFlyRequest] = useState<FlyRequest | null>(null);
-  const [territoryHighlight, setTerritoryHighlight] = useState(false);
   const [summary, setSummary] = useState<MapSummary | null>(null);
-  const [targets, setTargets] = useState<CaptureTarget[]>([]);
-  const [targetsHighlight, setTargetsHighlight] = useState(false);
-  const [targetsMessage, setTargetsMessage] = useState<string | null>(null);
-  const [findingTargets, setFindingTargets] = useState(false);
-  const [rivalCells, setRivalCells] = useState<RivalCell[]>([]);
-  const [previewFlash, setPreviewFlash] = useState(false);
-  const [previewMessage, setPreviewMessage] = useState<string | null>(null);
-  const initialCellsLoadRef = useRef(false);
-  const initialLoadDoneRef = useRef(false);
-  const fetchControllerRef = useRef<AbortController | null>(null);
-  const fetchFrameRef = useRef<number | null>(null);
   const [districts, setDistricts] = useState<DistrictListItem[]>([]);
   const [selectedDistrict, setSelectedDistrict] = useState<DistrictProgress | null>(null);
   const [mapZoom, setMapZoom] = useState(13);
-  const [showStaleOnly, setShowStaleOnly] = useState(false);
   const [showMapGuide, setShowMapGuide] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
   const [showPostRunTutorial, setShowPostRunTutorial] = useState(false);
   const [showPostRunFirstCapture, setShowPostRunFirstCapture] = useState(false);
   const [postRunCaptureCells, setPostRunCaptureCells] = useState(0);
   const [showNewcomerGuide, setShowNewcomerGuide] = useState(false);
-  const [siegeFocusActive, setSiegeFocusActive] = useState(false);
-  const [activityFocusH3, setActivityFocusH3] = useState<Set<string>>(() => new Set());
-  const [activityFocusActive, setActivityFocusActive] = useState(false);
   const postRunQueueRef = useRef<PostRunQueue | null>(null);
-  const flyTriggerRef = useRef(0);
-  const activityFocusGraceUntilRef = useRef(0);
 
-  const queueFly = useCallback((mode: FlyMode, points?: LatLngExpression[]) => {
-    flyTriggerRef.current += 1;
-    setFlyRequest({ mode, trigger: flyTriggerRef.current, points });
+  const siegeThreatH3 = useMemo(() => {
+    const set = new Set<string>();
+    for (const cell of myCells) {
+      if (cell.ownerId === user?.id && (cell.contested || cell.challengerNickname)) {
+        set.add(cell.h3Index);
+      }
+    }
+    if (siegeH3Index) {
+      set.add(siegeH3Index);
+    }
+    return set;
+  }, [myCells, siegeH3Index, user?.id]);
+
+  const focus = useMapFocus(myCells, user?.id, siegeThreatH3);
+  const {
+    flyRequest,
+    territoryHighlight,
+    setTerritoryHighlight,
+    siegeFocusActive,
+    setSiegeFocusActive,
+    activityFocusH3,
+    activityFocusActive,
+    previewFlash,
+    setPreviewFlash,
+    previewMessage,
+    setPreviewMessage,
+    queueFly,
+    flyHome: flyHomeBase,
+    flyTerritory: flyTerritoryBase,
+    focusStaleCells: focusStaleCellsBase,
+    focusSiegeOnMap: focusSiegeOnMapBase,
+    dismissSiegeFocus,
+    dismissActivityFocus,
+    dismissPreview,
+    armActivityFocus,
+  } = focus;
+
+  const loadSummary = useCallback(async () => {
+    try {
+      const data = await apiRequest<MapSummary>('/map/summary');
+      setSummary(data);
+    } catch {
+      setSummary(null);
+    }
   }, []);
+
+  const focusActions = useMemo(
+    () => ({
+      dismissActivityFocus,
+      dismissSiegeFocus,
+      setTerritoryHighlight,
+      queueFly,
+      setError,
+    }),
+    [dismissActivityFocus, dismissSiegeFocus, setTerritoryHighlight, queueFly, setError],
+  );
+
+  const mapTargets = useMapTargets(user, loadSummary, focusActions);
+  const {
+    targets,
+    targetsHighlight,
+    targetsMessage,
+    findingTargets,
+    targetH3,
+    targetCategoryByH3,
+    handleFindTargets,
+    dismissTargets,
+  } = mapTargets;
 
   const closeCellSheet = useCallback(() => setSelectedCell(null), []);
 
   const flyHome = useCallback(() => {
     setSelectedCell(null);
-    setTerritoryHighlight(false);
-    setTargets([]);
-    setTargetsHighlight(false);
-    setTargetsMessage(null);
-    queueFly('home');
-  }, [queueFly]);
+    dismissTargets();
+    flyHomeBase();
+  }, [dismissTargets, flyHomeBase]);
 
   const flyTerritory = useCallback(() => {
     setSelectedCell(null);
-    setTargets([]);
-    setTargetsHighlight(false);
-    setTargetsMessage(null);
-    setTerritoryHighlight(true);
+    dismissTargets();
     setShowStaleOnly(false);
-    queueFly('territory');
-  }, [queueFly]);
+    flyTerritoryBase();
+  }, [dismissTargets, flyTerritoryBase, setShowStaleOnly]);
 
   const focusStaleCells = useCallback(() => {
     setSelectedCell(null);
-    setTargets([]);
-    setTargetsHighlight(false);
-    setTargetsMessage(null);
+    dismissTargets();
     setShowStaleOnly(true);
-    setTerritoryHighlight(true);
-    const stalePoints = myCells
-      .filter((cell) => isStaleCell(cell, user?.id))
-      .map((cell) => cellCenter(cell) as LatLngExpression);
-    if (stalePoints.length > 0) {
-      queueFly('territory', stalePoints);
-    }
-  }, [myCells, queueFly, user?.id]);
+    focusStaleCellsBase();
+  }, [dismissTargets, focusStaleCellsBase, setShowStaleOnly]);
 
-  const dismissTargets = useCallback(() => {
-    setTargets([]);
-    setTargetsHighlight(false);
-    setTargetsMessage(null);
-  }, []);
-
-  const dismissSiegeFocus = useCallback(() => {
-    setSiegeFocusActive(false);
-  }, []);
-
-  const dismissActivityFocus = useCallback(() => {
-    if (Date.now() < activityFocusGraceUntilRef.current) {
-      return;
-    }
-    setActivityFocusActive(false);
-    setActivityFocusH3(new Set());
-  }, []);
+  const focusSiegeOnMap = useCallback(() => {
+    setSelectedCell(null);
+    setShowStaleOnly(false);
+    focusSiegeOnMapBase(dismissTargets);
+  }, [dismissTargets, focusSiegeOnMapBase, setShowStaleOnly]);
 
   useEffect(() => {
     if (!siegeFocusActive) {
@@ -460,55 +419,6 @@ export default function MapPage() {
     };
   }, [targetsHighlight, dismissTargets]);
 
-  const siegeThreatH3 = useMemo(() => {
-    const set = new Set<string>();
-    for (const cell of myCells) {
-      if (cell.ownerId === user?.id && (cell.contested || cell.challengerNickname)) {
-        set.add(cell.h3Index);
-      }
-    }
-    if (siegeH3Index) {
-      set.add(siegeH3Index);
-    }
-    return set;
-  }, [myCells, siegeH3Index, user?.id]);
-
-  const focusSiegeOnMap = useCallback(() => {
-    dismissTargets();
-    dismissActivityFocus();
-    setTerritoryHighlight(false);
-    setShowStaleOnly(false);
-    setPreviewMessage(null);
-    setPreviewFlash(false);
-    setSelectedCell(null);
-    setSiegeFocusActive(true);
-
-    const points: LatLngExpression[] = [];
-    for (const cell of myCells) {
-      if (siegeThreatH3.has(cell.h3Index)) {
-        points.push(cellCenter(cell) as LatLngExpression);
-      }
-    }
-    if (points.length === 0) {
-      for (const h3Index of siegeThreatH3) {
-        try {
-          const [lat, lng] = cellToLatLng(h3Index);
-          points.push([lat, lng]);
-        } catch {
-          // skip invalid h3
-        }
-      }
-    }
-    if (points.length > 0) {
-      queueFly('targets', points);
-    }
-  }, [dismissTargets, dismissActivityFocus, myCells, queueFly, siegeThreatH3]);
-
-  const dismissPreview = useCallback(() => {
-    setPreviewMessage(null);
-    setPreviewFlash(false);
-  }, []);
-
   const dismissMapOverlay = useCallback(() => {
     if (previewMessage) {
       dismissPreview();
@@ -545,38 +455,10 @@ export default function MapPage() {
     return [56.9496, 24.1052];
   }, [user?.homeLat, user?.homeLng]);
 
-  const loadMyCells = useCallback(async () => {
-    try {
-      const data = await apiRequest<{ cells: MapCell[] }>('/map/cells/mine');
-      setMyCells(data.cells);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось загрузить ваши клетки');
-    }
-  }, []);
-
-  const loadSummary = useCallback(async () => {
-    try {
-      const data = await apiRequest<MapSummary>('/map/summary');
-      setSummary(data);
-    } catch {
-      setSummary(null);
-    }
-  }, []);
-
-  const loadRivalCells = useCallback(async () => {
-    try {
-      const data = await apiRequest<{ cells: RivalCell[] }>('/map/rivals/cells');
-      setRivalCells(data.cells);
-    } catch {
-      setRivalCells([]);
-    }
-  }, []);
-
   useEffect(() => {
     void loadMyCells();
     void loadSummary();
-    void loadRivalCells();
-  }, [loadMyCells, loadSummary, loadRivalCells, user?.stats?.cellsOwned]);
+  }, [loadMyCells, loadSummary, user?.stats?.cellsOwned]);
 
   useEffect(() => {
     if (localStorage.getItem(MAP_GUIDE_KEY) === '1') {
@@ -666,83 +548,6 @@ export default function MapPage() {
     void loadDistricts();
   }, [loadDistricts, user?.stats?.cellsOwned]);
 
-  const loadNearbyCells = useCallback(async (bounds: LatLngBounds) => {
-    fetchControllerRef.current?.abort();
-    const controller = new AbortController();
-    fetchControllerRef.current = controller;
-
-    const isFirstLoad = !initialLoadDoneRef.current;
-    if (isFirstLoad) {
-      setLoading(true);
-    } else {
-      setRefreshing(true);
-    }
-    setError(null);
-
-    try {
-      const query = boundsToQuery(expandBounds(bounds));
-      const data = await apiRequest<{ cells: MapCell[] }>(`/map/cells?${query.toString()}`, {
-        signal: controller.signal,
-      });
-      if (controller.signal.aborted) {
-        return;
-      }
-
-      setNearbyCells((prev) => {
-        const merged = mergeCells(prev, data.cells);
-        return pruneCellsAwayFromBounds(merged, bounds);
-      });
-    } catch (err) {
-      if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
-        return;
-      }
-      setError(err instanceof Error ? err.message : 'Не удалось загрузить карту');
-    } finally {
-      if (controller.signal.aborted) {
-        return;
-      }
-      initialLoadDoneRef.current = true;
-      setInitialLoadDone(true);
-      setLoading(false);
-      setRefreshing(false);
-      if (fetchControllerRef.current === controller) {
-        fetchControllerRef.current = null;
-      }
-    }
-  }, []);
-
-  const queueNearbyCellsLoad = useCallback(
-    (bounds: LatLngBounds) => {
-      if (fetchFrameRef.current != null) {
-        cancelAnimationFrame(fetchFrameRef.current);
-      }
-      fetchFrameRef.current = requestAnimationFrame(() => {
-        fetchFrameRef.current = null;
-        void loadNearbyCells(bounds);
-      });
-    },
-    [loadNearbyCells],
-  );
-
-  const handleMapInstance = useCallback(
-    (map: L.Map) => {
-      if (!initialCellsLoadRef.current) {
-        initialCellsLoadRef.current = true;
-        void loadNearbyCells(map.getBounds());
-      }
-    },
-    [loadNearbyCells],
-  );
-
-  useEffect(() => {
-    return () => {
-      fetchControllerRef.current?.abort();
-      if (fetchFrameRef.current != null) {
-        cancelAnimationFrame(fetchFrameRef.current);
-      }
-    };
-  }, []);
-
   useEffect(() => {
     const isPreview = searchParams.get('preview') === '1';
     const raw = sessionStorage.getItem(RUN_PREVIEW_KEY);
@@ -792,15 +597,11 @@ export default function MapPage() {
         } satisfies MapCell);
       setSelectedCell(cell);
       setSiegeFocusActive(false);
-      setFlyRequest({
-        mode: 'targets',
-        trigger: ++flyTriggerRef.current,
-        points: [[lat, lng]],
-      });
+      queueFly('targets', [[lat, lng]]);
     } catch {
       // invalid h3 index in URL
     }
-  }, [searchParams, setSearchParams, nearbyCells, myCells]);
+  }, [searchParams, setSearchParams, nearbyCells, myCells, setSiegeFocusActive, queueFly]);
 
   useEffect(() => {
     if (searchParams.get('focus') !== 'siege') {
@@ -839,11 +640,7 @@ export default function MapPage() {
 
         const h3List = h3IndicesFromRoute(activity.route, activity.h3Indices);
         const h3Set = new Set(h3List);
-        setActivityFocusH3(h3Set);
-        setActivityFocusActive(h3Set.size > 0);
-        if (h3Set.size > 0) {
-          activityFocusGraceUntilRef.current = Date.now() + ACTIVITY_FOCUS_GRACE_MS;
-        }
+        armActivityFocus(h3Set);
 
         const points: LatLngExpression[] = [];
         for (const h3Index of h3Set) {
@@ -862,11 +659,7 @@ export default function MapPage() {
           );
         }
         if (points.length > 0) {
-          setFlyRequest({
-            mode: 'targets',
-            trigger: ++flyTriggerRef.current,
-            points,
-          });
+          queueFly('targets', points);
         }
         setSearchParams({}, { replace: true });
       })
@@ -879,7 +672,17 @@ export default function MapPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, setSearchParams, dismissTargets, dismissSiegeFocus]);
+  }, [
+    searchParams,
+    setSearchParams,
+    dismissTargets,
+    dismissSiegeFocus,
+    setTerritoryHighlight,
+    setPreviewMessage,
+    setPreviewFlash,
+    armActivityFocus,
+    queueFly,
+  ]);
 
   useEffect(() => {
     if (!previewMessage) {
@@ -888,30 +691,6 @@ export default function MapPage() {
     const timer = window.setTimeout(() => dismissPreview(), 8000);
     return () => window.clearTimeout(timer);
   }, [previewMessage, dismissPreview]);
-
-  const displayCells = useMemo(
-    () => mergeCells(nearbyCells, myCells),
-    [myCells, nearbyCells],
-  );
-
-  const visibleCells = useMemo(() => {
-    if (!showStaleOnly) {
-      return displayCells;
-    }
-    return displayCells.filter((cell) => isStaleCell(cell, user?.id));
-  }, [displayCells, showStaleOnly, user?.id]);
-
-  const visibleH3 = useMemo(() => new Set(visibleCells.map((cell) => cell.h3Index)), [visibleCells]);
-
-  const rivalH3 = useMemo(() => new Set(rivalCells.map((c) => c.h3Index)), [rivalCells]);
-  const targetH3 = useMemo(() => new Set(targets.map((t) => t.h3Index)), [targets]);
-  const targetCategoryByH3 = useMemo(() => {
-    const map = new Map<string, CaptureTarget['category']>();
-    for (const target of targets) {
-      map.set(target.h3Index, target.category);
-    }
-    return map;
-  }, [targets]);
 
   const territoryPoints = useMemo(
     () => myCells.map((cell) => cellCenter(cell) as LatLngExpression),
@@ -924,56 +703,6 @@ export default function MapPage() {
     }
     return null;
   }, [user?.homeLat, user?.homeLng]);
-
-  async function handleFindTargets() {
-    setFindingTargets(true);
-    setError(null);
-    try {
-      let lat = user?.homeLat;
-      let lng = user?.homeLng;
-
-      if (lat == null || lng == null) {
-        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true,
-            timeout: 10000,
-          });
-        });
-        lat = position.coords.latitude;
-        lng = position.coords.longitude;
-      }
-
-      const data = await apiRequest<{ targets: CaptureTarget[]; message: string }>(
-        `/map/targets?lat=${lat}&lng=${lng}`,
-      );
-      setTargets(data.targets);
-      setTargetsMessage(data.message);
-      setTerritoryHighlight(false);
-      setSiegeFocusActive(false);
-      dismissActivityFocus();
-      if (data.targets.length > 0) {
-        setTargetsHighlight(true);
-        void loadSummary();
-        queueFly(
-          'targets',
-          data.targets.map((t) => [t.lat, t.lng] as LatLngExpression),
-        );
-      } else {
-        setTargetsHighlight(false);
-        setTargetsMessage(null);
-        setError('Рядом нет клеток для захвата — пробегитесь по новому маршруту.');
-      }
-    } catch (err) {
-      setTargetsHighlight(false);
-      setTargets([]);
-      setTargetsMessage(null);
-      setError(
-        err instanceof Error ? err.message : 'Не удалось найти цели. Укажите домашнюю базу на карте.',
-      );
-    } finally {
-      setFindingTargets(false);
-    }
-  }
 
   async function openDistrictProgress(districtId: string) {
     try {

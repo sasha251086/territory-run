@@ -34,7 +34,6 @@ export function useMapFocus(
   const [activityFocusActive, setActivityFocusActive] = useState(false);
   const [previewFlash, setPreviewFlash] = useState(false);
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
-  const [showStaleOnly, setShowStaleOnly] = useState(false);
 
   const flyTriggerRef = useRef(0);
   const activityFocusGraceUntilRef = useRef(0);
@@ -51,12 +50,10 @@ export function useMapFocus(
 
   const flyTerritory = useCallback(() => {
     setTerritoryHighlight(true);
-    setShowStaleOnly(false);
     queueFly('territory');
   }, [queueFly]);
 
   const focusStaleCells = useCallback(() => {
-    setShowStaleOnly(true);
     setTerritoryHighlight(true);
     const stalePoints = myCells
       .filter((cell) => isStaleCell(cell, userId))
@@ -88,7 +85,6 @@ export function useMapFocus(
       dismissTargets();
       dismissActivityFocus();
       setTerritoryHighlight(false);
-      setShowStaleOnly(false);
       setPreviewMessage(null);
       setPreviewFlash(false);
       setSiegeFocusActive(true);
@@ -137,8 +133,6 @@ export function useMapFocus(
     setPreviewFlash,
     previewMessage,
     setPreviewMessage,
-    showStaleOnly,
-    setShowStaleOnly,
     queueFly,
     flyHome,
     flyTerritory,
